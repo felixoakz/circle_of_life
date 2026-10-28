@@ -1,0 +1,25 @@
+# Production-like local run: the same image Coolify builds, with ./data
+# (tree.db, cache.db) mounted at /data.
+#
+#   cp .env.example .env     # optional: SPECIES_CONTACT, SPECIES_PUBLIC_URL, PORT
+#   docker compose up --build
+#   open http://localhost:3000
+#
+# Coolify does not use this file; it builds the Dockerfile (README "Deploy").
+services:
+  species:
+    build: .
+    image: species
+    ports:
+      - "${PORT:-3000}:3000"
+    # Run as the owner of ./data so the server can write cache.db there (the
+    # image's own user, uid 10001, owns /data only in a named volume).
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./data:/data
+    environment:
+      # The container's paths and port are fixed; only these come from .env.
+      SPECIES_CONTACT: ${SPECIES_CONTACT:-}
+      SPECIES_PUBLIC_URL: ${SPECIES_PUBLIC_URL:-}
+      RUST_LOG: ${RUST_LOG:-info}
+    restart: unless-stopped
