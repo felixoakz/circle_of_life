@@ -1,0 +1,15 @@
+# Rust
+/target/
+
+# Data: raw downloads and built databases (see docs/data-sources.md)
+/data/
+
+# Frontend
+/web/node_modules/
+/web/dist/
+
+# Visual QA output
+/screens/
+
+# Local settings
+.env
