@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="A zoomable radial tree of the 2.3 million species in the Open Tree of Life."
+    />
+    <title>Circle of Life</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <!-- The tree (WebGL2) and the label overlay (Canvas2D) fill the window. -->
+    <canvas id="tree" class="stage" role="img" aria-label="Radial tree of all species"></canvas>
+    <canvas id="overlay" class="stage" aria-hidden="true"></canvas>
+
+    <!-- HUD regions, laid out per DESIGN.md §4.1. Filled by ui/hud.ts (P7) and ui/search.ts (P9). -->
+    <header class="hud hud-top">
+      <h1 id="wordmark" class="wordmark">Circle of Life</h1>
+      <div id="search-slot" class="search-slot"></div>
+    </header>
+
+    <footer class="hud hud-bottom">
+      <div class="hud-status">
+        <nav class="breadcrumb" aria-label="Lineage at the centre of the view"></nav>
+        <p class="readout"></p>
+      </div>
+      <div class="hud-controls">
+        <div class="zoom-controls" role="group" aria-label="Zoom"></div>
+        <ul class="kingdom-key" aria-label="Kingdoms"></ul>
+      </div>
+    </footer>
+
+    <!-- Node details (P8 core, P10 about): ui/panel.ts. -->
+    <aside id="panel" class="panel" hidden></aside>
+
+    <!-- Screen-reader announcements of selection changes (P8). -->
+    <div id="announcer" class="visually-hidden" aria-live="polite"></div>
+  </body>
+</html>

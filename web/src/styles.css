@@ -1,0 +1,1405 @@
+/*
+ * Design tokens and base typography, copied from docs/DESIGN.md (§2, §3).
+ * DESIGN.md is the source of truth: change it there first, then here.
+ * The DOM chrome is achromatic; kingdom hues appear only as 6px swatches
+ * and 2px rules (DESIGN.md §2.2).
+ */
+
+:root {
+  /* Neutrals (DESIGN.md §2.1) */
+  --bg: oklch(0 0 0);
+  --surface: oklch(0.16 0 0);
+  --surface-2: oklch(0.2 0 0);
+  --hairline: oklch(1 0 0 / 0.1);
+  --hairline-solid: oklch(0.27 0 0);
+  --text-1: oklch(0.93 0.005 90);
+  --text-2: oklch(0.7 0 0);
+  --text-3: oklch(0.58 0 0);
+  --focus: oklch(0.93 0.005 90);
+  --danger: oklch(0.7 0.15 25);
+
+  /* Kingdom hues (DESIGN.md §2.2): ramp start / end along each group's arc */
+  --k-animals-start: oklch(0.82 0.13 205);
+  --k-animals-end: oklch(0.7 0.14 258);
+  --k-plants-start: oklch(0.8 0.19 145);
+  --k-plants-end: oklch(0.85 0.17 125);
+  --k-fungi-start: oklch(0.76 0.16 66);
+  --k-fungi-end: oklch(0.86 0.16 95);
+  --k-protists: oklch(0.76 0.15 305);
+  --k-bacteria: oklch(0.6 0.17 275);
+  --k-archaea: oklch(0.66 0.18 345);
+  --k-home: oklch(1 0 0);
+
+  /* Type (DESIGN.md §3) */
+  --font-sans: 'Hanken Grotesk Variable', sans-serif;
+  --font-serif: 'Source Serif 4 Variable', serif;
+  --font-mono: 'Spline Sans Mono', monospace;
+  --fs-11: 11px;
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-22: 22px;
+  --fs-40: 40px;
+  --lh-body: 1.45;
+  --lh-title: 1.15;
+
+  /* Spacing: 8px grid, 16px edge margins (DESIGN.md §4.1) */
+  --space-1: 8px;
+  --space-2: 16px;
+  --edge: 16px;
+  --panel-width: 380px;
+  --radius: 2px;
+
+  /* Motion (DESIGN.md §6) */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  font-weight: 400;
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* Taxon names: italic only for genus, species and infraspecific ranks. */
+.taxon-italic {
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+/* Monospace only for real identifiers (OTT, GBIF, NCBI). */
+.id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visible focus on every interactive element (DESIGN.md §8). */
+:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---- Stage: full-bleed canvases ---- */
+
+.stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#tree {
+  /* Pointer Events drive pan and pinch; keep the browser from scrolling or zooming. */
+  touch-action: none;
+  cursor: grab;
+}
+
+#tree:active {
+  cursor: grabbing;
+}
+
+#overlay {
+  pointer-events: none;
+}
+
+/* ?shot: screenshots never show a cursor. */
+.shot #tree {
+  cursor: none;
+}
+
+/* ---- HUD regions ---- */
+
+/*
+ * HUD text is flat, with no plate of its own: the renderer darkens the tree
+ * behind it with a soft edge (ui/obstacles.ts), so it stays legible over
+ * bright tip bars without boxes cutting the glow.
+ */
+.wordmark,
+.breadcrumb,
+.readout {
+  width: fit-content;
+}
+
+.hud {
+  position: fixed;
+  left: var(--edge);
+  right: var(--edge);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  pointer-events: none;
+  /* Fades in after the intro reveal (DESIGN.md §6). */
+  transition: opacity 200ms linear;
+}
+
+.intro .hud {
+  opacity: 0;
+}
+
+/* Only the HUD's own controls take input; the gaps pass through to the canvas. */
+.hud > * {
+  pointer-events: auto;
+}
+
+.hud-top {
+  top: var(--edge);
+  align-items: flex-start;
+}
+
+.hud-bottom {
+  bottom: var(--edge);
+  align-items: flex-end;
+}
+
+.wordmark {
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: var(--lh-title);
+  color: var(--text-1);
+}
+
+/* While dragging, the chrome steps back (DESIGN.md §4.1). */
+.dragging .hud {
+  opacity: 0.4;
+  transition-duration: 150ms;
+}
+
+/* The status block passes drags through; only its buttons take input. */
+.hud-status {
+  min-width: 0;
+  flex: 1 1 auto;
+  pointer-events: none;
+}
+
+.breadcrumb {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: min(100%, 760px);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--fs-13);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.breadcrumb .crumb {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.breadcrumb .crumb:hover,
+.breadcrumb .crumb.current {
+  color: var(--text-1);
+}
+
+/* Serif italic runs small next to the sans; match its x-height. */
+.breadcrumb .taxon-italic {
+  font-size: 14px;
+}
+
+.breadcrumb .sep {
+  flex: none;
+  padding: 0 6px;
+  color: var(--text-3);
+}
+
+.breadcrumb .ellipsis {
+  flex: none;
+  color: var(--text-3);
+  pointer-events: auto;
+}
+
+.readout {
+  min-height: calc(var(--fs-11) * var(--lh-body));
+  font-size: var(--fs-11);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.ctl {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-2);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.ctl svg {
+  display: block;
+  margin: auto;
+}
+
+.ctl:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.kingdom-key {
+  display: flex;
+  gap: 12px;
+}
+
+.kingdom-key button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-11);
+  line-height: var(--lh-body);
+  cursor: pointer;
+}
+
+.kingdom-key button:hover {
+  color: var(--text-1);
+}
+
+.kingdom-key .swatch {
+  width: 6px;
+  height: 6px;
+  flex: none;
+}
+
+/* Loading: a 1 px hairline at the top, filled as tiles arrive (DESIGN.md §7). */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--text-3);
+  transform-origin: 0 0;
+  transform: scaleX(0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms linear;
+}
+
+.progress.on {
+  opacity: 1;
+}
+
+/* Mobile: the kingdom key moves to the wordmark menu (DESIGN.md §4.3). */
+@media (max-width: 719px) {
+  .kingdom-key,
+  .readout-version {
+    display: none;
+  }
+
+  .ctl {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* ---- Panel (DESIGN.md §4.1, §4.2) ---- */
+
+/*
+ * Desktop: 380 px on the right, between the search trigger and the bottom
+ * controls, opaque, hairline-bordered, square. It slides 8 px and fades in.
+ * The canvas does not resize; the camera leaves room for it (selection.ts).
+ */
+:root {
+  --panel-top: 56px;
+  --panel-bottom: 88px;
+}
+
+.panel {
+  position: fixed;
+  top: var(--panel-top);
+  right: var(--edge);
+  bottom: var(--panel-bottom);
+  width: var(--panel-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  opacity: 0;
+  transform: translateX(8px);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.panel.open {
+  opacity: 1;
+  transform: none;
+}
+
+.intro .panel {
+  opacity: 0;
+}
+
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2);
+}
+
+/* Truthful loading: a hairline under the top edge while the next node loads (DESIGN.md §7). */
+.panel-progress {
+  height: 1px;
+  flex: none;
+  background: var(--text-3);
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.panel-progress.on {
+  opacity: 1;
+}
+
+.panel-head {
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+/* Higher ranks: sans 22/600; genus and below: serif italic 22/600 (DESIGN.md §3). */
+.panel-title {
+  min-width: 0;
+  font-size: var(--fs-22);
+  font-weight: 600;
+  line-height: var(--lh-title);
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.panel-title:focus {
+  outline: none;
+}
+
+.panel-title:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.panel-title .taxon-italic {
+  font-weight: 600;
+}
+
+.panel-close {
+  flex: none;
+  background: var(--surface);
+}
+
+.panel-context {
+  margin-top: 6px;
+  font-size: var(--fs-13);
+  color: var(--text-2);
+}
+
+.panel-mrca:empty {
+  display: none;
+}
+
+/* Text buttons: no chrome, text-2, text-1 on hover (lineage, copy, "show more", retry). */
+.text-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.text-button:hover {
+  color: var(--text-1);
+}
+
+.panel-title .copy {
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: var(--fs-13);
+  font-weight: 400;
+  vertical-align: 0.35em;
+}
+
+/* ---- About section (ui/about.ts; DESIGN.md §4.2, §7) ---- */
+
+.panel-about {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel-about[hidden] {
+  display: none;
+}
+
+/* Truthful loading: a hairline right under the head and what is being asked. */
+.panel-about.loading {
+  padding-top: 0;
+}
+
+.about-loading {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--text-3);
+  margin-top: -1px;
+  color: var(--text-3);
+}
+
+.panel-about a,
+.panel-credit .credits-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.panel-about a:hover,
+.panel-credit .credits-link:hover {
+  text-decoration: underline;
+}
+
+.panel-credit .credits-link {
+  font-size: inherit;
+  color: var(--text-2);
+}
+
+.about-figure {
+  margin: 0 0 12px;
+}
+
+/* 3:2, cover, no radius (DESIGN.md §4.2). Black until it loads: no skeleton. */
+.about-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  object-position: 50% 30%;
+  background: var(--bg);
+}
+
+.about-plate {
+  object-fit: contain;
+  background: var(--text-1);
+}
+
+.about-credit {
+  margin-top: 6px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.about-lead {
+  font-size: var(--fs-15);
+  line-height: var(--lh-body);
+  color: var(--text-1);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.about-label {
+  margin-top: 12px;
+  font-size: var(--fs-13);
+  color: var(--text-2);
+}
+
+.about-borrowed {
+  margin-top: 4px;
+  font-size: var(--fs-13);
+  color: var(--text-1);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.about-figure .about-label {
+  margin: 0 0 6px;
+}
+
+.about-source {
+  margin-top: 6px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.about-status {
+  margin-top: 12px;
+  font-size: var(--fs-13);
+  color: var(--text-1);
+}
+
+.about-status-source {
+  color: var(--text-2);
+}
+
+.about-missing {
+  margin-bottom: 12px;
+  font-size: var(--fs-13);
+  color: var(--text-3);
+}
+
+.about-where .about-missing {
+  margin-bottom: 0;
+}
+
+.about-failed {
+  padding-top: 0;
+  margin-bottom: 12px;
+}
+
+.about-where {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
+}
+
+.about-heading {
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-13);
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+/*
+ * GBIF density over GBIF's dark base map (ui/occmap.ts). The density ramp
+ * (purple → yellow, lightness rising with density) is turned grey, so the
+ * DOM stays achromatic and the densest cells are the brightest.
+ */
+.occmap {
+  position: relative;
+  overflow: hidden;
+  max-width: 100%;
+  background: var(--bg);
+}
+
+.occmap img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+.occmap-density {
+  filter: grayscale(1) brightness(1.7) contrast(1.1);
+}
+
+.about-records {
+  margin-top: var(--space-1);
+  font-size: var(--fs-13);
+  color: var(--text-1);
+}
+
+.about-links a {
+  white-space: nowrap;
+}
+
+.about-countries {
+  margin-top: 4px;
+  font-size: var(--fs-11);
+  color: var(--text-2);
+}
+
+.about-map-credit {
+  margin-top: 4px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.panel-facts {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 10px var(--space-1);
+  margin: 0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--fs-13);
+}
+
+.panel-facts dt {
+  color: var(--text-3);
+}
+
+.panel-facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-1);
+}
+
+.panel-lineage {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+}
+
+.panel-lineage li {
+  display: inline;
+  white-space: nowrap;
+}
+
+/* The separator ends a line rather than starting the next (lines break at the spaces between items). */
+.panel-lineage li:not(:last-child)::after {
+  content: '\00a0\00a0›';
+  padding-right: 2px;
+  color: var(--text-3);
+}
+
+.panel-lineage .text-button {
+  display: inline;
+}
+
+.panel-children {
+  margin: 0 0 0 -6px;
+}
+
+.child-row {
+  display: flex;
+  width: calc(100% + 6px);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.child-row:hover {
+  background: var(--surface-2);
+}
+
+.child-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.child-row .unnamed {
+  color: var(--text-2);
+}
+
+.child-count {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-11);
+}
+
+.panel-children + .more {
+  margin-top: 6px;
+}
+
+.panel-note {
+  margin-top: 6px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.panel-facts a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.panel-facts a:hover {
+  text-decoration: underline;
+}
+
+.panel-facts .id {
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.panel-credit {
+  padding-top: var(--space-2);
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.panel-credit a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.panel-credit a:hover {
+  text-decoration: underline;
+}
+
+.panel-error {
+  padding-top: var(--space-2);
+  color: var(--danger);
+}
+
+.panel-error .text-button {
+  color: var(--text-1);
+  text-decoration: underline;
+}
+
+/* The sheet handle exists only on mobile. */
+.sheet-handle {
+  display: none;
+}
+
+/*
+ * Mobile: a bottom sheet (DESIGN.md §4.3). JS sets --sheet-visible to the
+ * snap height (peek: the title; half: 35%; full: 85%) and --sheet-h on the
+ * root, which lifts the bottom HUD above it.
+ */
+@media (max-width: 719px) {
+  .panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 85dvh;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+    opacity: 1;
+    transform: translateY(100%);
+    transition: transform 220ms var(--ease-out);
+  }
+
+  .panel.open {
+    transform: translateY(calc(100% - var(--sheet-visible, 40%)));
+  }
+
+  .panel.dragging-sheet {
+    transition: none;
+  }
+
+  .sheet-handle {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .sheet-bar {
+    width: 32px;
+    height: 3px;
+    background: var(--hairline-solid);
+  }
+
+  .panel-head {
+    touch-action: none;
+  }
+
+  .panel-body {
+    padding-top: 0;
+  }
+
+  .panel-close {
+    width: 40px;
+    height: 40px;
+  }
+
+  .hud-bottom {
+    bottom: calc(var(--edge) + var(--sheet-h, 0px));
+    transition:
+      bottom 220ms var(--ease-out),
+      opacity 200ms linear;
+  }
+}
+
+/* ---- Search (DESIGN.md §4.1 trigger, §4.4 palette) ---- */
+
+/* The trigger: an opaque field at the top right, text-3, with a "/" hint. */
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: var(--fs-13);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-trigger:hover {
+  color: var(--text-2);
+}
+
+.search-key,
+.search-close-key {
+  min-width: 16px;
+  padding: 1px 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-11);
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* The palette sits over a transparent layer that catches clicks outside it. */
+.search-layer {
+  position: fixed;
+  inset: 0;
+}
+
+.search-layer[hidden] {
+  display: none;
+}
+
+.search-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+/* While the palette is open the renderer dims the tree to 50%, and while
+   hovering to 60% (HOVER_TREE_DIM); the labels follow. */
+#overlay {
+  transition: opacity 150ms linear;
+}
+
+.hovering #overlay {
+  opacity: 0.6;
+}
+
+.searching #overlay {
+  opacity: 0.5;
+}
+
+.search {
+  position: absolute;
+  top: 12vh;
+  left: 50%;
+  width: min(560px, calc(100% - 2 * var(--edge)));
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 12vh - var(--edge));
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.search-layer.open .search {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-15);
+}
+
+.search-input::placeholder {
+  color: var(--text-3);
+  opacity: 1;
+}
+
+/* Focus replacement: the field's hairline brightens (a ring inside the palette would double its border). */
+.search-input:focus-visible {
+  outline: none;
+}
+
+.search-field:focus-within {
+  border-bottom-color: var(--text-3);
+}
+
+.search-close {
+  flex: none;
+  display: flex;
+  padding: 4px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.search-close:hover .search-close-key {
+  color: var(--text-1);
+}
+
+.search-close-word {
+  display: none;
+}
+
+.search-progress {
+  height: 1px;
+  margin-top: -1px;
+  flex: none;
+  background: var(--text-3);
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.search-progress.on {
+  opacity: 1;
+}
+
+.search-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 0;
+}
+
+.search-list[hidden] {
+  display: none;
+}
+
+.search-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 16px 7px 14px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  font-size: var(--fs-13);
+  line-height: 20px;
+}
+
+/* The active row: surface-2 and a 2 px rule in text-1 (DESIGN.md §4.4). */
+.search-row[aria-selected='true'] {
+  background: var(--surface-2);
+  border-left-color: var(--text-1);
+}
+
+.search-row .swatch {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  align-self: center;
+}
+
+.search-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.search-name .taxon-italic {
+  font-size: 14px;
+}
+
+.search-name .match {
+  font-weight: 600;
+}
+
+.search-sep {
+  color: var(--text-3);
+}
+
+/* The language of a common name that is not English: "Onca pt". */
+.search-lang {
+  margin-left: 6px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.search-context {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.search-rank {
+  color: var(--text-2);
+}
+
+.search-message {
+  padding: 14px 16px;
+  color: var(--text-2);
+}
+
+.search-message[hidden] {
+  display: none;
+}
+
+.search-message.error {
+  color: var(--danger);
+}
+
+.search-message .text-button {
+  color: var(--text-1);
+  text-decoration: underline;
+}
+
+/* Mobile: the palette near the top (the keyboard takes the bottom), two-line rows, 40 px targets. */
+@media (max-width: 719px) {
+  .search-trigger {
+    height: 40px;
+  }
+
+  .search-key {
+    display: none;
+  }
+
+  .search {
+    top: var(--edge);
+    max-height: calc(100dvh - 2 * var(--edge));
+  }
+
+  .search-close {
+    height: 40px;
+    align-items: center;
+    padding: 0 4px;
+    color: var(--text-2);
+  }
+
+  .search-close-key {
+    display: none;
+  }
+
+  .search-close-word {
+    display: inline;
+  }
+
+  .search-row {
+    flex-wrap: wrap;
+    row-gap: 0;
+    min-height: 48px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .search-name {
+    flex: 1 1 calc(100% - 16px);
+  }
+
+  /* The context goes under the name, aligned with it. */
+  .search-context {
+    flex: 1 1 100%;
+    padding-left: 16px;
+    text-align: left;
+    line-height: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search,
+  .search-layer.open .search {
+    transform: translate(-50%, 0);
+    transition: opacity 120ms linear;
+  }
+}
+
+/* Reduced motion: the snapshot laid over a cut, fading out (crossfade.ts). */
+.crossfade {
+  pointer-events: none;
+}
+
+/* ---- Hover tooltip (DESIGN.md §8) ---- */
+
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  max-width: 280px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  pointer-events: none;
+  font-size: var(--fs-13);
+  line-height: var(--lh-title);
+}
+
+.tooltip[hidden] {
+  display: none;
+}
+
+.tooltip-name {
+  color: var(--text-1);
+}
+
+.tooltip-rank {
+  margin-top: 3px;
+  color: var(--text-2);
+  font-size: var(--fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+.dragging .tooltip {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panel.open {
+    transition-duration: 120ms;
+    transition-property: opacity;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- ?debug HUD (ids and numbers only, so mono is allowed: DESIGN.md §3) ---- */
+
+.debug-hud {
+  position: fixed;
+  top: 48px;
+  left: var(--edge);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+  pointer-events: none;
+  white-space: pre;
+}
+
+/* ---- Wordmark menu and Data & credits (ui/credits.ts; DESIGN.md §4.1, §7) ---- */
+
+.wordmark-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wordmark-menu {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  min-width: 160px;
+  padding: 4px 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.wordmark-menu[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font-size: var(--fs-13);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--surface-2);
+}
+
+.credits {
+  width: min(560px, calc(100% - 32px));
+  max-height: min(80vh, 720px);
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-1);
+}
+
+.credits[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A flat dim, no blur (DESIGN.md §9). */
+.credits::backdrop {
+  background: oklch(0 0 0 / 0.6);
+}
+
+.credits-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.credits-title {
+  font-size: var(--fs-15);
+  font-weight: 600;
+  line-height: var(--lh-title);
+}
+
+.credits-body {
+  overflow-y: auto;
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--fs-13);
+}
+
+.credits-heading {
+  margin: var(--space-2) 0 4px;
+  font-size: var(--fs-13);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.credits-section p + p {
+  margin-top: 6px;
+}
+
+.credits a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--text-3);
+  text-underline-offset: 2px;
+}
+
+.credits a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ---- No WebGL2 (DESIGN.md §7): a still of the wheel and one sentence ---- */
+
+.no-webgl .stage,
+.no-webgl .hud-bottom {
+  display: none;
+}
+
+.fallback {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 72px var(--edge) var(--edge);
+}
+
+.fallback img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 720px);
+  max-height: calc(100% - 140px);
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.fallback figcaption {
+  max-width: 44ch;
+  font-size: var(--fs-15);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+  text-align: center;
+}

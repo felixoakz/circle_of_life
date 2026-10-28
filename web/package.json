@@ -1,0 +1,27 @@
+{
+  "name": "species-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "shot": "node scripts/shot.ts",
+    "test:e2e": "node scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "playwright": "1.64.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@fontsource-variable/hanken-grotesk": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.1",
+    "@fontsource/spline-sans-mono": "^5.3.0"
+  }
+}
