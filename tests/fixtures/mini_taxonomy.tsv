@@ -1,0 +1,58 @@
+uid	|	parent_uid	|	name	|	rank	|	sourceinfo	|	uniqname	|	flags	|	
+805080	|		|	life	|	no rank	|	silva:0,ncbi:1,gbif:0,irmng:0	|		|		|	
+93302	|	805080	|	cellular organisms	|	no rank	|	ncbi:131567	|		|		|	
+844192	|	93302	|	Bacteria	|	domain	|	silva:A16379/#1,ncbi:2,worms:6,gbif:3,irmng:13,irmng:109739,irmng:109741	|		|		|	
+474506	|	5248878	|	Escherichia coli	|	species	|	silva:GU594300,ncbi:562,worms:422817,gbif:6110934,irmng:10032107	|		|	sibling_higher	|	
+1084928	|	1068896	|	Bacillus subtilis	|	species	|	silva:EF101721,ncbi:1423,worms:422813,gbif:5428098,irmng:10830088	|		|	sibling_higher	|	
+996421	|	93302	|	Archaea	|	domain	|	silva:D37982/#1,ncbi:2157,worms:8,gbif:2,irmng:12	|	Archaea (domain silva:D37982/#1)	|		|	
+1094192	|	517052	|	Haloferax volcanii	|	species	|	silva:DQ915828,ncbi:2246,worms:742980,gbif:1000201,irmng:10411370,irmng:11052808	|		|	unplaced_inherited	|	
+44033	|	252420	|	Methanocaldococcus jannaschii	|	species	|	silva:AB603516,ncbi:2190,worms:573641,gbif:1000159,irmng:10546724	|		|		|	
+98133	|	98116	|	Saccharolobus solfataricus	|	species	|	silva:X90483,ncbi:2287,worms:559460,gbif:1000052,irmng:10844583	|		|	sibling_higher	|	
+304358	|	93302	|	Eukaryota	|	domain	|	silva:D11377/#1,ncbi:2759	|		|		|	
+5246039	|	304358	|	SAR	|	subkingdom	|	silva:E17133/#2,worms:582419	|		|	sibling_higher	|	
+775725	|	775740	|	Phytophthora infestans	|	species	|	ncbi:4787,gbif:3203716,irmng:10873176	|		|	sibling_higher	|	
+201128	|	474842	|	Plasmodium falciparum	|	species	|	ncbi:5833	|	Plasmodium falciparum (species in subkingdom SAR)	|		|	
+878953	|	5268475	|	Rhodophyta	|	phylum	|	silva:L19345/#3,ncbi:2763,worms:852,gbif:106,gbif:8029077,irmng:250	|		|	sibling_higher	|	
+878946	|	878951	|	Chondrus crispus	|	species	|	ncbi:2769,worms:145625,gbif:5279115,irmng:10657395,irmng:11165340	|		|		|	
+726207	|	726205	|	Porphyra umbilicalis	|	species	|	ncbi:2786,worms:144437,gbif:5275705,irmng:10015357	|		|	sibling_higher	|	
+664970	|	5268475	|	Glaucophyta	|	class	|	silva:X70803/#3,ncbi:38254,worms:599656,gbif:37,gbif:335,irmng:164,irmng:1479	|		|	sibling_higher	|	
+801156	|	664970	|	Cyanoptyche	|	genus	|	silva:AJ007275/#4,ncbi:77921,irmng:1088508	|	Cyanoptyche (genus in class Glaucophyta)	|	sibling_higher	|	
+801157	|	801156	|	Cyanoptyche gloeocystis	|	species	|	ncbi:77922,irmng:11851323	|		|		|	
+142556	|	664970	|	Gloeochaetales	|	order	|	ncbi:38262,irmng:12406	|		|		|	
+142557	|	142556	|	Gloeochaetaceae	|	family	|	ncbi:38266,irmng:115749	|		|		|	
+142554	|	142557	|	Gloeochaete	|	genus	|	silva:X81901/#4,ncbi:38268,worms:600828,irmng:1271598	|	Gloeochaete (genus in domain Eukaryota)	|		|	
+142555	|	142554	|	Gloeochaete wittrockiana	|	species	|	ncbi:38269,worms:610828,irmng:10011167	|	Gloeochaete wittrockiana (species in domain Eukaryota)	|		|	
+5386153	|	142554	|	Gloeochaete protogenita	|	species	|	worms:622738,irmng:11747389	|		|		|	
+361838	|	5268475	|	Chloroplastida	|	kingdom	|	silva:D13324/#3,study713:361838,ncbi:33090	|		|		|	
+56610	|	916750	|	Embryophyta	|	no rank	|	ncbi:3193	|		|		|	
+309263	|	309275	|	Arabidopsis thaliana	|	species	|	ncbi:3702,gbif:3052436,irmng:10688058	|		|		|	
+239659	|	791121	|	Quercus robur	|	species	|	ncbi:38942,gbif:2878688,irmng:11400298,irmng:10249585	|		|		|	
+332573	|	304358	|	Opisthokonta	|	no rank	|	silva:D11377/#2,ncbi:33154,irmng:183	|		|		|	
+352914	|	5246132	|	Fungi	|	kingdom	|	silva:D11377/#4,h2007:Fungi,if:90156,ncbi:4751,worms:4,gbif:5,irmng:14	|		|		|	
+356221	|	908546	|	Saccharomyces cerevisiae	|	species	|	ncbi:4932,worms:147593,gbif:2599166,irmng:10384091	|		|		|	
+75257	|	75256	|	Amanita muscaria	|	species	|	if:161267,ncbi:41956,ncbi:188878,ncbi:188876,ncbi:188877,ncbi:1004507,ncbi:235531,gbif:8671098,irmng:10522246	|		|	sibling_higher	|	
+691846	|	5246131	|	Metazoa	|	kingdom	|	silva:D14357/#4,ncbi:33208,worms:2,gbif:1,irmng:11	|		|		|	
+125642	|	147604	|	Chordata	|	phylum	|	ncbi:7711,worms:1821,gbif:44,irmng:148	|		|		|	
+244265	|	229560	|	Mammalia	|	class	|	ncbi:40674,worms:1837,gbif:359,irmng:1310	|		|		|	
+913935	|	6520519	|	Primates	|	no rank	|	ncbi:9443,gbif:798,irmng:11338	|		|		|	
+312031	|	770311	|	Homininae	|	subfamily	|	ncbi:207598	|		|		|	
+417957	|	312031	|	Pan	|	genus	|	ncbi:9596,gbif:2436437,irmng:1392385	|		|	sibling_higher	|	
+417950	|	417957	|	Pan troglodytes	|	species	|	ncbi:9598,gbif:5219534,irmng:11326321	|		|		|	
+158484	|	417957	|	Pan paniscus	|	species	|	ncbi:9597,gbif:5219533,irmng:10419555	|		|		|	
+770309	|	312031	|	Homo	|	genus	|	ncbi:9605,gbif:2436435,irmng:1000957,irmng:1209753,irmng:1160674,irmng:1035772	|		|	extinct_inherited,sibling_higher	|	
+770315	|	770309	|	Homo sapiens	|	species	|	ncbi:9606,gbif:2436436,irmng:11388931,irmng:10857762	|		|	extinct,sibling_higher	|	
+3607671	|	770309	|	Homo erectus	|	no rank	|	gbif:4827564,irmng:10690896,irmng:10031853	|		|	extinct,incertae_sedis,sibling_higher	|	
+81461	|	664351	|	Aves	|	class	|	ncbi:8782,worms:1836,gbif:212,irmng:1142	|		|		|	
+153563	|	153562	|	Gallus gallus	|	species	|	ncbi:9031,gbif:9326020,irmng:11181863	|		|		|	
+745175	|	515158	|	Passer domesticus	|	species	|	ncbi:48849,gbif:5231190,irmng:10582565	|		|		|	
+632179	|	816442	|	Arthropoda	|	phylum	|	ncbi:6656,worms:1065,gbif:54,irmng:235	|		|		|	
+1062253	|	568991	|	Insecta	|	class	|	ncbi:50557,worms:1307,gbif:216,irmng:1096	|		|		|	
+530093	|	117175	|	Urapteritra	|	genus	|	ncbi:676937,gbif:1954089,irmng:1043464	|		|		|	
+530080	|	530093	|	Urapteritra mabillei	|	species	|	ncbi:676938,gbif:1954093,irmng:10433376	|		|		|	
+3066454	|	530093	|	Urapteritra falcifera	|	species	|	ncbi:1912969,gbif:1954091,irmng:10334179	|		|		|	
+3066456	|	530093	|	Urapteritra piperita	|	species	|	gbif:1954090,irmng:10630791	|		|		|	
+3066453	|	530093	|	Urapteritra antsianakariae	|	species	|	gbif:1954092,irmng:10472008	|		|		|	
+3066459	|	530093	|	Urapteritra suavis	|	species	|	gbif:1954094,irmng:10334467	|		|		|	
+3066457	|	530093	|	Urapteritra montana	|	species	|	gbif:1954096,irmng:11134321	|		|		|	
+3066460	|	530093	|	Urapteritra lobularia	|	species	|	gbif:6115085	|		|		|	
+3066455	|	530093	|	Urapteritra antsianakaria	|	species	|	gbif:6115087	|		|		|	
