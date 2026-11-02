@@ -1,5 +1,5 @@
-# Rust
-/target/
+# Go binary (make bin)
+/bin/
 
 # Data: raw downloads and built databases (see docs/data-sources.md)
 /data/
