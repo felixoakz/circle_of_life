@@ -17,9 +17,9 @@ The server is one static Go binary (`cmd/species`, packages under `internal/`) u
 - **`web/`** (TypeScript, Vite, no framework) holds the frontend:
   - **Tree:** a WebGPU renderer with additive glow (raw API, WGSL), and a WebGL2 renderer as the fallback; both execute one shared frame plan (`docs/webgpu.md`).
   - **Labels:** a Canvas2D overlay.
-  - **Interface:** a flat DOM HUD, the search palette and the details panel.
-  - **Navigation:** van Wijk–Nuij fly-to and deep links (`?n=ott770315`).
-  - **Fallback:** without WebGPU or WebGL2 you get a still image, and search and the panel still work.
+  - **Interface:** a flat DOM HUD, the search palette and a fixed card for the selection (there is always one), joined to the node by a leader.
+  - **Navigation:** a locked view (zoom and rotation, no pan; zoom keeps the selection in place), van Wijk–Nuij fly-to and deep links (`?n=ott770315`).
+  - **Fallback:** without WebGPU or WebGL2 you get a still image, and search and the card still work.
 
 `docs/PLAN.md` holds the architecture and phases. `docs/DESIGN.md` is the visual system, and `docs/data-sources.md` lists the sources and licences.
 
@@ -47,7 +47,7 @@ make build                 # web/dist + bin/species
 You do not need the full data for development: `make ingest-mini` builds `data/mini.db` from the test fixtures, and `make server-mini` serves it.
 
 Other tasks (`make help` lists them all):
-- `make smoke`: a Playwright smoke test (headless Chromium, no GPU needed). It builds, starts its own server on :3077 (`SMOKE_PORT`), then loads the app, searches "homo sapiens", and expects the panel to open. It also runs the same check against the fallback page. `SMOKE_WEBGPU=1` requires WebGPU.
+- `make smoke`: a Playwright smoke test (headless Chromium, no GPU needed). It builds, starts its own server on :3077 (`SMOKE_PORT`), then loads the app, searches "panthera onca", and expects the card to show it. It also checks the locked view's zoom, turn and selection, an old pan link, and the fallback page. `SMOKE_WEBGPU=1` requires WebGPU.
 - `make shot`: visual-QA screenshots (`web/scripts/shot.ts`); `make shot-parity` compares WebGL and WebGPU pixel by pixel.
 - `make lint-design`: greps for banned design tokens.
 - `make docker`: builds the container image.
@@ -124,12 +124,12 @@ These steps are for a self-hosted Coolify v4 with its default Traefik proxy.
 - **Common names:** the GBIF Backbone Taxonomy (2023), CC BY 4.0, doi:10.15468/39omei.
 - **Species details:**
   - Wikidata (CC0).
-  - Wikipedia text (CC BY-SA 4.0, attributed and linked in the panel).
+  - Wikipedia text (CC BY-SA 4.0, attributed and linked in the card).
   - Images from Wikimedia Commons and iNaturalist, under the licence shown with each image.
   - Occurrence data © GBIF.org contributors (CC BY 4.0).
   - Conservation status: IUCN Red List categories via Wikidata or GBIF.
 
-The app credits every source it used in the panel footer and in the *Data & credits* dialog (from the wordmark menu). The full list, with versions and etiquette (User-Agent, rate limits), is in [`docs/data-sources.md`](docs/data-sources.md).
+The app credits every source it used in the card's footer and in the *Data & credits* dialog (from the wordmark menu). The full list, with versions and etiquette (User-Agent, rate limits), is in [`docs/data-sources.md`](docs/data-sources.md).
 
 ## Learning Go here
 The server is written to be read by someone learning the language:

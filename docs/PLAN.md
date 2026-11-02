@@ -514,9 +514,14 @@ web/src/
   api.ts             typed fetch wrappers (+ AbortSignal)
   types.ts           payload types
   angle.ts           u32 helpers: toRad, wrapDiff, sectorOf(level), widen
-  camera.ts          double-precision camera, screen↔world↔polar, uniforms (hi/lo split), auto-orient
-  input.ts           pointer/wheel/pinch/keys → camera; inertia; double-click zoom
-  flyto.ts           van Wijk–Nuij interpolation (ρ = 1.4), skippable
+  camera.ts          double-precision view transform, screen↔world↔polar, uniforms (hi/lo split)
+  rig.ts             the locked view: zoom and rotation only, written into the camera (§7.5)
+  layout.ts          per-viewport composition: card rectangle, anchor, focus angle, wheel radius
+  callout.ts         the selection's leader polyline (node → elbow → card)
+  input.ts           pointer/wheel/pinch/keys → rig; drag turns the wheel; flings; double-click zoom
+  spin.ts            the wheel's own motion: ambient turn and fling inertia (one velocity with friction)
+  tour.ts            the idle tour: curated species, dwell, stop on input, resume when idle
+  flyto.ts           van Wijk–Nuij interpolation (ρ = 1.4) along the rim, and turn-only paths; skippable
   lod.ts             λ, V, visible angular range, wanted tile keys
   tiles/decode.ts    zero-copy decoder (typed-array views at offsets)
   tiles/cache.ts     fetch queue (level asc, then distance to centre), AbortController, LRU (≤ 400 tiles), GPU buffer lifecycle
@@ -537,18 +542,19 @@ web/src/
   picking.ts         CPU hit testing over loaded tiles (doubles)
   hover.ts           root→node path from loaded tiles' parent ids
   url.ts             deep-link parse/serialise
-  ui/hud.ts          wordmark, bottom readout + breadcrumb, zoom buttons, kingdom key
+  ui/hud.ts          wordmark, bottom readout + breadcrumb, kingdom key, reset
+  ui/zoomstrip.ts    the zoom strip on the left edge: a log-scale slider, 2% (minimum zoom) to 100% (maximum)
   ui/search.ts       ⌘K / "/" palette, WAI-ARIA combobox
-  ui/panel.ts        right panel / mobile bottom sheet; core + about sections
+  ui/panel.ts        the selection card (fixed, top right; across the top on a phone); core + about sections
   ui/credits.ts      Data & credits dialog
-  ui/about.ts        the panel's about section (§6), ui/occmap.ts the GBIF density map
+  ui/about.ts        the card's about section (§6), ui/occmap.ts the GBIF density map
   fallback.ts        the no-WebGL2/no-WebGPU page (§7.11)
   styles.css         tokens from DESIGN.md
   *.test.ts          vitest
 ```
 **Render on demand:** a frame is requested only when the camera, tiles, hover, animation or fades change. That saves battery and makes `__renderIdle` meaningful.
 
-The module list above is the plan; later phases added `labelLayout.ts`, `names.ts`, `nav.ts`, `nodes.ts`, `orient.ts`, `path.ts`, `reticle.ts`, `inview.ts`, `leader.ts`, `selection.ts`, `crossfade.ts`, `style.ts` (all tuning constants) and `ui/obstacles.ts`, described in the as-built notes below.
+The module list above is the plan; later phases added `labelLayout.ts`, `names.ts`, `nav.ts`, `nodes.ts`, `orient.ts`, `path.ts`, `inview.ts`, `leader.ts`, `selection.ts`, `crossfade.ts`, `style.ts` (all tuning constants) and `ui/obstacles.ts`, described in the as-built notes below. The locked-view redesign (§7.5) added `rig.ts`, `layout.ts` and `callout.ts`, and removed `reticle.ts` (the breadcrumb follows the selection now).
 
 ### 7.2 Precision: camera-relative polar rendering
 At max zoom (about 48 px between tips) the rim circumference is about 115M px. Float32 world coordinates would jitter by several pixels, so:
@@ -583,8 +589,8 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
 3. **Rim ring** (fullscreen triangle). An analytic glow around r = 1: `lut(θ) · (core·exp(−(δ/σ1)²) + halo·exp(−δ/σ2))`, where δ is the pixel distance to the rim. It fades out as tips become resolvable (λ > 12).
 4. **Rim marks** (instanced quads, `TRIANGLE_STRIP` 4 vertices) for frontier nodes and tips. The fragment shader gives soft edges, `exp` across the width, so each mark has a crisp core and a halo without any blur pass.
    - **Clade spike:** outward from r = 1. Length is `clamp(3 + 2·log2(leaf_count), 3, 14)` px, width is the node's angular span in px (at least 1 px), and alpha falls off outward.
-   - **Tip bar** (λ ≥ 12): inward from r = 1. Length is `min(terminal length, 120 px)`, width is `clamp(0.7·tipSpacingPx, 1, 18)` px, and the colour is `lut(θ)`.
-     - The home tip (Homo sapiens) is white. It also gets a long outward bar past its label, as in 1.png.
+   - **Tip bar** (λ ≥ 12): inward from r = 1, the last `min(terminal length, 120 px)` of the tip's own hairline brightened in `lut(θ)`. It is 1 device px wide like the hairline, with no halo and a soft inner end. It fades in with λ 12 → 13.5 (keeping the rim's glow as the ring fades) and fades out again as tips spread from 2 to 6 px apart, so at deep zoom each branch runs into its species name as one even line.
+     - The home tip (Homo sapiens) is white. It also gets a long outward bar past its label, as in 1.png (0.7 × tip spacing wide, at most 28 px).
 5. **Path overlay.** A small dynamic quad buffer (2 px). It draws the hover path (root → node, text-1 at 60%) and the selection path (white), from lineage geometry. A thin ring marks the selected node.
 
 **Fades:** alpha × `smoothstep(level, level+0.6, λ)`. Frontier extension and spikes fade out as `child_level` fades in.
@@ -604,18 +610,23 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
   - the rim ring computes it per fragment (its chords are far longer than a sliver like Archaea); lines, fans and marks per vertex.
 
 ### 7.5 Camera, input and auto-orient
-- **Zoom** is anchored at the cursor. Wheel delta is normalised for `deltaMode` and the scale changes by `exp(−dy·0.0015)`. Pinch uses two Pointer Events.
-- **Drag** pans with inertia (critically damped, about 300 ms).
-- **Double-click** zooms 2× at the point.
-- **Zoom range:** from the whole wheel fitting the screen to a tip spacing of 48 px, about 2^15.5× in total.
-- **Initial rotation** puts the midpoint of the largest Animals run at screen angle 160°, upper-left, as in 5.png.
-  - Decided in P6: the data order is Bacteria, Protists, Plants, Fungi, Animals counter-clockwise from angle 0, and Animals cover 62% of the circle. So Animals fill the top-left half (about 48°–272° on screen), Fungi sit upper-right, Plants right, and Bacteria/Protists at the bottom. 5.png's "Plants upper-right, Fungi lower-left" cannot hold at the same time, because Fungi lie between Plants and Animals in our order.
-- **Auto-orient (on).** When tip spacing exceeds 4 px, the rotation eases over 400 ms so that the local outward direction points to the nearer of screen −x or +x.
-  - Tip labels then read horizontally, as in 1.png and 2.png.
-  - Outward −x means labels are right-aligned and sit left of the bars.
-  - Below the threshold, the rotation eases back to its pre-zoom value.
-  - `R` toggles auto-orient off and on.
-  - As built in P6 (`orient.ts`): it releases below 3 px (hysteresis), follows pans along the rim once engaged, and a deep link that loads above the threshold is oriented at once and returns to the default composition when zoomed out. The precision test turns it off. Under reduced motion it cuts.
+The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** and a **rotation**, and there is no pan.
+
+- **Composition** (`layout.ts`, per viewport, CSS px): the card's rectangle, the **anchor** (a screen point on the rim, just below and left of the card), the **focus angle** φ0 (the screen angle from the wheel's centre to the anchor: 30° on desktop, 60° on a phone) and the wheel's radius R0 at minimum zoom.
+  - Desktop: the card spans x 62% → the right gutter and y 56 px → 40%; the anchor is 72 px left of the card and 28 px below it; R0 = (anchor.y − 64) / (1 − sin φ0), so the rim's top sits 64 px from the top (under the header) and the centre falls low on the left (about 26% w, 79% h at 2000×1030).
+  - Phone or portrait: the card spans the top (12 px gutters, 30% of the height, 200–300 px); the anchor is 88 px under it; the centre sits at 86% of the height and the rim's right edge 20 px inside the screen.
+- **State:** `scale` (device px per world unit, from R0 to 48 CSS px between tips) and `theta`, the world angle of the rim point on the anchor. The camera (`camera.ts`) is derived: `rot = φ − theta`; the wheel's centre is at `anchor − scale·(cos φ, −sin φ)`; the world point under the screen centre is the anchor's rim point plus the anchor→centre offset turned back by `rot`, so it stays exact at any zoom.
+- **Zoom** changes `scale` only, which scales the picture about the anchor: whatever sits there stays put from minimum to maximum zoom. Wheel (`exp(−dy·0.0015)`, normalised for `deltaMode`), pinch (finger distance), `+`/`−` and the zoom buttons (×1.5, tweened 220 ms), double-click (×2) all zoom about the anchor.
+- **Rotation** changes `theta` only, which turns the wheel about its centre. A drag turns it by the angle the pointer sweeps about the centre (the point under the pointer follows it round; at deep zoom, where the centre is far off screen, this slides the rim along), with inertia (critically damped, about 300 ms). Two fingers twisting turn it by the change in their angle.
+- **Deep-zoom composition:** with `k = smoothstep(log2 0.25, log2 4, log2 tipSpacingCss)` and `u = (log2 scale − log2 minScale) / (log2 endScale − log2 minScale)`, where `endScale` puts tips 4 CSS px apart (the end of the turn),
+  - `φ = φ0 · (1 − turn·k)` (auto-orient): at deep zoom the rim runs vertically through the anchor and tip labels read left to right (1.png);
+  - `anchor.x = x0 + (deepX − x0) · smoothstep(0, 1, u)`: the anchor drifts left over the whole zoom (about 11 octaves on desktop), slow and even, at most 1.5× the mean rate (about 15 px per wheel notch at 2000 px wide), to `deepX` = min(x0, 33% of the width, card left − 360 px) on desktop (min(x0, 30% of the width) on a phone), so the column of names clears the card and the rows beside it keep their names.
+  The two eases differ on purpose: the turn only makes sense once the rim is straight on screen, while the slide is spread out so it is never felt as a jump. The rim point at `theta` stays on the (moving) anchor, so zoom stays anchored: what is under the anchor stays under it while the anchor glides left. Because `theta` is fixed while zooming, the view turns about the anchor and the selection never moves; there is no tween to coordinate with flights. `R` (or the menu) eases `turn` between 1 and 0 over 400 ms (the drift stays); reduced motion cuts.
+- **Reset** flies to minimum zoom with the selection on the anchor.
+- **The wheel's own motion** (`spin.ts`): one angular velocity `v` eases to a target with friction, `v ← T + (v − T)·e^(−dt/τ)`, τ = 400 ms, and the wheel turns by its exact integral each frame (dt capped at 250 ms). The target is the ambient rate, 20 CSS px/s at the anchor at every zoom (`−20·dpr/1000/scale` rad/ms, clockwise; about one turn in 4 min at minimum zoom), eased in with a 2 s smoothstep 3 s after the last input (0.8 s after a block ends), and 0 while blocked: a flight, a drag, the pointer over the card, search open, an input focused, a hidden tab, the intro. A released drag or twist sets `v` to its release velocity (a fling), which decays into the target. The selection rides along and the leader follows it. Measured on the dev machine: label layout + paint ≈ 1 ms per frame and no tile fetches while it turns at minimum zoom.
+- **Idle tour** (`tour.ts`): after 10 s on a selection the next species from a curated list of 22 (tiger, blue whale, pedunculate oak, fly agaric, common octopus, *Bacillus subtilis*, honey bee, giant panda, giant sequoia, monarch, great white shark, emperor penguin, African elephant, ginkgo, sunflower, baker's yeast, morel, *Plasmodium falciparum*, *Halobacterium salinarum*, *Physarum polycephalum*, koala, giant squid; OTT ids checked against otl16.1; *E. coli* has no species node in the synthesis) is selected with motion `tour`: a fly-to path at the same zoom, at least 2.4 s. Shuffled, no repeats until all are seen, starting from Homo sapiens. Tour steps replace the URL (no history) and are not announced. Any input (pointer down, wheel, key, anywhere) stops it; it resumes after 3 dwells (30 s) without input. Pointer movement in the last 3 s (`POINTER_HOLD_MS`), the pointer resting on the card, search, a flight, a loading selection or a hidden tab hold the countdown; a pointer resting on the wheel does not, so a visitor who leaves the mouse on the tree still gets the tour. It runs on timers, not frames, so a still scene stays idle between steps. A deep link starts it stopped.
+- **Off** under reduced motion; `?still` (implied by `?shot`) turns off the ambient turn, fling and tour, `?tour=<s>` sets the dwell and turns the tour on alone (tests, screenshots).
+- The precision test (`?debug=precision`) sets the camera directly and moves it by exact pixels, bypassing the rig.
 
 ### 7.6 Tile manager
 - **Wanted set:** `lod.ts` computes the wanted keys per frame.
@@ -660,7 +671,7 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
 **As built in P8** (picking, hover, panel core, deep links; see §7.8, §7.10, §7.11):
 - `picking.ts` hits what is drawn (tiles ≤ V) in doubles: in the rim zone (inside to the tip bars, outside past the spikes or, once tips are labelled, over the label column) the nearest tip by binary search in each tile's tip run, else the deepest frontier clade whose tips contain θ; elsewhere the nearest radial segment (run on to the rim while the children are not drawn) or arc within 4 px (12 px for touch), ties to the deeper node. Homo sapiens' two subspecies, drawn as one bar, pick Homo sapiens.
 - `path.ts` turns a lineage into arc + radial segments; `hover.ts` draws the partial path from the tiles' parent links at once and completes it to the root from `/api/nodes` after 90 ms (answers shared through `nodes.ts`, which the breadcrumb uses too). The hover path follows what is drawn, so a frontier node's path runs on to the rim. Paths (`path.vert/frag`) and the selection ring (`ring.vert/frag`) are opaque quads through the precise polar transform, drawn after a full-screen dim (the existing dim pass); "60%" scales the grey's brightness, since a translucent or MAX-blended grey vanishes over bright bars.
-- `ui/panel.ts` (core only; `.panel-about` is the empty P10 slot), `selection.ts` (click/tap selects and flies, leaving room for the panel: `insetPose`; tip-level poses move outward by 20% of the screen so the label column fits), `nav.ts` (↑/Backspace parent, ↓ largest child, ←/→ siblings in the panel's largest-first order, wrapping; only the 50 listed siblings are reachable in a polytomy), `url.ts` (`n` pushed per selection, `v` replaced 300 ms after the camera settles; Back/Forward fly to that entry's `v`).
+- `ui/panel.ts` (core only; `.panel-about` is the empty P10 slot), `selection.ts` (click/tap selects and flies, leaving room for the panel: `insetPose`; tip-level poses move outward by 20% of the screen so the label column fits; all of this superseded by the locked view, §7.5 and §7.9), `nav.ts` (↑/Backspace parent, ↓ largest child, ←/→ siblings in the panel's largest-first order, wrapping; only the 50 listed siblings are reachable in a polytomy), `url.ts` (`n` pushed per selection, `v` replaced 300 ms after the camera settles; Back/Forward fly to that entry's `v`).
 - An mrca node is titled "Unnamed clade", "within X", plus "Common ancestor of A and B" from the two OTT ids in its node id (their names fetched), falling back to its two largest named children.
 - **§7.12 addition: backing-store cap.** The tree canvas holds at most `MAX_BACKING_PX` = 6 Mpx (`render/canvas.ts` `treeDpr`, never below DPR 1); larger canvases render the tree at a lower effective DPR, the label overlay keeps the full DPR. 5K overview (2560×1440 CSS at DPR 2) on the dev iGPU: uncapped 14.7 Mpx 10.7–12.8 ms, 8.3 Mpx 8.5–9.5 ms, 7 Mpx 7.6–8.4 ms, 6 Mpx 7.0–7.9 ms.
 - **Precision test:** the HUD's dim plates are fixed to the screen, so the pan slid tip bars under their soft edges and skewed the centroid measurement (max 1.12 px, at the breadcrumb plate). The test now renders without them (`scene.dimsOn`): max 0.215 px on the GPU, 0.33 px on SwiftShader.
@@ -698,10 +709,12 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
   - Throttled to animation frames.
 
 ### 7.9 Fly-to
-- **Algorithm:** van Wijk & Nuij smooth zoom (ρ = 1.4) in Cartesian world coordinates (doubles), with rotation eased separately.
+- **Algorithm:** van Wijk & Nuij smooth zoom (ρ = 1.4) in one dimension: the "pan" is the arc along the rim from the current anchor angle to the target's (the short way round), the view width is the screen's shorter side over the scale. Zoom stays within the rig's range, so a long way round at minimum zoom simply turns.
 - **Duration:** `clamp(S·600 ms, 600, 2000)`. Any user input cancels it.
-- **Route:** for a far target, the path naturally zooms out toward the common ancestor's scale, then dives in.
-- **Used by:** search results, deep links, breadcrumb segments, the kingdom key, and "You are here" (the `H` key).
+- **Route:** for a far target, the path zooms out, glides round, then dives in.
+- **Target:** the node's angle on the anchor at the zoom that suits it: its tips (`leafCount` slots, at least 24) fill 60% of the screen's height along the rim (the rim runs up and down the screen at the anchor once tips resolve), clamped to the zoom range (big clades and the root come out at minimum zoom). A species lands at about 22 px between tips, so its neighbours' names show; a small clade whose tips would be 3 px apart or more zooms on to 14 px, so its names show too.
+- **Used by:** search results, lineage and children links in the card, breadcrumb segments, the kingdom key, keyboard tree navigation and Back/Forward. A deep link with only `n` cuts to the same pose.
+- **Turn** (a click or tap on the canvas): the zoom stays and only the angle eases (smoothstep), 250–900 ms by how far the anchor's content travels on screen.
 - **Reduced motion:** a cut plus a 120 ms crossfade.
 
 ### 7.10 HUD, search, panel (layout in DESIGN.md)
@@ -709,20 +722,25 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
 - Top-left: the wordmark.
 - Top-right: a search trigger showing "Search 2.3M species" and a `/` hint.
 - **Bottom-left:** a persistent readout and breadcrumb.
-  - The breadcrumb is the lineage of the deepest named clade whose arc contains the view centre angle and whose level ≤ V, computed from loaded tiles and throttled to 4 Hz. Segments are clickable and fly to that clade.
+  - The breadcrumb is the selection's lineage (there is always one), so the canvas, the card and the HUD never name different nodes. Segments are clickable: they select that clade and fly to it.
   - The readout is "12,402 species in view · OpenTree 16.1" (the level is in `?debug` only). The count is exact and cheap, because tips are evenly spaced: count = visible rim angle / slot. It shows "—" when the rim is not on screen.
-- Bottom-right: zoom −, +, reset, and the kingdom key (swatch + name; clicking one flies to that group).
+- Left edge: the zoom strip (`ui/zoomstrip.ts`), a `role="slider"` with `aria-valuenow`/`aria-valuetext`. `t = (log2 scale − log2 min) / (log2 max − log2 min)`, reading `% = 2 + 98·t` (2% at minimum zoom, the opening view; 100% at 48 px between tips). Drag sets the zoom about the anchor directly, a click flies there (a pure zoom on the fly-to path), the mouse wheel over it zooms like the canvas, keys step 5% / 20% / Home / End. It reads the rig every frame, so wheel, pinch, flights and the tour move it too. It is an input like any other (stops the tour and the ambient turn), and an obstacle (labels clear, tree darkened). The reset button sits under it (minimum zoom, selection kept). It replaces the − and + buttons.
+- Bottom-right: the kingdom key (swatch + name; clicking one selects the group's largest root clade and flies there).
 - The chrome fades to 40% while dragging.
 
 **Search palette (`⌘K`, `Ctrl+K` or `/`)**
 - A centred modal list with no backdrop blur.
 - Each row: kingdom swatch, the name in the correct style, then the muted lineage and the matched common name if any.
 - Debounced at 120 ms, and stale requests are aborted.
-- `↑`/`↓` move, `Enter` flies and selects, `Esc` closes.
+- `↑`/`↓` move, `Enter` selects and flies, `Esc` closes.
 - Empty state: "No taxon matches “x”. Try a genus or a common name."
 
-**Panel**
-- Desktop: a 380 px right panel. Below 720 px wide: a bottom sheet with snap points at 35% and 85%.
+**Card** (`ui/panel.ts`; DESIGN.md §4)
+- There is always a selection (Homo sapiens to begin with), so the card is always there and has no close button. Desktop: a fixed rectangle at the top right (from `layout.ts`). Phone or portrait: across the top, compact. Long content scrolls inside it.
+- A hairline leader (`callout.ts`, drawn on the label canvas) runs from the selection up at 60° to an elbow, then square into the card: horizontally into its left edge on desktop, vertically into its bottom edge on a phone (a start below a desktop card enters its bottom edge, one above it its top edge, so it never crosses the card). It is never hidden:
+  - `leaderStart`: the selection's stem is the screen segment from its ring to the rim at its angle. The start is the stem's first point from the node inside the free area (screen less 12 px margins, the bottom 56 px HUD band and the card); as a clade's node goes off screen it slides along the stem to the rim over 240 px. With the whole stem outside, the start is where the ray from the anchor towards the stem's nearest point leaves the free area, with an arrowhead fading in over 24 px. All steps are continuous in the view.
+  - `afterName`: once names show, the start moves outward past the selection's name (`Labels.nameRun`) or, for a clade at the rim, past the name column (`Labels.columnRun`), faded in with the names. The selected tip's name gets top priority.
+  - Text keeps clear of it (its boxes are soft obstacles for clade text and hard ones for tip names).
 - **Core section,** immediate from `/api/nodes`:
   - the name, with a copy button
   - rank
@@ -744,25 +762,26 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
 
 ### 7.11 URL, keyboard, accessibility
 - **URL:**
-  - `?n=ott770315` selects the node and flies to it. It is set with `pushState` on select, so Back and Forward work.
-  - `&v=θ,camR,log2scale,rot` restores the camera. It is updated with `replaceState`, debounced to 300 ms.
+  - `?n=ott770315` selects the node (default Homo sapiens). It is set with `pushState` on select, so Back and Forward work. Without `v` the view cuts to the node at the zoom that suits it.
+  - `&v=a,z` restores the view: `a` the angle at the anchor (u32 units), `z` log2 of the zoom in CSS px per world unit. It is updated with `replaceState`, debounced to 300 ms. Older links' `v=a,r,z[,rot]` still parse; r and rot (the pan and the screen rotation) are ignored.
 - **Screenshot params:**
   - `?shot` skips the intro and hides the cursor
   - `?reduced` forces reduced motion
+  - `?still` stops the wheel's own motion (ambient turn, fling, idle tour); `?tour=<s>` sets the tour's dwell
   - `?debug` shows a debug HUD: CPU and GPU frame time, tiles, instances, λ, V
   - `?debug=precision` runs the max-zoom jitter test (`window.__precision`); `?renderer=webgl|webgpu`, `?nowebgl` and `?passes=…` are in §7.13
 - **Keys:**
   - `/` or `⌘K` opens search
-  - `Esc` closes the topmost layer
-  - `+`/`-` zoom, arrow keys pan (when nothing is selected)
-  - with a selection: `↑` or `Backspace` selects the parent, `↓` the largest child, `←`/`→` siblings
+  - `Esc` closes the topmost layer (search, dialog, menu); it never clears the selection
+  - `+`/`-` zoom about the anchor; the zoom strip takes `↑`/`↓`, `Page Up`/`Page Down`, `Home`/`End` while focused
+  - `↑` or `Backspace` selects the parent, `↓` the largest child, `←`/`→` siblings (each flies there)
   - `H` is "You are here"
   - `R` toggles auto-orient
 - **Accessibility:**
   - The canvas has `role="img"` with a live `aria-label`.
   - Selection is announced through an `aria-live="polite"` region.
   - Search is a WAI-ARIA combobox.
-  - The panel is an `<aside>` with real headings.
+  - The card is an `<aside>` with real headings.
   - Focus rings are visible (DESIGN.md).
   - Contrast is AA.
 - **No WebGPU and no WebGL2:** show a static fallback image, `web/public/fallback.webp`, which the shot script generates in P12, plus working search and panel. As built (`fallback.ts`, forced with `?nowebgl`): a 1080² still of the default overview (96 KB) with the DESIGN §7 sentence; search, the panel and Data & credits work without the scene (choosing a result opens its panel).
@@ -1009,8 +1028,9 @@ There is no docker-compose for development, because SQLite needs no service.
   - `deep-homo` (1.png zoom)
   - `panel-homo`
   - `search-open`, and since P11 `search-jaguar`, `search-onca`, `search-human`, `mobile-search-onca`
-  - `mobile-overview` and `mobile-sheet` at 390×844
+  - `mobile-overview` and `mobile-card` at 390×844
   - `reduced`
+  - the locked view (`pnpm -C web shot locked`, a name prefix picks every `locked-…` state): minimum, mid and maximum zoom at 2000×1030, a clade selected, 1440×900 and 1280×800, 390×844 at minimum and deep zoom and with a clade, an old pan link, a search, a clade turned off screen and near maximum zoom, mid zoom on E. coli, and `locked-zoomstep-1..5` (the slide as you zoom in)
 - **Renderers and diffs:** `SHOT_RENDERER=webgl|webgpu|both` writes into `screens/<renderer>/`; `both` or `SHOT_COMPARE=<dir>` writes heatmaps and `report.json` into `screens/diff/` and exits 1 over the thresholds (`docs/plan-webgpu.md` §5). `SHOT_QUERY='&…'` adds URL parameters, `SHOT_OUT=<dir>` moves the output.
 - **Review:** after P6, P7 and P12, a separate reviewer agent compares the screens against `docs/reference/*.png` and the DESIGN.md banned-tells checklist. It writes its findings into the phase review, with 2–3 rounds at most.
 - **Lint:** `make lint-design` greps `web/src/**/*.{css,ts}` for banned tokens (`backdrop-filter`, `box-shadow`, `text-shadow`, `linear-`/`radial-`/`conic-gradient`, `border-radius:` > 4px, `Inter`, `Geist`, `JetBrains`, `Space Grotesk`, `Roboto`).
@@ -1032,7 +1052,7 @@ There is no docker-compose for development, because SQLite needs no service.
   - flyto
   - palette conversion against known OKLCH→hex values from DESIGN.md
   - the frame plan, renderer selection, WGSL static checks and uniform packing (§7.13)
-- **Playwright smoke test** (`make smoke`, not in `make check`): load → search "homo sapiens" → Enter → panel title "Homo sapiens" and `n=ott770315` in the URL, then the same on `?nowebgl`. `SMOKE_WEBGPU=1` requires WebGPU; `SMOKE_PORT`, `SMOKE_DATA` and `SMOKE_DB` move its server.
+- **Playwright smoke test** (`make smoke`, not in `make check`): load → the card on Homo sapiens → search "panthera onca" → Enter → card title "Panthera onca" and `n=ott42322` in the URL, then the same on `?nowebgl`; plus the locked view's interactions (wheel zoom keeps the anchor's world point, a drag turns without zooming, Esc keeps the selection, reset, a click selects at the same zoom), an old `v=a,r,z,rot` link, and the motion run (`?tour=1.5`: a plain visit opens Homo sapiens at minimum zoom, the tour hops without adding history, a key stops it, a fling decays). Runs other than the motion one use `?reduced`, which stops the wheel's own motion so the scene can go idle. `SMOKE_WEBGPU=1` requires WebGPU; `SMOKE_PORT`, `SMOKE_DATA` and `SMOKE_DB` move its server.
 
 ---
 
