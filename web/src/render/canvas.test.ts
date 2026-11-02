@@ -1,5 +1,7 @@
+// Canvas sizing helpers (formerly in gl/context.ts, now shared by both backends).
+
 import { describe, expect, it } from 'vitest';
-import { backingStoreSize, treeDpr } from './context';
+import { type SizedCanvas, backingStoreSize, fitCanvas, treeDpr } from './canvas';
 
 describe('backingStoreSize', () => {
   it('scales the CSS size by the device pixel ratio', () => {
@@ -29,5 +31,14 @@ describe('treeDpr', () => {
 
   it('never goes below 1 for a DPR ≥ 1 screen', () => {
     expect(treeDpr(7680, 4320, 1, cap)).toBe(1);
+  });
+});
+
+describe('fitCanvas', () => {
+  it('resizes the backing store once, then reports no change', () => {
+    const c: SizedCanvas = { clientWidth: 400, clientHeight: 300, width: 300, height: 150 };
+    expect(fitCanvas(c, 1.5)).toBe(true);
+    expect([c.width, c.height]).toEqual([600, 450]);
+    expect(fitCanvas(c, 1.5)).toBe(false);
   });
 });

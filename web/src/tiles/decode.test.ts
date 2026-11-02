@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FLAG_HOME, FLAG_NAMED, FLAG_SPECIES, FLAG_TIP, decodeTile, tileName } from './decode';
 
-// Written by the Rust side (`make golden`) from the mini fixture tree.
+// Written by the Go ingest tests (`make golden`) from the mini fixture tree.
 const bytes = readFileSync(new URL('../../../tests/fixtures/golden_tile.bin', import.meta.url));
 const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 

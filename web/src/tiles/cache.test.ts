@@ -75,3 +75,76 @@ describe('tile cache', () => {
     expect(released).toEqual([tileKey(8, 0), tileKey(8, 1), tileKey(8, 2), tileKey(8, 3)]);
   });
 });
+
+describe('tile cache rebuild', () => {
+  /** A cache whose GPU handles are fresh numbers, so new uploads are distinguishable. */
+  function counting() {
+    const requests: Request[] = [];
+    const uploads: { level: number; sector: number; handle: number }[] = [];
+    const released: number[] = [];
+    let nextHandle = 100;
+    const cache = new TileCache<number>({
+      fetch: (level, sector, signal) =>
+        new Promise((resolve) => requests.push({ level, sector, signal, resolve })),
+      upload: (tile) => {
+        const handle = nextHandle++;
+        uploads.push({ level: tile.level, sector: tile.sector, handle });
+        return handle;
+      },
+      release: (gpu) => released.push(gpu),
+    });
+    return { cache, requests, uploads, released };
+  }
+
+  async function settle(): Promise<void> {
+    await new Promise((res) => setTimeout(res, 0));
+  }
+
+  it('re-uploads every resident tile once and releases the old handles', async () => {
+    const { cache, requests, uploads, released } = counting();
+    cache.update([tileKey(0, 0), tileKey(1, 0), tileKey(1, 1)]);
+    const one = (r: Request | undefined): ArrayBuffer =>
+      encodeTile(r?.level ?? 0, r?.sector ?? 0, [{ id: 1, parent: 0, angle: 0, tip: true }]);
+    requests[0]?.resolve(one(requests[0]));
+    requests[1]?.resolve(one(requests[1]));
+    requests[2]?.resolve(null); // empty tile: nothing on the GPU
+    await settle();
+    const before = cache.drawable().map((e) => e.gpu);
+    expect(before).toEqual([100, 101]);
+    expect(uploads).toHaveLength(2);
+
+    cache.rebuild();
+
+    expect(uploads).toHaveLength(4);
+    expect(uploads.slice(2).map((u) => [u.level, u.sector]).sort()).toEqual([
+      [0, 0],
+      [1, 0],
+    ]);
+    expect([...released].sort()).toEqual([100, 101]);
+    const after = cache.drawable().map((e) => e.gpu);
+    expect(after.sort()).toEqual([102, 103]);
+    // The empty tile stays loaded and empty.
+    expect(cache.completeLevel()).toBe(1);
+    expect(cache.stats().resident).toBe(3);
+  });
+
+  it('keeps no-longer-wanted residents too, without fetching anything', async () => {
+    const { cache, requests, uploads, released } = counting();
+    cache.update([tileKey(5, 3)]);
+    requests[0]?.resolve(encodeTile(5, 3, [{ id: 1, parent: 0, angle: 0, tip: true }]));
+    await settle();
+    cache.update([tileKey(5, 4)]); // 5/3 stays resident (under the cap), unwanted
+    const fetchesBefore = requests.length;
+    cache.rebuild();
+    expect(uploads.map((u) => u.sector)).toEqual([3, 3]);
+    expect(released).toEqual([100]);
+    expect(requests.length).toBe(fetchesBefore);
+  });
+
+  it('does nothing on an empty cache', () => {
+    const { cache, uploads, released } = counting();
+    cache.rebuild();
+    expect(uploads).toEqual([]);
+    expect(released).toEqual([]);
+  });
+});

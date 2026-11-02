@@ -33,7 +33,7 @@ describe('angle', () => {
     expect(wrapRad(3 * Math.PI)).toBeCloseTo(Math.PI, 12);
   });
 
-  it('finds sectors like the Rust side (level 0 is special)', () => {
+  it('finds sectors like the server does (level 0 is special)', () => {
     expect(sectorOf(0xffffffff, 0)).toBe(0);
     expect(sectorOf(0xffffffff, 1)).toBe(1);
     expect(sectorOf(0x80000000, 13)).toBe(4096);
