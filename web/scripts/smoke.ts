@@ -1,13 +1,26 @@
 // End-to-end smoke test (PLAN §9 P12, docs/plan-webgpu.md W5): load the app,
-// search "homo sapiens", choose the first result, and expect the panel to
-// open on Homo sapiens, with the selection in the URL. Runs:
+// expect the card on Homo sapiens (the default selection), search "panthera
+// onca", choose the first result, and expect the card to show the jaguar,
+// with the selection in the URL. Runs:
 //
 //   default             lands on a working renderer (WebGL2 headless: no hardware adapter)
 //   ?renderer=webgl     must be WebGL2
 //   ?renderer=webgpu    must be WebGPU with SMOKE_WEBGPU=1; otherwise it must
 //                       fall back to WebGL2, and the WebGPU checks are skipped
 //                       with a log line
-//   ?nowebgl            the fallback page, where search and the panel still work
+//   ?nowebgl            the fallback page, where search and the card still work
+//   interactions        the locked view (DESIGN.md §4, §8): the wheel zooms
+//                       about the anchor, a drag turns the wheel and never
+//                       zooms, Esc keeps the selection, a click selects and
+//                       turns the node onto the anchor, an old pan link parses
+//   motion              without reduced motion (?tour=1.5: 1.5 s dwell): a
+//                       plain visit opens Homo sapiens, the idle tour hops
+//                       to another species without adding history (with the
+//                       mouse resting on the wheel), an input
+//                       stops it, and a fling decays
+//
+// Every other run uses ?reduced, which (like ?still and ?shot) turns the
+// ambient turn, the fling and the tour off, so the scene can go idle.
 //
 // Every drawn run uses reduced motion, so choosing the result is a cut with
 // a crossfade; the snapshot of the tree canvas must not be black (on WebGPU
@@ -55,26 +68,33 @@ declare global {
   }
 }
 
+/** The card's title once it reads `name`. */
+async function cardShows(page: Page, name: string): Promise<void> {
+  await page.waitForFunction((n) => document.querySelector('#panel-title')?.textContent?.includes(n), name, {
+    timeout: TIMEOUT,
+  });
+  const title = (await page.locator('#panel-title').textContent()) ?? '';
+  assert.equal(title.trim().startsWith(name), true, `card title "${title}"`);
+}
+
+/** The jaguar: its OpenTree id, for the URL checks. */
+const JAGUAR = 'ott42322';
+
 async function searchAndOpen(page: Page): Promise<void> {
   await page.keyboard.press('/');
   await page.waitForSelector('.search-layer.open', { timeout: TIMEOUT });
-  await page.keyboard.type('homo sapiens', { delay: 10 });
+  await page.keyboard.type('panthera onca', { delay: 10 });
   // The first row is the best match: the species itself.
   const first = page.locator('.search-row').first();
   await first.waitFor({ timeout: TIMEOUT });
-  assert.match((await first.textContent()) ?? '', /Homo sapiens/);
+  assert.match((await first.textContent()) ?? '', /Panthera onca/);
   await page.keyboard.press('Enter');
-  const title = page.locator('#panel-title');
-  await title.waitFor({ timeout: TIMEOUT });
-  await page.waitForFunction(() => document.querySelector('#panel-title')?.textContent?.includes('Homo sapiens'), null, {
-    timeout: TIMEOUT,
-  });
-  assert.equal(((await title.textContent()) ?? '').trim().startsWith('Homo sapiens'), true);
+  await cardShows(page, 'Panthera onca');
 }
 
 /** Checks after the cut: selection in the URL, canvas visible, crossfade snapshot not black, no GPU errors. */
 async function drawnChecks(page: Page): Promise<void> {
-  await page.waitForFunction(() => location.search.includes('n=ott770315'), null, { timeout: TIMEOUT });
+  await page.waitForFunction((id) => location.search.includes(`n=${id}`), JAGUAR, { timeout: TIMEOUT });
   assert.equal(await page.locator('#tree').isVisible(), true);
   const lit = await page.evaluate(() => window.__crossfadeLit);
   assert.ok(lit !== undefined, 'the cut made a crossfade snapshot of the tree');
@@ -132,9 +152,173 @@ async function lossChecks(page: Page): Promise<void> {
   ]);
   await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
   assert.equal(await page.evaluate(() => window.__renderer), 'webgl2');
-  assert.match(page.url(), /n=ott770315/, 'the reload keeps the selection');
-  assert.match(page.url(), /v=[-\d.,]+/, 'the reload keeps the camera');
+  assert.match(page.url(), new RegExp(`n=${JAGUAR}`), 'the reload keeps the selection');
+  assert.match(page.url(), /v=[-\d.]+,[-\d.]+(&|$)/, 'the reload keeps the view (a,z)');
   console.log(`     second loss reloaded into WebGL2: ${new URL(page.url()).search}`);
+}
+
+/** The rig's pose and the world point at the anchor (needs ?debug for window.__scene). */
+async function pose(
+  page: Page,
+): Promise<{ theta: number; scale: number; minScale: number; atAnchor: { theta: number; r: number } }> {
+  return page.evaluate(() => {
+    const scene = window.__scene;
+    if (!scene) throw new Error('window.__scene missing (needs ?debug)');
+    const rig = scene.rig;
+    const a = rig.anchor();
+    return { theta: rig.theta, scale: rig.scale, minScale: rig.minScale(), atAnchor: scene.camera.screenToPolar(a.x, a.y) };
+  });
+}
+
+/** The card's title text. */
+async function cardTitle(page: Page): Promise<string> {
+  return ((await page.locator('#panel-title').textContent()) ?? '').trim();
+}
+
+/** The wheel's own motion: default Homo sapiens, the idle tour, input stops it, a fling decays. */
+async function motionChecks(browser: Browser): Promise<void> {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const t0 = Date.now();
+  try {
+    await page.goto(`${BASE}/?debug&tour=1.5`);
+    await cardShows(page, 'Homo sapiens');
+    const start = await pose(page);
+    assert.ok(Math.abs(start.scale - start.minScale) < 1e-6 * start.minScale, 'a plain visit opens at minimum zoom');
+    const historyBefore = await page.evaluate(() => history.length);
+
+    // Left alone, the tour moves on (dwell 1.5 s, plus the intro and a 2.4 s
+    // flight), even with the mouse resting over the wheel (on a node).
+    const rest = await anchorCss(page);
+    await page.mouse.move(rest.x - 120, rest.y + 60);
+    await page.waitForFunction(() => !document.querySelector('#panel-title')?.textContent?.includes('Homo sapiens'), null, {
+      timeout: TIMEOUT,
+    });
+    const hop = await cardTitle(page);
+    assert.match(page.url(), /n=ott\d+/, 'the tour step is in the URL');
+    assert.equal(await page.evaluate(() => history.length), historyBefore, 'tour steps replace history, not push');
+    console.log(`     tour: Homo sapiens → ${hop.replace(' ⧉', '')}`);
+
+    // An input stops it: nothing changes for well over a dwell.
+    await page.keyboard.press('Shift');
+    await page.waitForFunction(() => window.__scene?.flight.active() === false, null, { timeout: TIMEOUT });
+    const stoppedAt = await cardTitle(page);
+    assert.equal(await page.evaluate(() => window.__scene?.tour?.isStopped()), true, 'an input stops the tour');
+    await page.waitForTimeout(3000);
+    assert.equal(await cardTitle(page), stoppedAt, 'no tour step after an input');
+
+    // A fling spins on and decays. Headless SwiftShader frames take ~0.4 s,
+    // so a real drag is never fast enough to fling here: release one at a
+    // drag-like speed (0.5 px/ms at the anchor) through the same hook the
+    // pointer uses, and watch the frame loop decay it.
+    await page.evaluate(() => {
+      const scene = window.__scene;
+      if (!scene) throw new Error('window.__scene missing (needs ?debug)');
+      scene.input.onFling(-0.5 / scene.rig.scale);
+    });
+    const v1 = await page.evaluate(() => Math.abs(window.__scene?.spin.velocity() ?? 0));
+    await page.waitForTimeout(1500);
+    const v2 = await page.evaluate(() => Math.abs(window.__scene?.spin.velocity() ?? 0));
+    assert.ok(v1 > 0, `the release flings the wheel (v ${v1})`);
+    assert.ok(v2 < v1 / 5, `the fling decays (${v1.toExponential(2)} → ${v2.toExponential(2)} rad/ms)`);
+    console.log(`     fling: ${v1.toExponential(2)} → ${v2.toExponential(2)} rad/ms after 1.5 s`);
+    assert.deepEqual(errors, [], 'no uncaught page errors');
+    console.log(`ok   motion: default, tour, stop, fling (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  } finally {
+    await page.close();
+  }
+}
+
+/** The anchor in CSS px. */
+async function anchorCss(page: Page): Promise<{ x: number; y: number }> {
+  return page.evaluate(() => {
+    const scene = window.__scene;
+    if (!scene) throw new Error('window.__scene missing (needs ?debug)');
+    const a = scene.rig.anchor();
+    return { x: a.x / scene.camera.dpr, y: a.y / scene.camera.dpr };
+  });
+}
+
+/** The locked view's interactions (DESIGN.md §4, §8), on the default view of Homo sapiens. */
+async function interactionChecks(page: Page): Promise<void> {
+  await cardShows(page, 'Homo sapiens');
+  assert.equal(await page.locator('.panel-close').count(), 0, 'the card has no close button');
+  const anchor = await anchorCss(page);
+  const p0 = await pose(page);
+  assert.ok(Math.abs(p0.scale - p0.minScale) < 1e-6 * p0.minScale, 'a plain visit opens at minimum zoom');
+  // Homo sapiens' rim point sits on the anchor.
+  assert.ok(Math.abs(p0.atAnchor.r - 1) < 1e-6, `the rim is at the anchor (r ${p0.atAnchor.r})`);
+
+  // The wheel zooms about the anchor: the world point there stays put.
+  await page.mouse.move(300, 600);
+  for (let i = 0; i < 5; i++) await page.mouse.wheel(0, -400);
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const p1 = await pose(page);
+  assert.ok(p1.scale > p0.scale * 2, `zoomed in (${p0.scale} → ${p1.scale})`);
+  assert.ok(Math.abs(p1.theta - p0.theta) < 1e-12, 'zooming does not turn the wheel');
+  assert.ok(Math.abs(p1.atAnchor.theta - p0.atAnchor.theta) < 1e-9, 'the point at the anchor stays put');
+  console.log(`     wheel: zoom ×${(p1.scale / p0.scale).toFixed(1)} about the anchor`);
+
+  // A drag turns the wheel and never zooms or pans.
+  await page.mouse.move(anchor.x - 200, anchor.y + 200);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(anchor.x - 200 + i * 15, anchor.y + 200 + i * 10);
+  await page.mouse.up();
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const p2 = await pose(page);
+  assert.equal(p2.scale, p1.scale, 'a drag keeps the zoom');
+  assert.ok(Math.abs(p2.theta - p1.theta) > 1e-6, 'a drag turns the wheel');
+  assert.ok(Math.abs(p2.atAnchor.r - 1) < 1e-6, 'the anchor is still on the rim (no pan)');
+  console.log(`     drag: turned ${(((p2.theta - p1.theta) * 180) / Math.PI).toFixed(2)}°`);
+
+  // The zoom strip: dragging it up zooms about the anchor; the slider says so.
+  const track = await page.locator('.zoom-track').boundingBox();
+  if (!track) throw new Error('no zoom strip');
+  const unzoomed = await pose(page);
+  await page.mouse.move(track.x + track.width / 2, track.y + track.height - 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(track.x + track.width / 2, track.y + track.height - 2 - i * 25);
+  await page.mouse.up();
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const zoomed = await pose(page);
+  assert.ok(zoomed.scale > unzoomed.scale * 4, `the strip zooms in (${unzoomed.scale.toFixed(0)} → ${zoomed.scale.toFixed(0)})`);
+  assert.ok(Math.abs(zoomed.atAnchor.theta - unzoomed.atAnchor.theta) < 1e-9, 'the strip zooms about the anchor');
+  const now = Number(await page.locator('.zoom-track').getAttribute('aria-valuenow'));
+  assert.ok(now > 2 && now < 100, `the slider reads the zoom (${now}%)`);
+  console.log(`     zoom strip: ×${(zoomed.scale / unzoomed.scale).toFixed(1)}, reads ${now}%`);
+
+  // Esc keeps the selection.
+  await page.keyboard.press('Escape');
+  await cardShows(page, 'Homo sapiens');
+
+  // + zooms about the anchor too; reset goes back to minimum zoom with the selection on the anchor.
+  await page.click('.zoom-reset');
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const p3 = await pose(page);
+  assert.ok(Math.abs(p3.scale - p0.scale) < 1e-6 * p0.scale, 'reset: minimum zoom');
+  assert.ok(Math.abs(p3.theta - p0.theta) < 1e-9, 'reset: the selection back on the anchor');
+
+  // A click on the wheel selects a node and turns it onto the anchor (zoom kept).
+  const before = await page.evaluate(() => location.search);
+  // Just inside the rim, a little way round from the anchor: the tips there are picked.
+  const target = await page.evaluate(() => {
+    const scene = window.__scene;
+    if (!scene) throw new Error('window.__scene missing (needs ?debug)');
+    const p = scene.camera.polarToScreen(scene.rig.theta - 0.12, 0.995);
+    return { x: p.x / scene.camera.dpr, y: p.y / scene.camera.dpr };
+  });
+  await page.mouse.click(target.x, target.y);
+  await page.waitForFunction((b) => location.search !== b && location.search.includes('n='), before, { timeout: TIMEOUT });
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const p4 = await pose(page);
+  assert.ok(Math.abs(p4.scale - p3.scale) < 1e-6 * p3.scale, 'a click keeps the zoom');
+  const turned = await page.evaluate(() => {
+    const scene = window.__scene;
+    const sel = document.querySelector('#panel-title')?.textContent ?? '';
+    return { sel, theta: scene?.rig.theta ?? 0 };
+  });
+  console.log(`     click: selected ${turned.sel.trim()} (${new URL(page.url()).search})`);
 }
 
 /** Opens `query`, waits for idle, searches, then runs `check` (which returns 'skip' when it could not run). */
@@ -143,6 +327,7 @@ async function run(
   name: string,
   query: string,
   check: (page: Page) => Promise<void | 'skip'>,
+  search = true,
 ): Promise<void> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors: string[] = [];
@@ -153,7 +338,7 @@ async function run(
     await page.goto(`${BASE}/${query}`);
     await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
     const renderer = await page.evaluate(() => window.__renderer);
-    await searchAndOpen(page);
+    if (search) await searchAndOpen(page);
     const outcome = await check(page);
     assert.deepEqual(errors, [], 'no uncaught page errors');
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -167,17 +352,17 @@ async function run(
 async function main(): Promise<void> {
   const browser = await chromium.launch({ args: WEBGPU ? WEBGPU_ARGS : SWIFTSHADER_ARGS });
   try {
-    await run(browser, 'default → search → panel', '?reduced', async (page) => {
+    await run(browser, 'default → search → card', '?reduced', async (page) => {
       // Software WebGPU adapters are refused by default, so headless lands on WebGL2.
       const r = await page.evaluate(() => window.__renderer);
       assert.ok(r === 'webgpu' || r === 'webgl2', `a working renderer, got ${r}`);
       await drawnChecks(page);
     });
-    await run(browser, '?renderer=webgl → search → panel', '?renderer=webgl&reduced', async (page) => {
+    await run(browser, '?renderer=webgl → search → card', '?renderer=webgl&reduced', async (page) => {
       assert.equal(await page.evaluate(() => window.__renderer), 'webgl2');
       await drawnChecks(page);
     });
-    await run(browser, '?renderer=webgpu → search → panel → device loss', '?renderer=webgpu&reduced&debug', async (page) => {
+    await run(browser, '?renderer=webgpu → search → card → device loss', '?renderer=webgpu&reduced&debug', async (page) => {
       const r = await page.evaluate(() => window.__renderer);
       if (r !== 'webgpu') {
         assert.equal(WEBGPU, false, `SMOKE_WEBGPU=1 needs WebGPU, got ${r}`);
@@ -189,7 +374,21 @@ async function main(): Promise<void> {
       await drawnChecks(page);
       await lossChecks(page);
     });
-    await run(browser, 'no GPU: fallback → search → panel', '?nowebgl', async (page) => {
+    await run(browser, 'interactions: zoom, turn, select', '?reduced&debug', interactionChecks, false);
+    await run(
+      browser,
+      'old pan link → selection and zoom, pan ignored',
+      '?reduced&debug&n=ott770315&v=1780855860,0.99999,24.1,-149.3',
+      async (page) => {
+        await cardShows(page, 'Homo sapiens');
+        const p = await pose(page);
+        assert.ok(Math.abs(Math.log2(p.scale) - 24.1) < 1e-6, `zoom from the old link (${Math.log2(p.scale)})`);
+        assert.ok(Math.abs(p.atAnchor.r - 1) < 1e-6, 'the anchor is on the rim');
+      },
+      false,
+    );
+    await motionChecks(browser);
+    await run(browser, 'no GPU: fallback → search → card', '?nowebgl', async (page) => {
       assert.equal(await page.locator('.fallback img').isVisible(), true);
       assert.match((await page.locator('.fallback figcaption').textContent()) ?? '', /no WebGPU or WebGL2/);
       assert.equal(await page.evaluate(() => window.__renderer), 'none');

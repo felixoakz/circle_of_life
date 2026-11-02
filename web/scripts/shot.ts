@@ -29,8 +29,12 @@
 // (docs/webgpu.md), so WebGPU runs always use the SHOT_GPU flags. Each state
 // opens a URL, waits for `window.__renderIdle`, checks `window.__renderer`,
 // and writes the PNG (the state name says the size where it is not the
-// 1440×900 desktop default, e.g. mobile-…). Camera positions use the `v` URL
-// parameter (src/url.ts), computed from /api/meta.
+// 1440×900 desktop default, e.g. mobile-…). Views use the `n` (selection)
+// and `v` (rotation and zoom, no pan) URL parameters (src/url.ts), computed
+// from /api/meta and /api/nodes. The `locked-*` states are the review set
+// for the locked view (no pan, fixed card; DESIGN.md §4):
+//
+//   SHOT_OUT=../screens/locked pnpm -C web shot locked
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -89,7 +93,7 @@ interface State {
   dpr?: number;
   /** A click to make once idle (CSS selector), then wait for idle again. */
   click?: string;
-  /** Something to do once idle (hover, drag the sheet), then wait for idle again. */
+  /** Something to do once idle (hover, search, scroll the card), then wait for idle again. */
   act?: (page: Page) => Promise<void>;
 }
 
@@ -141,22 +145,6 @@ function chooseSearch(q: string): (page: Page) => Promise<void> {
   };
 }
 
-/** Drags the bottom sheet's handle by dy CSS px. */
-function dragSheet(dy: number): (page: Page) => Promise<void> {
-  return async (page) => {
-    const box = await page.locator('.sheet-handle').boundingBox();
-    if (!box) throw new Error('no sheet handle');
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    for (let i = 1; i <= 10; i++) await page.mouse.move(x, y + (dy * i) / 10);
-    await page.waitForTimeout(300);
-    await page.mouse.up();
-    await page.waitForTimeout(400);
-  };
-}
-
 /** Scrolls the panel body to a fraction of its scroll height. */
 function scrollPanel(fraction: number): (page: Page) => Promise<void> {
   return async (page) => {
@@ -175,9 +163,9 @@ async function openCredits(page: Page): Promise<void> {
   await page.waitForTimeout(300);
 }
 
-/** The `v` parameter: angle units, centre radius, log2 CSS px per unit, degrees. */
-function v(a: number, r: number, scaleCss: number, rotDeg: number): string {
-  return `&v=${Math.round(a)},${r.toFixed(10)},${Math.log2(scaleCss).toFixed(4)},${rotDeg.toFixed(3)}`;
+/** The `v` parameter: the angle at the anchor (u32 units) and log2 of the zoom in CSS px per unit. */
+function v(a: number, scaleCss: number): string {
+  return `&v=${Math.round(a)},${Math.log2(scaleCss).toFixed(4)}`;
 }
 
 /** Scale (CSS px per world unit) at which λ equals `lambda`. */
@@ -190,10 +178,8 @@ function maxScale(meta: MetaLite): number {
   return (48 * meta.tipCount) / TAU;
 }
 
-/** Rotation (degrees) that turns the outward direction at angle `a` to screen angle `deg`. */
-function pointing(a: number, deg: number): number {
-  return deg - (a / TWO_32) * 360;
-}
+/** Below any window's minimum zoom: the app clamps it to the minimum. */
+const MIN_SCALE = 1;
 
 /** The first search hit's OTT node id for a scientific name. */
 async function ottOf(name: string): Promise<string> {
@@ -206,23 +192,37 @@ async function ottOf(name: string): Promise<string> {
   return hit.nodeId;
 }
 
-/** Max zoom on a named node, outward pointing left (labels left of the rim, as in 1.png). */
-function deepAt(name: string): State['query'] {
-  return async (meta, w) => {
-    const { a } = await nodeSpan(meta, await ottOf(name));
-    const s = maxScale(meta);
-    return v(a, 1 + (0.25 * w) / s, s, pointing(a, 180));
+/** A named node selected and on the anchor, at `scale` (default max zoom). */
+function deepAt(name: string, scale?: (meta: MetaLite) => number): State['query'] {
+  return async (meta) => {
+    const id = await ottOf(name);
+    const { a } = await nodeSpan(meta, id);
+    return `&n=${id}${v(a, scale ? scale(meta) : maxScale(meta))}`;
   };
 }
 
-/** The midpoint of a group's largest run, at view level λ, the rim `below` px under the centre. */
-function groupAt(group: number, lambda: number, below: number): State['query'] {
+/** A node selected by id and on the anchor, at `scale`. */
+function nodeAt(id: string, scale: (meta: MetaLite) => number): State['query'] {
+  return async (meta) => `&n=${id}${v((await nodeSpan(meta, id)).a, scale(meta))}`;
+}
+
+/** The first (largest) child of a named node: e.g. a species of a genus. */
+async function firstChild(name: string): Promise<string> {
+  const n = (await (await fetch(`${BASE}/api/nodes/${await ottOf(name)}`)).json()) as {
+    children: { top: { nodeId: string }[] };
+  };
+  const c = n.children.top[0];
+  if (!c) throw new Error(`${name} has no children`);
+  return c.nodeId;
+}
+
+/** The midpoint of a group's largest run on the anchor, at view level λ. */
+function groupAt(group: number, lambda: number): State['query'] {
   return (meta) => {
     const runs = meta.runs.filter((r) => r.group === group);
     const run = runs.sort((x, y) => y.angleHi - y.angleLo - (x.angleHi - x.angleLo))[0];
     const a = run ? (run.angleLo + run.angleHi) / 2 : 0;
-    const s = scaleForLambda(meta, lambda);
-    return v(a, 1 - below / s, s, pointing(a, 270));
+    return v(a, scaleForLambda(meta, lambda));
   };
 }
 
@@ -238,80 +238,113 @@ async function nodeSpan(meta: MetaLite, nodeId: string): Promise<{ a: number; sp
 /** States shot when none are named (the rest are the review extras). */
 const DEFAULTS = ['overview', 'animals', 'mammals', 'deep-homo', 'key-fungi', 'crumb-fly', 'precision'];
 
+/** The unnamed Xylariales clade of the reference composition (docs: the user's image 2). */
+const XYLARIALES_MRCA = 'mrcaott68082ott105382';
+
 const STATES: State[] = [
   { name: 'overview', width: 1440, height: 900, query: () => '' },
-  {
-    name: 'animals',
-    width: 1440,
-    height: 900,
-    query: (meta) => {
-      // Midpoint of the largest Animals run, at λ ≈ 5.
-      const runs = meta.runs.filter((r) => r.group === 0);
-      const run = runs.sort((x, y) => y.angleHi - y.angleLo - (x.angleHi - x.angleLo))[0];
-      const a = run ? (run.angleLo + run.angleHi) / 2 : 0;
-      return v(a, 0.75, scaleForLambda(meta, 5), 0);
-    },
-  },
+  // The animals' largest run on the anchor at λ ≈ 5, then Mammalia at mid zoom.
+  { name: 'animals', width: 1440, height: 900, query: groupAt(0, 5) },
   {
     name: 'mammals',
     width: 1440,
     height: 900,
-    query: async (meta, w, h) => {
-      // Mid zoom (λ ≈ 8.5) on Mammalia, outward pointing up, rim near the top.
-      const { a, span } = await nodeSpan(meta, 'ott244265');
-      const s = w / (4 * span * (TAU / TWO_32));
-      return v(a, 1 - (0.3 * h) / s, s, pointing(a, 90));
+    query: async (meta, w) => {
+      const { span } = await nodeSpan(meta, 'ott244265');
+      return `&n=ott244265${v((await nodeSpan(meta, 'ott244265')).a, w / (4 * span * (TAU / TWO_32)))}`;
     },
   },
+  // Max zoom at Homo sapiens as in docs/reference/1.png: the rim vertical at the anchor.
+  { name: 'deep-homo', width: 1440, height: 900, query: deepAt('Homo sapiens') },
+  // The kingdom key: selects the fungi and flies there.
+  { name: 'key-fungi', width: 1440, height: 900, query: () => '', click: '.kingdom-key li:nth-child(2) button' },
+  // Max zoom on Pan (review P1-1: the Pan bracket).
+  { name: 'crumb-fly', width: 1440, height: 900, query: nodeAt('ott417957', maxScale) },
+  // The locked view (DESIGN.md §4): SHOT_OUT=../screens/locked pnpm -C web shot locked
+  { name: 'locked-min-2000', width: 2000, height: 1030, query: () => '' },
+  { name: 'locked-clade-min-2000', width: 2000, height: 1030, query: nodeAt(XYLARIALES_MRCA, () => MIN_SCALE) },
+  { name: 'locked-mid-2000', width: 2000, height: 1030, query: () => '&n=ott563159' },
   {
-    name: 'deep-homo',
-    width: 1440,
-    height: 900,
-    query: (meta, w) => {
-      // Max zoom at Homo sapiens as in docs/reference/1.png: outward points
-      // left (as auto-orient would turn it), the rim runs vertically at
-      // three quarters of the width, tip bars go right from it and labels
-      // (P7) sit left of it.
-      const a = meta.home?.angle ?? 0;
-      const s = maxScale(meta);
-      return v(a, 1 + (0.25 * w) / s, s, pointing(a, 180));
+    name: 'locked-max-tetramerium-2000',
+    width: 2000,
+    height: 1030,
+    query: async (meta) => {
+      const id = await firstChild('Tetramerium');
+      return `&n=${id}${v((await nodeSpan(meta, id)).a, maxScale(meta))}`;
     },
   },
+  { name: 'locked-clade-mid-2000', width: 2000, height: 1030, query: () => `&n=${XYLARIALES_MRCA}` },
+  // The user's image 4: the clade selected, then turned and zoomed away so it is off screen (the leader points at it).
   {
-    // The kingdom key's flight (review: key-fungi).
-    name: 'key-fungi',
+    name: 'locked-offscreen-clade-2000',
+    width: 2000,
+    height: 1030,
+    query: async (meta) => {
+      const { a } = await nodeSpan(meta, XYLARIALES_MRCA);
+      const slot = TWO_32 / meta.tipCount;
+      return `&n=${XYLARIALES_MRCA}${v((a + 30_000 * slot) % TWO_32, (0.06 * meta.tipCount) / TAU)}`;
+    },
+  },
+  // The user's image 6: mid zoom (~33k species in view) on E. coli UMEA 3323-1; the anchor has already slid a little left.
+  { name: 'locked-mid-ecoli-2000', width: 2000, height: 1030, query: nodeAt('ott950808', (meta) => (0.034 * meta.tipCount) / TAU) },
+  // The slide's progression: Homo sapiens from minimum zoom to names, evenly in log zoom.
+  ...[MIN_SCALE, 0.004, 0.04, 0.4, 20].map((spacing, i) => ({
+    name: `locked-zoomstep-${i + 1}`,
+    width: 2000,
+    height: 1030,
+    query: nodeAt('ott770315', (meta: MetaLite) => (i === 0 ? MIN_SCALE : (spacing * meta.tipCount) / TAU)),
+  })),
+  // The idle tour's first hop (?shot keeps the wheel still; ?tour=6 turns the tour on with a 6 s dwell).
+  {
+    name: 'locked-tour-hop',
+    width: 2000,
+    height: 1030,
+    query: () => '&tour=6',
+    act: async (page) => {
+      await page.waitForFunction(() => !document.querySelector('#panel-title')?.textContent?.includes('Homo sapiens'), null, {
+        timeout: 60_000,
+      });
+      await page.waitForFunction(() => window.__scene?.flight.active() === false, null, { timeout: 60_000 });
+    },
+  },
+  // The user's image 5: the clade near maximum zoom (the anchor has drifted left; rows beside the card keep their names).
+  { name: 'locked-near-max-clade-2000', width: 2000, height: 1030, query: nodeAt(XYLARIALES_MRCA, (meta) => (37 * meta.tipCount) / TAU) },
+  { name: 'locked-laptop-min', width: 1440, height: 900, query: () => '' },
+  { name: 'locked-laptop-deep', width: 1440, height: 900, query: deepAt('Homo sapiens') },
+  { name: 'locked-mobile-min', width: 390, height: 844, dpr: 2, query: () => '' },
+  { name: 'locked-mobile-deep', width: 390, height: 844, dpr: 2, query: deepAt('Homo sapiens') },
+  { name: 'locked-mobile-clade', width: 390, height: 844, dpr: 2, query: () => '&n=ott563159' },
+  { name: 'locked-old-link', width: 1440, height: 900, query: () => '&n=ott770315&v=1780855860,0.99999,24.1,-149.3' },
+  { name: 'locked-1280', width: 1280, height: 800, query: () => '' },
+  {
+    name: 'locked-search',
     width: 1440,
     height: 900,
     query: () => '',
-    click: '.kingdom-key li:nth-child(2) button',
-  },
-  {
-    // Max zoom on Pan, outward to the right (review P1-1: the Pan bracket).
-    name: 'crumb-fly',
-    width: 1440,
-    height: 900,
-    query: async (meta, w) => {
-      const { a } = await nodeSpan(meta, 'ott417957');
-      const s = maxScale(meta);
-      return v(a, 1 - (0.15 * w) / s, s, pointing(a, 0));
-    },
+    act: chooseSearch('Panthera onca'),
   },
   // Extra states from the P7 review (SHOT_OUT=../screens/review-fixed).
   { name: 'hidpi-overview', width: 2560, height: 1440, dpr: 2, query: () => '' },
   { name: 'reduced', width: 1440, height: 900, query: () => '&reduced' },
   { name: 'mobile-overview', width: 390, height: 844, dpr: 2, query: () => '' },
   { name: 'desktop-1280-overview', width: 1280, height: 800, query: () => '' },
-  { name: 'mid-l4.5-animals', width: 1440, height: 900, query: groupAt(0, 4.5, 250) },
-  { name: 'mid-l6.5-protists', width: 1440, height: 900, query: groupAt(3, 6.5, 250) },
-  { name: 'mid-archaea', width: 1440, height: 900, query: groupAt(5, 10, 250) },
+  { name: 'mid-l4.5-animals', width: 1440, height: 900, query: groupAt(0, 4.5) },
+  { name: 'mid-l6.5-protists', width: 1440, height: 900, query: groupAt(3, 6.5) },
+  { name: 'mid-archaea', width: 1440, height: 900, query: groupAt(5, 10) },
   { name: 'deep-archaea', width: 1440, height: 900, query: deepAt('Halobacterium salinarum') },
   { name: 'deep-quercus', width: 1440, height: 900, query: deepAt('Quercus petraea') },
   { name: 'deep-amanita', width: 1440, height: 900, query: deepAt('Amanita muscaria') },
   { name: 'deep-ecoli', width: 1440, height: 900, query: deepAt('Escherichia coli') },
+  // The user's tip-bar report: species branches run straight into their names.
+  { name: 'deep-tetramerium', width: 1440, height: 900, query: deepAt('Tetramerium') },
+  // Tip bars as they fade in at the rim (λ 13–15.5: 0.9–5 px between tips).
+  { name: 'rim-l13', width: 1440, height: 900, query: groupAt(0, 13) },
+  { name: 'rim-l14', width: 1440, height: 900, query: groupAt(0, 14) },
+  { name: 'rim-l15.5', width: 1440, height: 900, query: groupAt(0, 15.5) },
   { name: 'hidpi-deep-homo', width: 1440, height: 900, dpr: 2, query: deepAt('Homo sapiens') },
   { name: 'mobile-deep-homo', width: 390, height: 844, dpr: 2, query: deepAt('Homo sapiens') },
-  // P8: the panel, hover and the mobile sheet. No `v`: the view flies to
-  // the node, leaving room for the panel.
+  // P8: the card, hover and the phone card. No `v`: the view cuts to the
+  // node, zoomed to suit it.
   { name: 'panel-homo', width: 1440, height: 900, query: () => '&n=ott770315' },
   { name: 'panel-felidae', width: 1440, height: 900, query: () => '&n=ott563159' },
   { name: 'panel-mrca', width: 1440, height: 900, query: () => '&n=mrcaott54737ott660452' },
@@ -319,16 +352,14 @@ const STATES: State[] = [
     name: 'hover-path',
     width: 1440,
     height: 900,
-    query: async (meta, w, h) => {
+    query: async (meta, w) => {
       const { a, span } = await nodeSpan(meta, 'ott244265');
-      const s = w / (4 * span * (TAU / TWO_32));
-      return v(a, 1 - (0.3 * h) / s, s, pointing(a, 90));
+      return v(a, w / (4 * span * (TAU / TWO_32)));
     },
     act: hoverNear(0.45, 0.35),
   },
   { name: 'hover-overview', width: 1440, height: 900, query: () => '', act: hoverNear(0.42, 0.42) },
-  { name: 'mobile-sheet', width: 390, height: 844, dpr: 2, query: () => '&n=ott770315' },
-  { name: 'mobile-sheet-peek', width: 390, height: 844, dpr: 2, query: () => '&n=ott770315', act: dragSheet(400) },
+  { name: 'mobile-card', width: 390, height: 844, dpr: 2, query: () => '&n=ott770315' },
   // P10: the about section (needs the live APIs or a warm cache.db), the credits dialog.
   { name: 'panel-homo-about', width: 1440, height: 900, query: () => '&n=ott770315' },
   { name: 'panel-onca', width: 1440, height: 900, query: () => '&n=ott42322' },
@@ -337,7 +368,7 @@ const STATES: State[] = [
   { name: 'panel-coelacanth-lower', width: 1440, height: 900, query: () => '&n=ott773491', act: scrollPanel(1) },
   { name: 'panel-beetle', width: 1440, height: 900, query: () => '&n=ott3349025' },
   { name: 'panel-beetle-lower', width: 1440, height: 900, query: () => '&n=ott3349025', act: scrollPanel(1) },
-  { name: 'mobile-sheet-onca', width: 390, height: 844, dpr: 2, query: () => '&n=ott42322', act: dragSheet(-400) },
+  { name: 'mobile-card-onca', width: 390, height: 844, dpr: 2, query: () => '&n=ott42322' },
   { name: 'credits', width: 1440, height: 900, query: () => '', act: openCredits },
   { name: 'mobile-credits', width: 390, height: 844, dpr: 2, query: () => '', act: openCredits },
   // P9: the search palette.
@@ -502,7 +533,9 @@ function printTable(rows: Row[]): void {
 
 async function main(): Promise<void> {
   const only = process.argv.slice(2);
-  const states = STATES.filter((s) => (only.length > 0 ? only : DEFAULTS).includes(s.name));
+  // A name picks that state; a prefix such as `locked` picks every `locked-…` state.
+  const wanted = only.length > 0 ? only : DEFAULTS;
+  const states = STATES.filter((s) => wanted.some((w) => s.name === w || s.name.startsWith(`${w}-`)));
   const meta = (await (await fetch(`${BASE}/api/meta`)).json()) as MetaLite;
 
   const shots: Shot[] = [];
