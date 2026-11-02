@@ -27,8 +27,8 @@ The server is one static Go binary (`cmd/species`, packages under `internal/`) u
 Requirements: Go 1.27.3, Node 26 with pnpm, `make`, `curl`, and `unzip` (only for common names). No C toolchain: the SQLite driver is pure Go.
 
 ```sh
-make fetch-data            # synth tree + OTT taxonomy into data/raw (~450 MB download)
-make fetch-gbif            # optional: GBIF backbone (926 MB) for common names
+make fetch-data            # synth tree + OTT taxonomy into data/raw (~140 MB download, ~590 MB unpacked)
+make fetch-gbif            # optional: GBIF backbone (971 MB) for common names
 make ingest                # builds data/tree.db (uses backbone.zip if present; ~1.2 GB RAM, ~50 s)
 pnpm -C web install
 make check                 # gofmt, go vet, go test, tsc, vitest
@@ -93,13 +93,14 @@ These steps are for a self-hosted Coolify v4 with its default Traefik proxy.
      ```sh
      rsync -avP --chown=10001:10001 data/tree.db root@your-server:/var/lib/docker/volumes/<name>/_data/
      ```
+   - Work on the host path: the image has no shell, so Coolify's *Terminal* and `docker exec … sh` do not work in this container.
    - If you upload some other way, run `chown -R 10001:10001` on that directory afterwards. The server needs write access there for `cache.db` (enrichment cache; it is created on first start). You can also upload an existing `cache.db` to keep a warm cache.
 5. **Set the environment variables:**
    - `SPECIES_CONTACT=<your email or contact page>`
    - `SPECIES_PUBLIC_URL=https://<your domain>`
    - `LOG_LEVEL=info` (optional, that is the default)
 
-   `SPECIES_DATA_DIR`, `SPECIES_STATIC_DIR` and `PORT` are already set in the image.
+   `SPECIES_DATA_DIR`, `SPECIES_STATIC_DIR` and `PORT` are already set in the image. If you change `PORT`, change *Ports Exposes* to match (the health check follows `PORT`).
 6. **Set the domain** (for example `https://circle.example.org`) and **deploy**. The image's own `HEALTHCHECK` (`species healthcheck`, `/healthz`) takes precedence over a health check set in the Coolify dashboard, so you can leave that one off. If you would rather use Coolify's HTTP check, note that it needs curl or wget inside the image, which this image does not include.
 7. **Verify** that the cache headers and compression survive Traefik:
    ```sh

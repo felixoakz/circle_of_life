@@ -69,8 +69,9 @@ Each backend is a dynamic `import()`, so a visit downloads only the one it uses.
 | WebGL2 renderer | 13.47 KB |
 | WebGPU renderer + shared WGSL (`renderer` + `pipelines`) | 3.42 + 14.81 KB |
 | shared plan | 1.54 KB |
+| shared pixel helpers (`render/pixels`) | 0.65 KB |
 | `?debug` | 1.15 KB |
-| `?debug=parity` | 4.31 KB |
+| `?debug=parity` | 4.63 KB |
 
 ## 2. GLSL → WGSL
 
@@ -231,7 +232,7 @@ Measured 2026-10-31 with `__bench` (wall time per frame, waiting for the GPU aft
   ```sh
   sudo pacman -S vulkan-radeon
   ls /usr/share/vulkan/icd.d            # radeon_icd.x86_64.json should appear
-  pnpm -C web build && make go-build
+  make build                            # web/dist + bin/species
   bin/species serve --data data --static web/dist --port 3078 &
   # The WebGPU flags pick the hardware adapter once Vulkan is there; check "adapter" in screens/webgpu/*.json.
   SHOT_BASE=http://localhost:3078 SHOT_GPU=1 SHOT_RENDERER=both pnpm -C web shot \

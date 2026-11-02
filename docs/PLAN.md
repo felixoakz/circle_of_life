@@ -67,7 +67,7 @@ One module at the repository root (`go.mod`, module path `species`, `go 1.27`), 
 - `mattn/go-sqlite3`: it needs cgo and a C toolchain in the image.
 - A router or web framework. `http.ServeMux` patterns cover every route (§5.1).
 - A gzip middleware library. `internal/server/gzip.go` is about 100 lines with exactly the rules in §5.
-- A Newick library. The parser is hand-written: about 100 lines and a good exercise.
+- A Newick library. The parser is hand-written: about 200 lines and a good exercise.
 - `encoding/csv`. TSVs are split by hand with `bytes.Cut`, since OTT's `\t|\t` separator is non-standard anyway.
 - `embed` for `web/dist`. Static files are served from disk, so the frontend can be rebuilt without rebuilding the binary.
 - `errgroup`. Enrichment errors go into a per-document report, never up the stack.
@@ -92,7 +92,7 @@ One module at the repository root (`go.mod`, module path `species`, `go 1.27`), 
 |---|---|---|
 | Synth tree | `data/raw/labelled_supertree.tre` (31 MB) | `https://files.opentreeoflife.org/synthesis/opentree16.1/output/labelled_supertree/labelled_supertree.tre` |
 | OTT 3.7.3 | `data/raw/ott3.7.3/` (`taxonomy.tsv` 417 MB, `synonyms.tsv`, `forwards.tsv`, `version.txt`) | `https://files.opentreeoflife.org/ott/ott3.7.3/ott3.7.3.tgz` |
-| GBIF Backbone (P11 only) | `data/raw/backbone.zip` (not downloaded yet; `make fetch-gbif`) | `https://hosted-datasets.gbif.org/datasets/backbone/current/backbone.zip` (926 MB, frozen 2023-08-28) |
+| GBIF Backbone (P11 only) | `data/raw/backbone.zip` (`make fetch-gbif`) | `https://hosted-datasets.gbif.org/datasets/backbone/current/backbone.zip` (971 MB, frozen 2023-08-28) |
 
 P0 copied the first two from the planning session's volatile `/tmp` into `data/raw/` (gitignored). Ingest takes explicit `--tree` and `--taxonomy` paths. `make fetch-data` documents and performs the download for a fresh machine (curl + tar). `version.txt` inside the OTT folder reads `3.7draft3`; that is expected for the 3.7.3 release, so do not treat it as an error.
 
@@ -1013,7 +1013,7 @@ There is no docker-compose for development, because SQLite needs no service.
   - `reduced`
 - **Renderers and diffs:** `SHOT_RENDERER=webgl|webgpu|both` writes into `screens/<renderer>/`; `both` or `SHOT_COMPARE=<dir>` writes heatmaps and `report.json` into `screens/diff/` and exits 1 over the thresholds (`docs/plan-webgpu.md` §5). `SHOT_QUERY='&…'` adds URL parameters, `SHOT_OUT=<dir>` moves the output.
 - **Review:** after P6, P7 and P12, a separate reviewer agent compares the screens against `docs/reference/*.png` and the DESIGN.md banned-tells checklist. It writes its findings into the phase review, with 2–3 rounds at most.
-- **Lint:** `make lint-design` greps `web/src/**/*.{css,ts}` for banned tokens (`backdrop-filter`, `box-shadow`, `linear-gradient`, `radial-gradient`, `border-radius:` > 4px, `Inter`, `Geist`, `JetBrains`).
+- **Lint:** `make lint-design` greps `web/src/**/*.{css,ts}` for banned tokens (`backdrop-filter`, `box-shadow`, `text-shadow`, `linear-`/`radial-`/`conic-gradient`, `border-radius:` > 4px, `Inter`, `Geist`, `JetBrains`, `Space Grotesk`, `Roboto`).
 
 ### 10.3 Tests (light but real)
 - **Go** (`go test ./...`, all offline):

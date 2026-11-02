@@ -2,7 +2,7 @@
 // VernacularName.tsv and keeps the ones in the wanted languages (English
 // and Portuguese by default) for the nodes of our tree.
 //
-// The file lives inside the 926 MB GBIF backbone.zip and is never unpacked
+// The file lives inside the 971 MB GBIF backbone.zip and is never unpacked
 // to disk: for a .zip path ingest runs `unzip -p <zip> VernacularName.tsv`
 // as a child process and reads its stdout as it streams. "-" reads the same
 // text from stdin, and any other path is read as a plain .tsv file (the test

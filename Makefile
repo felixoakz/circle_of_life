@@ -1,5 +1,4 @@
 # Project tasks (PLAN §10.1). Run `make help` for the list.
-# Targets for later phases are present and say which phase implements them.
 
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -29,7 +28,7 @@ fetch-data: ## Download the synth tree and OTT 3.7.3 into data/raw (skips existi
 	test -f $(RAW)/labelled_supertree.tre || curl -fL -o $(RAW)/labelled_supertree.tre $(SYNTH_URL)
 	test -f $(RAW)/ott3.7.3/taxonomy.tsv || { curl -fL -o $(RAW)/ott3.7.3.tgz $(OTT_URL) && tar -xzf $(RAW)/ott3.7.3.tgz -C $(RAW) && rm $(RAW)/ott3.7.3.tgz; }
 
-fetch-gbif: ## Download the GBIF backbone (926 MB) for common names (P11)
+fetch-gbif: ## Download the GBIF backbone (971 MB) for common names (P11)
 	mkdir -p $(RAW)
 	@# Download to a .part file and resume it (-C -) if interrupted; rename only when complete.
 	test -f $(RAW)/backbone.zip || { curl -fL -C - -o $(RAW)/backbone.zip.part $(GBIF_URL) && mv $(RAW)/backbone.zip.part $(RAW)/backbone.zip; }

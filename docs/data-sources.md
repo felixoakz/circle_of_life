@@ -27,7 +27,7 @@ Everything here was validated on 2026-10-27.
 - **Cite:** Rees, J. A. & Cranston, K. (2017). Automated assembly of a reference taxonomy for phylogenetic data synthesis. *Biodiversity Data Journal* 5:e12581. OTT 3.7.3 on Zenodo, doi:10.5281/zenodo.3937750.
 
 ### GBIF Backbone Taxonomy: vernacular names (P11)
-- **Archive:** `backbone.zip`, 926 MB, a Darwin Core Archive frozen on 2023-08-28. `VernacularName.tsv` is keyed by GBIF `taxonID`.
+- **Archive:** `backbone.zip`, 971 MB, a Darwin Core Archive frozen on 2023-08-28. `VernacularName.tsv` is keyed by GBIF `taxonID`.
 - **URL:** https://hosted-datasets.gbif.org/datasets/backbone/current/backbone.zip
 - **Licence:** CC BY 4.0.
 - **Use:** names in `en` and `pt` only, joined to OTT nodes through the `gbif:` ids in OTT `sourceinfo` (an integer join with no name matching). Accept both 2- and 3-letter language codes.
@@ -60,7 +60,7 @@ Archaeplastida 5268475 is **not** a node in synth 16.1, because it is broken the
 | iNaturalist (image fallback) | `https://api.inaturalist.org/v1/taxa?q={name}&per_page=5` (exact name match) | `default_photo.medium_url`, `license_code`, `attribution` | Only `cc0`, `cc-by`, `cc-by-sa`, `cc-by-nc` (this is a non-commercial portfolio). Never a null licence. Always attribute. ≤ 1 request/s |
 
 **Etiquette**
-- Every request sends `User-Agent: CircleOfLife/0.1 (+{SPECIES_PUBLIC_URL}; {SPECIES_CONTACT})`. Wikimedia blocks generic UAs.
+- Every request sends `User-Agent: species-circle/0.1.0 (+{SPECIES_PUBLIC_URL}; {SPECIES_CONTACT})` (`config.UserAgent`). Wikimedia blocks generic UAs.
 - On `429` or `Retry-After`, back off.
 - Concurrency is capped per host: GBIF 8, Wikimedia 4, iNat 1.
 - Store URLs and attribution, never image bytes.

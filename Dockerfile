@@ -2,7 +2,9 @@
 # The data (tree.db, cache.db) is NOT in the image; mount it at /data.
 #
 #   docker build -t species .
-#   docker run -p 3000:3000 -v "$PWD/data:/data" species
+#   docker run -p 3000:3000 --user "$(id -u):$(id -g)" -v "$PWD/data:/data" species
+#
+# (--user: a bind mount must be writable for cache.db; see README "Docker".)
 #
 # Stages: web → web/dist, go → a static binary, runtime (distroless, no
 # shell).
