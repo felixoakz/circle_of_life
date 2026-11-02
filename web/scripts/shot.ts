@@ -1,5 +1,6 @@
-// Visual QA screenshots (PLAN §10.2). Needs the server running on a fresh
-// build (`pnpm -C web build`, then `make server`), then:
+// Visual QA screenshots (PLAN §10.2) and the renderer parity check
+// (docs/plan-webgpu.md §5). Needs the server running on a fresh build
+// (`pnpm -C web build`, then `make server`), then:
 //
 //   pnpm -C web shot                 # all states
 //   pnpm -C web shot deep-homo       # just some states
@@ -7,25 +8,65 @@
 //   SHOT_GPU=1 pnpm -C web shot      # hardware GPU (frame times)
 //   SHOT_OUT=../screens/review-fixed pnpm -C web shot hidpi-overview   # another folder
 //
+// Renderers and parity:
+//
+//   SHOT_RENDERER=webgl|webgpu|both  # shots into screens/<renderer>/<state>.png
+//   SHOT_COMPARE=../screens/baseline-webgl pnpm -C web shot   # diff against earlier shots
+//   SHOT_QUERY='&passes=branches,arcs' pnpm -C web shot      # extra URL parameters for every state
+//
+// With `both`, the WebGPU shots are diffed against the WebGL ones; with
+// SHOT_COMPARE, every shot is diffed against <dir>/<state>.png. Diffs go to
+// screens/diff/<state>.png (red: over tolerance) plus report.json, a table
+// is printed, and the run exits 1 when a state is over the thresholds. The
+// `precision` state is not pixel-diffed (its frame depends on when the
+// screenshot lands, docs/webgpu.md); its test result is compared instead,
+// against <dir>/precision.json when that exists. Every shot also writes
+// <state>.json (stats, frame time, GPU time from timestamp queries where the
+// backend has them, the WebGPU adapter, precision) next to its PNG.
+//
 // Headless Chromium renders WebGL2 through SwiftShader (a CPU rasteriser), so
-// it is slow but needs no GPU. Each state opens a URL, waits for
-// `window.__renderIdle`, and writes screens/<state>.png (the state name says
-// the size where it is not the 1440×900 desktop default, e.g. mobile-…). Camera
-// positions use the `v` URL parameter (src/url.ts), computed from /api/meta.
+// it is slow but needs no GPU. WebGPU needs ANGLE on the host's GL driver
+// (docs/webgpu.md), so WebGPU runs always use the SHOT_GPU flags. Each state
+// opens a URL, waits for `window.__renderIdle`, checks `window.__renderer`,
+// and writes the PNG (the state name says the size where it is not the
+// 1440×900 desktop default, e.g. mobile-…). Camera positions use the `v` URL
+// parameter (src/url.ts), computed from /api/meta.
 
-import { mkdir } from 'node:fs/promises';
-import { type Page, chromium } from 'playwright';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { type Browser, type Page, chromium } from 'playwright';
+import { type DiffResult, decodePng, diffImages, encodePng } from './pixeldiff.ts';
 
 const BASE = process.env.SHOT_BASE ?? 'http://localhost:3000';
 // SHOT_GPU=1 renders on the machine's GPU instead of SwiftShader: real
 // frame times, and the precision test runs on real GPU float maths.
 const GPU = process.env.SHOT_GPU === '1';
-const BROWSER_ARGS = GPU
-  ? ['--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist']
-  : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
-const OUT = process.env.SHOT_OUT
-  ? new URL(`file://${process.env.SHOT_OUT.replace(/\/?$/, '/')}`)
-  : new URL('../../screens/', import.meta.url);
+const GPU_ARGS = ['--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'];
+const SWIFTSHADER_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
+/** docs/webgpu.md "Chosen headless flags": WebGPU canvases only work with ANGLE on native GL. */
+const WEBGPU_ARGS = ['--enable-unsafe-webgpu', ...GPU_ARGS];
+/** A folder given on the command line (relative to web/ under pnpm) as a file URL ending in '/'. */
+const dirUrl = (dir: string): URL => new URL(`${pathToFileURL(resolve(dir)).href}/`);
+const OUT = process.env.SHOT_OUT ? dirUrl(process.env.SHOT_OUT) : new URL('../../screens/', import.meta.url);
+
+type RendererName = 'webgl' | 'webgpu';
+/** What `window.__renderer` must say for each `?renderer=` value. */
+const BACKEND: Record<RendererName, string> = { webgl: 'webgl2', webgpu: 'webgpu' };
+const RENDERER_ENV = process.env.SHOT_RENDERER;
+const RENDERERS: RendererName[] =
+  RENDERER_ENV === 'both' ? ['webgl', 'webgpu'] : RENDERER_ENV === 'webgpu' ? ['webgpu'] : ['webgl'];
+const COMPARE = process.env.SHOT_COMPARE ? dirUrl(process.env.SHOT_COMPARE) : null;
+const EXTRA_QUERY = process.env.SHOT_QUERY ?? '';
+
+/** Parity thresholds (docs/plan-webgpu.md §5). */
+const TOL = 16;
+const MAX_OVER_PCT = 0.5;
+const MAX_MEAN_ABS = 1.0;
+/** Precision without a reference: the plan's WebGPU bound, px. */
+const PRECISION_MAX_PX = 0.25;
+
 const TAU = Math.PI * 2;
 const TWO_32 = 2 ** 32;
 
@@ -321,51 +362,207 @@ const STATES: State[] = [
   },
 ];
 
+interface PrecisionLite {
+  maxOffsetPx: number;
+  meanOffsetPx: number;
+  unmatched: number;
+  lines: number;
+}
+
+interface Shot {
+  state: State;
+  renderer: RendererName;
+  png: string;
+  precision: PrecisionLite | undefined;
+}
+
+/** Folder for one renderer's shots: the plain output folder unless SHOT_RENDERER was given. */
+function outDir(renderer: RendererName): URL {
+  return RENDERER_ENV ? new URL(`${renderer}/`, OUT) : OUT;
+}
+
+async function shoot(browser: Browser, s: State, renderer: RendererName, meta: MetaLite): Promise<Shot> {
+  const page = await browser.newPage({
+    viewport: { width: s.width, height: s.height },
+    deviceScaleFactor: s.dpr ?? 1,
+  });
+  const tag = `${renderer}/${s.name}`;
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') console.log(`  [${tag}] ${m.text()}`);
+  });
+  page.on('pageerror', (e) => console.log(`  [${tag}] page error: ${e.message}`));
+  const url = `${BASE}/?shot&renderer=${renderer}${await s.query(meta, s.width, s.height)}${EXTRA_QUERY}`;
+  const t0 = Date.now();
+  try {
+    await page.goto(url);
+    if (s.precision) await page.waitForFunction(() => window.__precision !== undefined, null, { timeout: 300_000 });
+    await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: 300_000 });
+    if (s.click) {
+      await page.click(s.click);
+      await page.waitForTimeout(100);
+      await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: 300_000 });
+    }
+    if (s.act) {
+      await s.act(page);
+      await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: 300_000 });
+    }
+    const dir = outDir(renderer);
+    const file = new URL(`${s.name}.png`, dir);
+    await page.screenshot({ path: file.pathname });
+    const backend = await page.evaluate(() => window.__renderer);
+    const stats = await page.evaluate(() => window.__stats);
+    // SwiftShader WebGL is slow, so 3 frames there; WebGPU on SwiftShader is far quicker (~10–100 ms).
+    const frames = GPU || renderer === 'webgpu' ? 60 : 3;
+    const bench = await page.evaluate((n) => window.__bench?.(n), frames);
+    const frameMs = bench?.ms;
+    const gpuMs = bench?.gpuMs ?? null;
+    const adapter = await page.evaluate(() => window.__gpuAdapter ?? null);
+    const precision = await page.evaluate(() => window.__precision);
+    const gpuErrors = await page.evaluate(() => window.__gpuErrors);
+    await writeFile(new URL(`${s.name}.json`, dir), `${JSON.stringify({ url, backend, adapter, stats, frameMs, gpuMs, frames, precision, gpuErrors }, null, 2)}\n`);
+    console.log(`${s.name} ${s.width}x${s.height}: ${file.pathname} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+    console.log(`  url ${url}`);
+    const where = renderer === 'webgpu' ? (adapter ?? 'WebGPU') : GPU ? 'GPU' : 'SwiftShader';
+    const gpuNote = gpuMs !== null ? `, gpu ${gpuMs.toFixed(2)} ms` : '';
+    console.log(`  renderer ${backend} stats ${JSON.stringify(stats)} frame ${frameMs?.toFixed(2)} ms${gpuNote} (${where})`);
+    if (precision) console.log(`  precision ${JSON.stringify(precision)}`);
+    // The fallback page has no renderer; everything else must run on the one asked for.
+    const expected = url.includes('nowebgl') ? 'none' : BACKEND[renderer];
+    if (backend !== expected) throw new Error(`window.__renderer is ${backend}, expected ${expected}`);
+    if (gpuErrors) throw new Error(`window.__gpuErrors is ${gpuErrors}`);
+    return { state: s, renderer, png: file.pathname, precision };
+  } finally {
+    await page.close();
+  }
+}
+
+interface Row {
+  state: string;
+  /** What was compared with what, e.g. "webgpu vs webgl". */
+  pair: string;
+  pixels?: Omit<DiffResult, 'heatmap'>;
+  precision?: { ours: PrecisionLite; reference: PrecisionLite | null };
+  diff?: string;
+  pass: boolean;
+  note?: string;
+}
+
+async function readPrecision(file: string): Promise<PrecisionLite | null> {
+  if (!existsSync(file)) return null;
+  const j = JSON.parse(await readFile(file, 'utf8')) as { precision?: PrecisionLite } & Partial<PrecisionLite>;
+  return j.precision ?? (j.maxOffsetPx !== undefined ? (j as PrecisionLite) : null);
+}
+
+/** Diffs `ours` against the PNG at `refPng` (and precision against its JSON). */
+async function compare(page: Page, ours: Shot, refPng: string, refJson: string, pair: string, diffName: string): Promise<Row> {
+  const state = ours.state.name;
+  if (ours.state.precision) {
+    const reference = await readPrecision(refJson);
+    const p = ours.precision;
+    if (!p) return { state, pair, pass: false, note: 'no precision result' };
+    // Exact reruns differ in the last digits of the mean only; 1e-4 px is far below anything visible.
+    const pass = reference
+      ? p.maxOffsetPx <= reference.maxOffsetPx + 1e-4 && p.unmatched <= reference.unmatched
+      : p.maxOffsetPx <= PRECISION_MAX_PX;
+    return { state, pair, precision: { ours: p, reference }, pass, note: reference ? undefined : 'no reference JSON' };
+  }
+  if (!existsSync(refPng)) return { state, pair, pass: false, note: `missing ${refPng}` };
+  const a = await decodePng(page, new Uint8Array(await readFile(refPng)));
+  const b = await decodePng(page, new Uint8Array(await readFile(ours.png)));
+  if (a.width !== b.width || a.height !== b.height) {
+    return { state, pair, pass: false, note: `size ${a.width}x${a.height} vs ${b.width}x${b.height}` };
+  }
+  const { heatmap, ...pixels } = diffImages(a.data, b.data, a.width, a.height, TOL);
+  const diffDir = new URL('diff/', OUT);
+  await mkdir(diffDir, { recursive: true });
+  const diff = new URL(diffName, diffDir).pathname;
+  await writeFile(diff, await encodePng(page, { width: a.width, height: a.height, data: heatmap }));
+  const pass = pixels.overPct <= MAX_OVER_PCT && pixels.meanAbs <= MAX_MEAN_ABS;
+  return { state, pair, pixels, diff, pass };
+}
+
+function printTable(rows: Row[]): void {
+  console.log(`\nparity (tol ${TOL}; over% ≤ ${MAX_OVER_PCT}, meanAbs ≤ ${MAX_MEAN_ABS})`);
+  console.log(`${'state'.padEnd(22)} ${'pair'.padEnd(26)} ${'over%'.padStart(8)} ${'meanAbs'.padStart(8)} ${'maxAbs'.padStart(6)}  result`);
+  for (const r of rows) {
+    let cols: string;
+    if (r.pixels) {
+      cols = `${r.pixels.overPct.toFixed(4).padStart(8)} ${r.pixels.meanAbs.toFixed(4).padStart(8)} ${String(r.pixels.maxAbs).padStart(6)}`;
+    } else if (r.precision) {
+      const o = r.precision.ours;
+      const ref = r.precision.reference;
+      cols = `precision max ${o.maxOffsetPx.toFixed(4)} px, ${o.unmatched} unmatched` +
+        (ref ? ` (ref ${ref.maxOffsetPx.toFixed(4)}, ${ref.unmatched})` : '');
+    } else {
+      cols = ''.padStart(24);
+    }
+    console.log(`${r.state.padEnd(22)} ${r.pair.padEnd(26)} ${cols}  ${r.pass ? 'ok' : 'FAIL'}${r.note ? ` (${r.note})` : ''}`);
+  }
+}
+
 async function main(): Promise<void> {
   const only = process.argv.slice(2);
   const states = STATES.filter((s) => (only.length > 0 ? only : DEFAULTS).includes(s.name));
   const meta = (await (await fetch(`${BASE}/api/meta`)).json()) as MetaLite;
-  await mkdir(OUT, { recursive: true });
 
-  const browser = await chromium.launch({ args: BROWSER_ARGS });
+  const shots: Shot[] = [];
+  /** Shots that could not be taken or ran on the wrong backend; they fail the table too. */
+  const failures: Row[] = [];
+  for (const renderer of RENDERERS) {
+    await mkdir(outDir(renderer), { recursive: true });
+    const args = renderer === 'webgpu' ? WEBGPU_ARGS : GPU ? GPU_ARGS : SWIFTSHADER_ARGS;
+    const browser = await chromium.launch({ args });
+    try {
+      for (const s of states) {
+        try {
+          shots.push(await shoot(browser, s, renderer, meta));
+        } catch (err) {
+          // A wrong backend fails the run but should not hide the other states.
+          const note = err instanceof Error ? err.message : String(err);
+          console.error(`  FAIL ${renderer}/${s.name}: ${note}`);
+          failures.push({ state: s.name, pair: renderer, pass: false, note });
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+  }
+
+  const both = RENDERERS.length === 2;
+  if (!COMPARE && !both) {
+    if (failures.length > 0) process.exit(1);
+    return;
+  }
+
+  // PNG decoding runs in a blank page of a plain browser.
+  const decoder = await chromium.launch();
+  const rows: Row[] = [...failures];
   try {
-    for (const s of states) {
-      const page = await browser.newPage({
-        viewport: { width: s.width, height: s.height },
-        deviceScaleFactor: s.dpr ?? 1,
-      });
-      page.on('console', (m) => {
-        if (m.type() === 'error' || m.type() === 'warning') console.log(`  [${s.name}] ${m.text()}`);
-      });
-      page.on('pageerror', (e) => console.log(`  [${s.name}] page error: ${e.message}`));
-      const url = `${BASE}/?shot${await s.query(meta, s.width, s.height)}`;
-      const t0 = Date.now();
-      await page.goto(url);
-      if (s.precision) await page.waitForFunction(() => window.__precision !== undefined, null, { timeout: 300_000 });
-      await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: 300_000 });
-      if (s.click) {
-        await page.click(s.click);
-        await page.waitForTimeout(100);
-        await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: 300_000 });
+    const page = await decoder.newPage();
+    for (const ours of shots) {
+      const name = ours.state.name;
+      if (COMPARE) {
+        const pair = `${ours.renderer} vs ${decodeURIComponent(COMPARE.pathname.replace(/\/$/, '').split('/').pop() ?? '')}`;
+        const diffName = both ? `${ours.renderer}-${name}.png` : `${name}.png`;
+        rows.push(await compare(page, ours, new URL(`${name}.png`, COMPARE).pathname, new URL(`${name}.json`, COMPARE).pathname, pair, diffName));
+      } else if (ours.renderer === 'webgpu') {
+        const ref = shots.find((x) => x.renderer === 'webgl' && x.state === ours.state);
+        if (!ref) continue;
+        rows.push(await compare(page, ours, ref.png, ref.png.replace(/\.png$/, '.json'), 'webgpu vs webgl', `${name}.png`));
       }
-      if (s.act) {
-        await s.act(page);
-        await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: 300_000 });
-      }
-      const file = new URL(`${s.name}.png`, OUT);
-      await page.screenshot({ path: file.pathname });
-      const stats = await page.evaluate(() => window.__stats);
-      const frameMs = await page.evaluate((n) => window.__bench?.(n), GPU ? 60 : 3);
-      const precision = await page.evaluate(() => window.__precision);
-      console.log(`${s.name} ${s.width}x${s.height}: ${file.pathname} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
-      console.log(`  url ${url}`);
-      console.log(`  stats ${JSON.stringify(stats)} frame ${frameMs?.toFixed(2)} ms (${GPU ? 'GPU' : 'SwiftShader'})`);
-      if (precision) console.log(`  precision ${JSON.stringify(precision)}`);
-      await page.close();
     }
   } finally {
-    await browser.close();
+    await decoder.close();
   }
+
+  printTable(rows);
+  const diffDir = new URL('diff/', OUT);
+  await mkdir(diffDir, { recursive: true });
+  const report = new URL('report.json', diffDir).pathname;
+  const thresholds = { tol: TOL, maxOverPct: MAX_OVER_PCT, maxMeanAbs: MAX_MEAN_ABS, precisionMaxPx: PRECISION_MAX_PX };
+  await writeFile(report, `${JSON.stringify({ thresholds, gpu: GPU, rows }, null, 2)}\n`);
+  console.log(`report ${report}`);
+  if (rows.some((r) => !r.pass)) process.exit(1);
 }
 
 main().catch((err: unknown) => {
