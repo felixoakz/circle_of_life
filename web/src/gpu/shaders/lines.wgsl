@@ -39,10 +39,6 @@ fn vs_branches(@builtin(vertex_index) vid: u32, @builtin(instance_index) i: u32)
     r0 = nodeR;
     r1 = 1.0;
   }
-  // A tip's hairline ends where its bar begins, rather than running through it.
-  if (!ext && childLevel == 255u && cmd.tipCut > 0.0) {
-    r1 = max(r0, 1.0 - cmd.tipCut / frame.scale);
-  }
   var angle = tileAngle(i);
   if (isHomeChildTip(childLevel, parent)) {
     angle = frame.homeAngle;

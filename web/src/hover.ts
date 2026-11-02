@@ -43,7 +43,6 @@ export function pickAt(scene: Scene, meta: Meta, x: number, y: number, touch: bo
   const cam = scene.camera;
   const { theta, r } = cam.screenToPolar(x, y);
   const spacing = cam.tipSpacingPx() / cam.dpr;
-  const look = S.frameLook({ lambda: view.lambda, tipSpacing: spacing });
   const px = cam.dpr;
   return pick(scene.lastTiles, {
     theta: fromRad(theta),
@@ -54,7 +53,8 @@ export function pickAt(scene: Scene, meta: Meta, x: number, y: number, touch: bo
     homeId: meta.home?.id ?? -1,
     homeAngle: meta.home?.angle ?? 0,
     tolPx: (touch ? S.PICK_TOL_TOUCH_PX : S.PICK_TOL_MOUSE_PX) * px,
-    rimInPx: (look.tipBar > 0 ? S.TIP_BAR_MAX_LEN_PX : S.PICK_RIM_IN_PX) * px,
+    // Once tips resolve, the last stretch of each tip's line (its bar's length) picks the tip.
+    rimInPx: (view.lambda > S.TIP_BAR_RAMP[0] ? S.TIP_BAR_MAX_LEN_PX : S.PICK_RIM_IN_PX) * px,
     rimOutPx: (spacing >= S.TIP_LABEL_SPACING ? S.PICK_LABEL_OUT_PX : S.PICK_RIM_OUT_PX) * px,
   });
 }

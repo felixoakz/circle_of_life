@@ -330,7 +330,6 @@ export class WebGl2Renderer implements Renderer {
     const u = this.programs.branches.u;
     gl.uniform1f(u.uAlpha ?? null, c.alpha);
     gl.uniform1f(u.uHomeAlpha ?? null, c.homeAlpha);
-    gl.uniform1f(u.uTipCut ?? null, c.tipCut);
     gl.uniform1f(u.uFade ?? null, c.fade);
     gl.bindVertexArray(glTile(c.tile).vao);
     gl.drawArraysInstanced(gl.LINES, 0, c.vertexCount, c.instanceCount);
@@ -365,9 +364,9 @@ export class WebGl2Renderer implements Renderer {
     const u = this.programs.marks.u;
     gl.uniform1f(u.uPx ?? null, c.px);
     gl.uniform2f(u.uSpike ?? null, ...c.spike);
-    gl.uniform3f(u.uTipBar ?? null, ...c.tipBar);
-    gl.uniform2f(u.uTipHalo ?? null, ...c.tipHalo);
-    gl.uniform3f(u.uLeader ?? null, ...c.leader);
+    gl.uniform2f(u.uTipBar ?? null, ...c.tipBar);
+    gl.uniform2f(u.uLeaderHalo ?? null, ...c.leaderHalo);
+    gl.uniform4f(u.uLeader ?? null, ...c.leader);
     gl.uniform1f(u.uFade ?? null, c.fade);
     gl.bindVertexArray(glTile(c.tile).vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, c.vertexCount, c.instanceCount);

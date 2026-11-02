@@ -68,7 +68,6 @@ export const LINES_FIELDS: readonly (readonly [string, WgslType])[] = [
   ['fade', 'f32'],
   ['alpha', 'f32'],
   ['homeAlpha', 'f32'],
-  ['tipCut', 'f32'],
   ['k', 'i32'],
 ];
 
@@ -98,9 +97,9 @@ export const MARKS_FIELDS: Fields = [
   ['fade', 'f32'],
   ['px', 'f32'],
   ['spike', 'vec2f'],
-  ['tipBar', 'vec3f'],
-  ['tipHalo', 'vec2f'],
-  ['leader', 'vec3f'],
+  ['tipBar', 'vec2f'],
+  ['leaderHalo', 'vec2f'],
+  ['leader', 'vec4f'],
 ];
 
 /** `PathDraw` (path.wgsl). */
@@ -189,7 +188,6 @@ export function packLines(c: BranchesCmd | ArcsCmd, out: ArrayBuffer, offset: nu
   f[word('fade')] = c.fade;
   f[word('alpha')] = c.alpha;
   f[word('homeAlpha')] = c.homeAlpha;
-  f[word('tipCut')] = c.pass === 'branches' ? c.tipCut : 0;
   i32[word('k')] = c.pass === 'arcs' ? c.k : 0;
 }
 
@@ -246,7 +244,7 @@ export function packDraw(c: FansCmd | RimCmd | MarksCmd | PathCmd | RingCmd | Di
     case 'marks':
       return packStruct(
         MARKS_FIELDS,
-        { fade: c.fade, px: c.px, spike: c.spike, tipBar: c.tipBar, tipHalo: c.tipHalo, leader: c.leader },
+        { fade: c.fade, px: c.px, spike: c.spike, tipBar: c.tipBar, leaderHalo: c.leaderHalo, leader: c.leader },
         out,
         offset,
       );

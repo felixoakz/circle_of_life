@@ -1,7 +1,8 @@
 // Rim marks (PLAN §7.3 pass 4): one quad per node (TRIANGLE_STRIP, 4
 // vertices), sized in device px around the node's point on the rim:
 //   - a frontier clade gets a short outward spike (the overview "fur"),
-//   - a tip gets a glowing bar inward from the rim (deep zoom),
+//   - a tip gets a bright bar inward from the rim, one device px wide like
+//     its hairline (the rim's glow once tips resolve),
 //   - the home node gets a long outward leader bar past its label.
 // Anything else is moved off screen. marks.frag gives the soft edges.
 layout(location = 0) in uint aAngle;
@@ -17,9 +18,9 @@ uniform float uFade;       // this tile's level fade-in
 uniform float uLambdaExt;
 uniform float uPx;         // device px per CSS px
 uniform vec2 uSpike;       // alpha (× glow), max width px
-uniform vec3 uTipBar;      // alpha (0: off), width px, max length px
-uniform vec2 uTipHalo;     // amount, decay px
-uniform vec3 uLeader;      // alpha (0: off), gap px, length px
+uniform vec2 uTipBar;      // alpha (0: off), max length px
+uniform vec2 uLeaderHalo;  // amount, decay px
+uniform vec4 uLeader;      // alpha (0: off), gap px, length px, width px
 
 out vec2 vQuad;    // x: px across from the centre line; y: 0 → 1 along the mark
 out float vHalfW;  // half width of the solid part, px
@@ -54,16 +55,15 @@ void main() {
   if (tip && alpha < 0.0) {
     alpha = 0.0;
   } else if (tip) {
-    // Inward bar; never longer than the terminal branch.
+    // Inward bar over the hairline, as thin as it and without a halo, so
+    // the branch reads as one line; never longer than the terminal branch.
     alpha = uFade * uTipBar.x;
-    halfW = 0.5 * uTipBar.y;
-    halo = uTipHalo.y;
-    r0 = -min(uTipBar.z, (1.0 - aParentR) * uScale);
+    r0 = -min(uTipBar.y, (1.0 - aParentR) * uScale);
     r1 = 0.0;
   } else if ((aFlags & 8u) != 0u) {
     alpha = uFade * uLeader.x;
-    halfW = 0.5 * uTipBar.y;
-    halo = uTipHalo.y;
+    halfW = 0.5 * uLeader.w;
+    halo = uLeaderHalo.y;
     r0 = uLeader.y + uLeader.z;
     r1 = uLeader.y;
     vKind = 2.0;

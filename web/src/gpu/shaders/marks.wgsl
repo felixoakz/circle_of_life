@@ -1,7 +1,8 @@
 // Rim marks (PLAN §7.3 pass 4): one quad per node, sized in device px
 // around the node's point on the rim. Port of marks.vert and marks.frag.
 //   - a frontier clade gets a short outward spike (the overview "fur"),
-//   - a tip gets a glowing bar inward from the rim (deep zoom),
+//   - a tip gets a bright bar inward from the rim, one device px wide like
+//     its hairline (the rim's glow once tips resolve),
 //   - the home node gets a long outward leader bar past its label.
 // Anything else is moved off screen. fs_marks gives the soft edges.
 //
@@ -60,16 +61,15 @@ fn vs_marks(@builtin(vertex_index) vid: u32, @builtin(instance_index) i: u32) ->
   if (tip && alpha < 0.0) {
     alpha = 0.0;
   } else if (tip) {
-    // Inward bar; never longer than the terminal branch.
+    // Inward bar over the hairline, as thin as it and without a halo, so
+    // the branch reads as one line; never longer than the terminal branch.
     alpha = cmd.fade * cmd.tipBar.x;
-    halfW = 0.5 * cmd.tipBar.y;
-    halo = cmd.tipHalo.y;
-    r0 = -min(cmd.tipBar.z, (1.0 - tileParentR(i)) * frame.scale);
+    r0 = -min(cmd.tipBar.y, (1.0 - tileParentR(i)) * frame.scale);
     r1 = 0.0;
   } else if ((flags & 8u) != 0u) {
     alpha = cmd.fade * cmd.leader.x;
-    halfW = 0.5 * cmd.tipBar.y;
-    halo = cmd.tipHalo.y;
+    halfW = 0.5 * cmd.leader.w;
+    halo = cmd.leaderHalo.y;
     r0 = cmd.leader.y + cmd.leader.z;
     r1 = cmd.leader.y;
     o.kind = 2.0;
@@ -113,15 +113,15 @@ fn leader(v: MarkOut, x: f32) -> vec4f {
   let beyond = (v.quad.y - 1.0) * v.lenPx; // px past the inner end (≤ 0 along the bar)
   let core = (1.0 - ss(v.halfW - 0.5, v.halfW + 0.5, x)) * (1.0 - ss(-0.5, 0.5, beyond));
   let dist = length(vec2f(max(x - v.halfW, 0.0), max(beyond, 0.0)));
-  let halo = cmd.tipHalo.x * exp(-dist / max(v.haloPx, 1e-3));
+  let halo = cmd.leaderHalo.x * exp(-dist / max(v.haloPx, 1e-3));
   let fadeIn = ss(0.0, 0.55, v.quad.y);
   let a = v.alpha * max(core, halo) * fadeIn * fadeIn * revealMask(1.0);
   return vec4f(v.colour * a, a);
 }
 
-// Soft-edged marks: a crisp core (antialiased over one px) plus an
-// exponential halo across the width, so each mark glows without any blur
-// pass. Spikes fade outward; tip bars soften at their inner end only.
+// Soft-edged marks: a crisp core, antialiased over one px. Spikes fade
+// outward; tip bars soften at their inner end only; the leader (above)
+// adds a halo.
 @fragment
 fn fs_marks(v: MarkOut) -> @location(0) vec4f {
   let x = abs(v.quad.x);
@@ -129,20 +129,11 @@ fn fs_marks(v: MarkOut) -> @location(0) vec4f {
     return leader(v, x);
   }
   let core = 1.0 - ss(v.halfW - 0.5, v.halfW + 0.5, x);
-  var halo = 0.0;
-  if (v.haloPx > 0.0) {
-    halo = cmd.tipHalo.x * exp(-max(x - v.halfW, 0.0) / v.haloPx);
-  }
-  let across = max(core, halo);
   let y = v.quad.y;
-  var lengthwise: f32;
+  var lengthwise = ss(0.0, 0.15, y);
   if (v.kind < 0.5) {
     lengthwise = exp(-3.0 * y);
-  } else if (v.kind < 1.5) {
-    lengthwise = ss(0.0, 0.15, y);
-  } else {
-    lengthwise = ss(0.0, 0.3, y) * ss(1.0, 0.97, y);
   }
-  let a = v.alpha * across * lengthwise * revealMask(1.0);
+  let a = v.alpha * core * lengthwise * revealMask(1.0);
   return vec4f(v.colour * a, a);
 }

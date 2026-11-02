@@ -13,7 +13,6 @@ uniform float uFade;      // this tile's level fade-in
 uniform float uLambdaExt; // λ, capped at the last fully loaded level
 uniform float uAlpha;     // branch alpha for this zoom
 uniform float uHomeAlpha;
-uniform float uTipCut;    // tips' branches stop this many device px inside the rim, where their bar starts (0: off)
 
 out float vR;
 out vec3 vHue;
@@ -25,8 +24,6 @@ void main() {
   bool ext = gl_VertexID >= 2;
   float r0 = ext ? aR : aParentR;
   float r1 = ext ? 1.0 : aR;
-  // A tip's hairline ends where its bar begins, rather than running through it.
-  if (!ext && aChildLevel == 255u && uTipCut > 0.0) r1 = max(r0, 1.0 - uTipCut / uScale);
   uint angle = isHomeChildTip(aChildLevel, aParent) ? uHomeAngle : aAngle;
   float alpha = ext ? uFade * (1.0 - childFade(aChildLevel, uLambdaExt)) : uFade;
   // Clamping to the visible radii keeps far endpoints near the screen, so

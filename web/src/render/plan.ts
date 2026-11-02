@@ -70,8 +70,6 @@ export interface BranchesCmd extends DrawBase {
   fade: number;
   alpha: number;
   homeAlpha: number;
-  /** Device px of a tip's hairline left off where its bar starts (0: none). */
-  tipCut: number;
 }
 
 export interface ArcsCmd extends DrawBase {
@@ -100,9 +98,12 @@ export interface MarksCmd extends DrawBase {
   fade: number;
   px: number;
   spike: [number, number];
-  tipBar: [number, number, number];
-  tipHalo: [number, number];
-  leader: [number, number, number];
+  /** Alpha (0: off), max length px. Tip bars are one device px wide, like their hairline. */
+  tipBar: [number, number];
+  /** Home leader: alpha (0: off), gap px, length px, width px. */
+  leader: [number, number, number, number];
+  /** The leader's halo: amount, decay px. */
+  leaderHalo: [number, number];
 }
 
 export interface DimCmd extends DrawBase {
@@ -252,8 +253,6 @@ export function planFrame(
   }
 
   if (on('branches')) {
-    // Once tip bars are strong, tips' hairlines stop where their bars start.
-    const tipCut = look.tipBar > 0.5 ? S.TIP_BAR_MAX_LEN_PX * p.dpr : 0;
     for (const t of tiles) {
       const fade = p.fade(t.level);
       if (fade <= 0) continue;
@@ -267,7 +266,6 @@ export function planFrame(
         fade,
         alpha: look.branchAlpha,
         homeAlpha: S.HOME_LINE_ALPHA,
-        tipCut,
       });
       instances += t.count;
       drawCalls++;
@@ -328,9 +326,9 @@ export function planFrame(
         fade,
         px: p.dpr,
         spike: [S.SPIKE_ALPHA * look.glow, S.SPIKE_MAX_W_PX * p.dpr],
-        tipBar: [look.tipBar, look.tipWidth * p.dpr, S.TIP_BAR_MAX_LEN_PX * p.dpr],
-        tipHalo: [S.TIP_HALO, look.tipHalo * p.dpr],
-        leader: [leaderAlpha, p.leaderGap * p.dpr, Math.max(1, p.leaderLen) * p.dpr],
+        tipBar: [look.tipBar, S.TIP_BAR_MAX_LEN_PX * p.dpr],
+        leader: [leaderAlpha, p.leaderGap * p.dpr, Math.max(1, p.leaderLen) * p.dpr, look.leaderWidth * p.dpr],
+        leaderHalo: [S.LEADER_HALO, look.leaderHalo * p.dpr],
       });
       instances += t.count;
       drawCalls++;
