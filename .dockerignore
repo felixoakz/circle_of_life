@@ -1,6 +1,6 @@
 # Keep the build context small: only sources go in (the data is a volume).
 data/
-target/
+bin/
 screens/
 web/node_modules/
 web/dist/

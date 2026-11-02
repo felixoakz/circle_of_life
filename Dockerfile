@@ -4,7 +4,8 @@
 #   docker build -t species .
 #   docker run -p 3000:3000 -v "$PWD/data:/data" species
 #
-# Stages (PLAN §11): web → web/dist, rust → the release binary, runtime.
+# Stages: web → web/dist, go → a static binary, runtime (distroless, no
+# shell).
 
 # ---- 1. Frontend -------------------------------------------------------------
 FROM node:26-slim AS web
@@ -21,44 +22,36 @@ COPY web/ ./
 RUN pnpm build
 
 # ---- 2. Server ---------------------------------------------------------------
-FROM rust:1.99-slim-trixie AS rust
-# A C compiler for the bundled SQLite; cmake and perl for aws-lc (rustls).
-RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential cmake perl \
- && rm -rf /var/lib/apt/lists/*
+FROM golang:1.27-trixie AS go
 WORKDIR /app
-# Build the dependencies against an empty program first, so this slow layer
-# is cached until Cargo.toml or Cargo.lock change. (rust-toolchain.toml is
-# left out on purpose: the image already is Rust 1.99, and the file would
-# make rustup download clippy and rustfmt.)
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src \
- && echo 'fn main() {}' > src/main.rs \
- && touch src/lib.rs \
- && cargo build --release --locked \
- && rm -rf src
-COPY src ./src
-# `touch` so cargo sees the real sources as newer than the placeholder build.
-RUN touch src/main.rs src/lib.rs \
- && cargo build --release --locked \
- && strip target/release/species
+# Modules first: this layer is reused until go.mod or go.sum change.
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+# CGO_ENABLED=0: modernc's SQLite is pure Go, so the binary is fully static
+# and runs on an image without libc. -trimpath drops local paths, -s -w the
+# symbol and debug tables (about a third of the size).
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/species ./cmd/species \
+ && mkdir /out/data
 
 # ---- 3. Runtime --------------------------------------------------------------
-FROM debian:trixie-slim
-# ca-certificates: enrichment calls Wikidata, Wikipedia, GBIF and iNaturalist over HTTPS.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin species \
- && mkdir /data && chown species:species /data
+# Static distroless: CA certificates (enrichment calls Wikidata, Wikipedia,
+# GBIF and iNaturalist over HTTPS), tzdata and /etc/passwd, nothing else; no
+# shell, no package manager.
+FROM gcr.io/distroless/static-debian13
 WORKDIR /app
-COPY --from=rust /app/target/release/species /usr/local/bin/species
+COPY --from=go /out/species /usr/local/bin/species
 COPY --from=web /app/web/dist /app/web/dist
-USER species
+# An empty /data owned by uid 10001, so a named volume mounted there (Coolify)
+# starts out writable for cache.db. There is no shell to `mkdir`/`chown` with,
+# hence the copy.
+COPY --from=go --chown=10001:10001 /out/data /data
+USER 10001:10001
 ENV SPECIES_DATA_DIR=/data \
     SPECIES_STATIC_DIR=/app/web/dist \
     PORT=3000 \
-    RUST_LOG=info
+    LOG_LEVEL=info
 VOLUME /data
 EXPOSE 3000
 # `species healthcheck` asks the server for /healthz (no curl needed). It
