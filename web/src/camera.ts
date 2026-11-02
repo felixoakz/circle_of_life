@@ -1,4 +1,5 @@
-// Double-precision camera (PLAN §7.2).
+// Double-precision camera (PLAN §7.2): the view transform the renderer,
+// labels and picking share.
 //
 // World space: the tree's unit disc, x = r·cos θ, y = r·sin θ (y up, so angles
 // grow counter-clockwise on screen). The camera looks at the world point
@@ -7,9 +8,11 @@
 //
 // Screen space: device pixels, origin top-left, y down (like pointer events).
 // Everything here is plain JS doubles; only `uniforms()` narrows to float32.
+//
+// The user does not move this camera directly: the rig (rig.ts) holds the
+// state the user controls, zoom and rotation, and writes the pose here.
 
 import { TAU, TWO_32, fromRad } from './angle';
-import { GUTTER_PX, HUD_BAND_PX } from './style';
 
 export interface Point {
   x: number;
@@ -20,7 +23,7 @@ export interface Point {
 export interface CameraUniforms {
   /** Integer part of the camera angle in u32 units. */
   camA: number;
-  /** Fractional u32 units left over (0 ≤ frac < 1); keeps sub-unit panning smooth. */
+  /** Fractional u32 units left over (0 ≤ frac < 1); keeps sub-unit motion smooth. */
   camAFrac: number;
   /** camR split into float32 hi + lo so hi + lo ≈ camR to ~1e-14. */
   camRHi: number;
@@ -35,11 +38,6 @@ export interface CameraUniforms {
 
 /** Tip spacing at maximum zoom, in CSS px (PLAN §7.5). */
 const MAX_TIP_SPACING_CSS = 48;
-/** At full fit the rim sits this fraction inside the room for the wheel (see `fitScale`). */
-const FIT_MARGIN = 0.86;
-
-/** The view centre may not wander further than this from the origin. */
-const MAX_CENTRE_R = 1.15;
 
 export class Camera {
   /** Polar angle of the screen centre, radians. */
@@ -64,49 +62,11 @@ export class Camera {
     this.width = width;
     this.height = height;
     this.dpr = dpr;
-    this.scale = this.clampScale(this.scale);
   }
 
-  /**
-   * Scale at which the whole wheel fits the room for it: the screen less the
-   * side gutters and the bottom HUD band, so group labels clear the HUD and,
-   * on a phone, the screen edges.
-   */
-  fitScale(): number {
-    const w = this.width - 2 * GUTTER_PX * this.dpr;
-    const h = this.height - HUD_BAND_PX * this.dpr;
-    return (Math.max(1, Math.min(w, h)) / 2) * FIT_MARGIN;
-  }
-
-  /**
-   * The world point to put at the screen centre so that, at rotation `rot`
-   * and the fit scale, the wheel is centred in the room above the HUD band.
-   */
-  fitCentre(rot: number): Point {
-    // The origin should sit `up` world units above the screen centre, which
-    // on screen is the direction (0, 1) turned back by the rotation.
-    const up = (HUD_BAND_PX * this.dpr) / 2 / this.fitScale();
-    return { x: -up * Math.sin(rot), y: -up * Math.cos(rot) };
-  }
-
-  minScale(): number {
-    return this.fitScale() * 0.8;
-  }
-
+  /** The deepest zoom: MAX_TIP_SPACING_CSS between neighbouring tips. */
   maxScale(): number {
-    const tips = (MAX_TIP_SPACING_CSS * this.dpr * this.tipCount) / TAU;
-    return Math.max(tips, this.fitScale() * 8);
-  }
-
-  clampScale(s: number): number {
-    return Math.min(this.maxScale(), Math.max(this.minScale(), s));
-  }
-
-  /** Whole wheel, centred above the HUD band at the current rotation. */
-  fit(): void {
-    this.scale = this.fitScale();
-    const c = this.fitCentre(this.rot);
-    this.setCentre(c.x, c.y);
+    return (MAX_TIP_SPACING_CSS * this.dpr * this.tipCount) / TAU;
   }
 
   /** Pixel distance between neighbouring tips on the rim. */
@@ -119,9 +79,8 @@ export class Camera {
   }
 
   setCentre(x: number, y: number): void {
-    let r = Math.hypot(x, y);
+    const r = Math.hypot(x, y);
     let angle = r > 0 ? Math.atan2(y, x) : this.angle;
-    if (r > MAX_CENTRE_R) r = MAX_CENTRE_R;
     if (angle < 0) angle += TAU;
     this.r = r;
     this.angle = angle;
@@ -155,21 +114,6 @@ export class Camera {
 
   polarToScreen(theta: number, r: number): Point {
     return this.worldToScreen(r * Math.cos(theta), r * Math.sin(theta));
-  }
-
-  /** Multiplies the scale by `factor`, keeping the world point under (px, py) fixed. */
-  zoomAt(px: number, py: number, factor: number): void {
-    const anchor = this.screenToWorld(px, py);
-    this.scale = this.clampScale(this.scale * factor);
-    const d = this.screenToOffset(px, py);
-    this.setCentre(anchor.x - d.x, anchor.y - d.y);
-  }
-
-  /** Moves the picture by (dx, dy) screen pixels, like dragging it. */
-  panBy(dx: number, dy: number): void {
-    const c = this.centre();
-    const d = this.screenToOffset(this.width / 2 + dx, this.height / 2 + dy);
-    this.setCentre(c.x - d.x, c.y - d.y);
   }
 
   /** λ (PLAN §3.6): log2 of rim circumference over P · 0.5 px. */

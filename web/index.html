@@ -25,16 +25,18 @@
 
     <footer class="hud hud-bottom">
       <div class="hud-status">
-        <nav class="breadcrumb" aria-label="Lineage at the centre of the view"></nav>
+        <nav class="breadcrumb" aria-label="Lineage of the selection"></nav>
         <p class="readout"></p>
       </div>
       <div class="hud-controls">
-        <div class="zoom-controls" role="group" aria-label="Zoom"></div>
         <ul class="kingdom-key" aria-label="Kingdoms"></ul>
       </div>
     </footer>
 
-    <!-- Node details (P8 core, P10 about): ui/panel.ts. -->
+    <!-- Zoom: a vertical scale on the left edge and the reset button (ui/zoomstrip.ts). -->
+    <div id="zoom-strip" class="zoom-strip"></div>
+
+    <!-- The selection card (P8 core, P10 about): ui/panel.ts, placed by layout.ts. -->
     <aside id="panel" class="panel" hidden></aside>
 
     <!-- Screen-reader announcements of selection changes (P8). -->

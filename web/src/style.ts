@@ -12,7 +12,7 @@ import { smoothstep } from './ease';
 export const GUTTER_PX = 16;
 /**
  * Height of the bottom HUD band (breadcrumb, readout, controls), CSS px.
- * The whole wheel fits above it (camera.ts) and clade bars stop at it.
+ * Clade bars stop at it.
  */
 export const HUD_BAND_PX = 56;
 
@@ -99,18 +99,18 @@ export const SPIKE_ALPHA = 0.5;
 export const SPIKE_MAX_W_PX = 2.5;
 
 /**
- * Tip bars (deep zoom): inward from the rim, width clamp(0.7·spacing, 1, 28)
- * px, length ≤ 120 px, with a soft additive halo decaying over
- * min(TIP_HALO_PX, TIP_HALO_SPACING · spacing) px each side, so dense bars
- * do not merge into a solid wall.
+ * Tip bars: the last TIP_BAR_MAX_LEN_PX of each tip's branch, inward from the
+ * rim, brightened in the kingdom colour as tips resolve (λ TIP_BAR_RAMP), so
+ * the rim keeps glowing as the ring fades. A bar is one device px wide, like
+ * the hairline it lies on, and fades out again as tips spread apart
+ * (TIP_BAR_FADE_SPACING, px between tips), so by the time species labels show
+ * each branch runs into its name as one even line. The bar adds to its
+ * hairline rather than replacing it, hence the lower alpha.
  */
 export const TIP_BAR_RAMP: readonly [number, number] = [12, 13.5];
-export const TIP_BAR_ALPHA = 0.95;
+export const TIP_BAR_FADE_SPACING: readonly [number, number] = [2, 6];
+export const TIP_BAR_ALPHA = 0.6;
 export const TIP_BAR_MAX_LEN_PX = 120;
-export const TIP_BAR_MAX_W_PX = 28;
-export const TIP_HALO = 0.4;
-export const TIP_HALO_PX = 7;
-export const TIP_HALO_SPACING = 0.15;
 
 /**
  * Home (Homo sapiens): its subtree is white, and a long outward leader bar
@@ -122,15 +122,24 @@ export const HOME_LEADER_SPACING: readonly [number, number] = [8, 11];
 export const HOME_LEADER_GAP_PX = 190;
 export const HOME_LEADER_PAD_PX = 28;
 export const HOME_LEADER_LEN_PX = 280;
+/**
+ * The leader is clamp(0.7·spacing, 1, LEADER_MAX_W_PX) px wide, with a soft
+ * additive halo of LEADER_HALO decaying over min(LEADER_HALO_PX,
+ * LEADER_HALO_SPACING · spacing) px.
+ */
+export const LEADER_MAX_W_PX = 28;
+export const LEADER_HALO = 0.4;
+export const LEADER_HALO_PX = 7;
+export const LEADER_HALO_SPACING = 0.15;
 /** Home lines are drawn this much stronger than ordinary branches. */
 export const HOME_LINE_ALPHA = 1;
 
-/** Initial rotation: the largest Animals run's midpoint at this screen angle (PLAN §7.5). */
-export const ANIMALS_SCREEN_DEG = 160;
-
-/** Auto-orient engages above this tip spacing (CSS px) and releases below the second. */
-export const ORIENT_ON_SPACING = 4;
-export const ORIENT_OFF_SPACING = 3;
+/**
+ * Auto-orient (rig.ts): the focus angle eases to 0° (the rim vertical at the
+ * anchor) as tips spread over this range of spacing, CSS px (log scale).
+ * Toggling it (R) eases over ORIENT_MS.
+ */
+export const TURN_SPACING: readonly [number, number] = [0.25, 4];
 export const ORIENT_MS = 400;
 
 /** Intro reveal (DESIGN.md §6): 900 ms, cubic-bezier(0.2, 0, 0, 1), r 0 → REVEAL_END. */
@@ -243,13 +252,12 @@ export interface Look {
   branchAlpha: number;
   /** Rim ring strength (0: not drawn). */
   ring: number;
-  /** Tip bar alpha (0: off) and width in CSS px. */
+  /** Tip bar alpha (0: off). */
   tipBar: number;
-  tipWidth: number;
-  /** Tip bar halo decay, CSS px. */
-  tipHalo: number;
-  /** Home leader bar alpha (0: off). */
+  /** Home leader bar alpha (0: off), width and halo decay in CSS px. */
   leader: number;
+  leaderWidth: number;
+  leaderHalo: number;
   /** Fan strength (0: not drawn). */
   fans: number;
 }
@@ -262,10 +270,13 @@ export function frameLook(p: { lambda: number; tipSpacing: number }): Look {
     glow,
     branchAlpha: BRANCH_ALPHA + (BRANCH_ALPHA_DEEP - BRANCH_ALPHA) * deep,
     ring: glow * (1 - smoothstep(RING_FADE[0], RING_FADE[1], p.lambda)),
-    tipBar: TIP_BAR_ALPHA * smoothstep(TIP_BAR_RAMP[0], TIP_BAR_RAMP[1], p.lambda),
-    tipWidth: Math.min(TIP_BAR_MAX_W_PX, Math.max(1, 0.7 * p.tipSpacing)),
-    tipHalo: Math.min(TIP_HALO_PX, TIP_HALO_SPACING * p.tipSpacing),
+    tipBar:
+      TIP_BAR_ALPHA *
+      smoothstep(TIP_BAR_RAMP[0], TIP_BAR_RAMP[1], p.lambda) *
+      (1 - smoothstep(TIP_BAR_FADE_SPACING[0], TIP_BAR_FADE_SPACING[1], p.tipSpacing)),
     leader: smoothstep(HOME_LEADER_SPACING[0], HOME_LEADER_SPACING[1], p.tipSpacing),
+    leaderWidth: Math.min(LEADER_MAX_W_PX, Math.max(1, 0.7 * p.tipSpacing)),
+    leaderHalo: Math.min(LEADER_HALO_PX, LEADER_HALO_SPACING * p.tipSpacing),
     fans: 1 - smoothstep(FAN_FADE[0], FAN_FADE[1], p.lambda),
   };
 }

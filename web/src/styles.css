@@ -46,7 +46,6 @@
   --space-1: 8px;
   --space-2: 16px;
   --edge: 16px;
-  --panel-width: 380px;
   --radius: 2px;
 
   /* Motion (DESIGN.md §6) */
@@ -129,7 +128,7 @@ button {
 }
 
 #tree {
-  /* Pointer Events drive pan and pinch; keep the browser from scrolling or zooming. */
+  /* Pointer Events drive turning and pinch; keep the browser from scrolling or zooming. */
   touch-action: none;
   cursor: grab;
 }
@@ -269,11 +268,6 @@ button {
   gap: var(--space-1);
 }
 
-.zoom-controls {
-  display: flex;
-  gap: 4px;
-}
-
 .ctl {
   width: 28px;
   height: 28px;
@@ -324,6 +318,106 @@ button {
   flex: none;
 }
 
+/*
+ * Zoom strip (ui/zoomstrip.ts, DESIGN.md §4.1): a slim vertical scale on
+ * the left edge, placed from TS (left, top, height). Ticks like the side of
+ * a scroll wheel, a 2 px text-1 thumb, the reading beside it, the reset
+ * button under it. Flat like the rest of the HUD.
+ */
+.zoom-strip {
+  position: fixed;
+  /* The scale (32 px) and its reading beside it: one HUD box. */
+  width: 60px;
+  transition: opacity 200ms linear;
+}
+
+.intro .zoom-strip {
+  opacity: 0;
+}
+
+.dragging .zoom-strip {
+  opacity: 0.4;
+  transition-duration: 150ms;
+}
+
+.no-webgl .zoom-strip {
+  display: none;
+}
+
+.zoom-track {
+  position: relative;
+  width: 32px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.zoom-track:focus {
+  outline: none;
+}
+
+.zoom-track:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.zoom-ticks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  overflow: visible;
+}
+
+.zoom-ticks line {
+  stroke-width: 1;
+}
+
+.zoom-ticks .minor {
+  stroke: var(--hairline-solid);
+}
+
+.zoom-ticks .major {
+  stroke: var(--text-3);
+}
+
+.zoom-track:hover .zoom-ticks .minor {
+  stroke: var(--text-3);
+}
+
+/* The thumb's top edge is the reading's place on the scale. */
+.zoom-thumb {
+  position: absolute;
+  left: -2px;
+  top: -1px;
+  width: 18px;
+  height: 2px;
+  background: var(--text-1);
+  pointer-events: none;
+}
+
+.zoom-readout {
+  position: absolute;
+  left: 22px;
+  top: -8px;
+  font-size: var(--fs-11);
+  line-height: 16px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.zoom-reset {
+  position: absolute;
+  left: -6px;
+  top: calc(100% + 16px);
+}
+
+/* Phone: a wider touch target, and the reset button stays 40 px. */
+.zoom-strip.compact .zoom-track {
+  width: 40px;
+}
+
 /* Loading: a 1 px hairline at the top, filled as tiles arrive (DESIGN.md §7). */
 .progress {
   position: fixed;
@@ -356,33 +450,23 @@ button {
   }
 }
 
-/* ---- Panel (DESIGN.md §4.1, §4.2) ---- */
+/* ---- Card (DESIGN.md §4.1, §4.2) ---- */
 
 /*
- * Desktop: 380 px on the right, between the search trigger and the bottom
- * controls, opaque, hairline-bordered, square. It slides 8 px and fades in.
- * The canvas does not resize; the camera leaves room for it (selection.ts).
+ * The selection card: a fixed rectangle, its place and size set from
+ * layout.ts (inline left/top/width/height), top right on desktop and across
+ * the top on a phone. Opaque, hairline-bordered, square; long content
+ * scrolls inside. It fades in once, with the first selection, and never
+ * closes. A leader on the label canvas joins it to the selected node.
  */
-:root {
-  --panel-top: 56px;
-  --panel-bottom: 88px;
-}
-
 .panel {
   position: fixed;
-  top: var(--panel-top);
-  right: var(--edge);
-  bottom: var(--panel-bottom);
-  width: var(--panel-width);
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--hairline);
   opacity: 0;
-  transform: translateX(8px);
-  transition:
-    opacity 200ms var(--ease-out),
-    transform 200ms var(--ease-out);
+  transition: opacity 200ms var(--ease-out);
 }
 
 .panel[hidden] {
@@ -391,7 +475,6 @@ button {
 
 .panel.open {
   opacity: 1;
-  transform: none;
 }
 
 .intro .panel {
@@ -424,13 +507,6 @@ button {
   border-bottom: 1px solid var(--hairline);
 }
 
-.panel-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-1);
-}
-
 /* Higher ranks: sans 22/600; genus and below: serif italic 22/600 (DESIGN.md §3). */
 .panel-title {
   min-width: 0;
@@ -452,11 +528,6 @@ button {
 
 .panel-title .taxon-italic {
   font-weight: 600;
-}
-
-.panel-close {
-  flex: none;
-  background: var(--surface);
 }
 
 .panel-context {
@@ -809,78 +880,44 @@ button {
   text-decoration: underline;
 }
 
-/* The sheet handle exists only on mobile. */
-.sheet-handle {
-  display: none;
+/*
+ * Inside the card the image sits to the right of the text, so the head and
+ * the summary share the first screenful of a short, wide box.
+ */
+.panel-about {
+  display: flow-root;
 }
 
-/*
- * Mobile: a bottom sheet (DESIGN.md §4.3). JS sets --sheet-visible to the
- * snap height (peek: the title; half: 35%; full: 85%) and --sheet-h on the
- * root, which lifts the bottom HUD above it.
- */
-@media (max-width: 719px) {
-  .panel {
-    top: auto;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: auto;
-    height: 85dvh;
-    border: 0;
-    border-top: 1px solid var(--hairline);
-    opacity: 1;
-    transform: translateY(100%);
-    transition: transform 220ms var(--ease-out);
-  }
+.panel .about-figure {
+  float: right;
+  width: 40%;
+  margin: 0 0 var(--space-1) var(--space-2);
+}
 
-  .panel.open {
-    transform: translateY(calc(100% - var(--sheet-visible, 40%)));
-  }
+.panel .about-where {
+  clear: both;
+}
 
-  .panel.dragging-sheet {
-    transition: none;
-  }
+/* Phone: a compact card, the same content a little tighter. */
+.panel.compact .panel-body {
+  padding: 12px;
+}
 
-  .sheet-handle {
-    display: flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 40px;
-    padding: 0;
-    border: 0;
-    background: none;
-    cursor: grab;
-    touch-action: none;
-  }
+.panel.compact .panel-title {
+  font-size: 18px;
+}
 
-  .sheet-bar {
-    width: 32px;
-    height: 3px;
-    background: var(--hairline-solid);
-  }
+.panel.compact .about-figure {
+  width: 36%;
+}
 
-  .panel-head {
-    touch-action: none;
-  }
+.panel.compact .panel-context,
+.panel.compact .about-lead {
+  font-size: var(--fs-13);
+}
 
-  .panel-body {
-    padding-top: 0;
-  }
-
-  .panel-close {
-    width: 40px;
-    height: 40px;
-  }
-
-  .hud-bottom {
-    bottom: calc(var(--edge) + var(--sheet-h, 0px));
-    transition:
-      bottom 220ms var(--ease-out),
-      opacity 200ms linear;
-  }
+.panel.compact .panel-context {
+  margin-top: 4px;
 }
 
 /* ---- Search (DESIGN.md §4.1 trigger, §4.4 palette) ---- */
@@ -1234,7 +1271,6 @@ button {
   .panel,
   .panel.open {
     transition-duration: 120ms;
-    transition-property: opacity;
   }
 }
 

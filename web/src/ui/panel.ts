@@ -1,6 +1,8 @@
-// The node panel, core section (DESIGN.md §4.1–4.3, PLAN §7.10). Desktop:
-// a 380 px panel on the right. Below 720 px: a bottom sheet with three snap
-// points (peek: the title only; half; full) and a drag handle.
+// The selection card, core section (DESIGN.md §4.1–4.3, PLAN §7.10): a
+// fixed rectangle, top right on desktop and across the top on a phone, its
+// place set by the layout (layout.ts, `place`). There is always a selection,
+// so the card never closes; long content scrolls inside it. A leader joins it
+// to the selected node (callout.ts).
 //
 // Core content comes straight from /api/nodes: the name (names.ts runs),
 // rank and the clade it sits in, for an unnamed node "Unnamed clade, within
@@ -12,9 +14,10 @@
 // common names to the head, a "Links" row to the facts and the per-source
 // credits to the footer. Unnamed (mrca) nodes have no about section.
 //
-// The panel is an obstacle (ui/obstacles.ts): labels keep clear of it. It
+// The card is an obstacle (ui/obstacles.ts): labels keep clear of it. It
 // is opaque, so the tree is not darkened behind it.
 
+import type { Box } from '../labelLayout';
 import { type NameRun, isPlaceholderName, nameRuns, nameSpans } from '../names';
 import type { About, ChildEntry, LineageEntry, NodeInfo } from '../types';
 import { aboutError, aboutLoading, aboutView } from './about';
@@ -25,15 +28,6 @@ import { elementBox } from './obstacles';
 const nf = new Intl.NumberFormat('en');
 /** Children listed before "Show all". */
 const CHILDREN_SHOWN = 8;
-/** Below this width the panel is a bottom sheet (DESIGN.md §4.3). */
-const MOBILE_MAX = 719;
-/** Sheet snap heights as fractions of the window (DESIGN.md §4.3: 35% and 85%). */
-const SHEET_HALF = 0.35;
-const SHEET_FULL = 0.85;
-/** A flick faster than this (px/ms) moves one snap in its direction. */
-const FLICK = 0.5;
-
-export type Snap = 'peek' | 'half' | 'full';
 
 /**
  * Ranks at or below genus: never "the clade it is in" (the genus is part of
@@ -94,21 +88,6 @@ export function mrcaPair(nodeId: string): [string, string] | null {
   return m && m[1] && m[2] ? [m[1], m[2]] : null;
 }
 
-/** The sheet snap nearest a visible height, nudged one step by a flick (velocity px/ms, + = up). */
-export function nearestSnap(visible: number, velocity: number, heights: Record<Snap, number>): Snap {
-  const order: Snap[] = ['peek', 'half', 'full'];
-  let best: Snap = 'peek';
-  for (const s of order) if (Math.abs(heights[s] - visible) < Math.abs(heights[best] - visible)) best = s;
-  if (Math.abs(velocity) > FLICK) {
-    // A flick goes to the next snap in its direction from where the drag is.
-    const above = order.filter((s) => heights[s] > visible + 1);
-    const below = order.filter((s) => heights[s] < visible - 1);
-    if (velocity > 0 && above[0]) return above[0];
-    if (velocity < 0 && below.length > 0) return below[below.length - 1] ?? best;
-  }
-  return best;
-}
-
 type Props = { className?: string; text?: string; title?: string; label?: string };
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -137,23 +116,19 @@ function nameNodes(runs: readonly NameRun[]): HTMLSpanElement[] {
   return nameSpans(runs);
 }
 
-const CLOSE_ICON =
-  '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
-  '<path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="square"/></svg>';
-
 export interface PanelHooks {
   /** A lineage entry or child was clicked. */
   select: (id: number) => void;
-  /** The close button (or Esc, handled by selection.ts). */
-  close: () => void;
   /** Names of the taxa an mrca node is the common ancestor of. */
   node: (ref: string) => Promise<NodeInfo>;
-  /** The panel's size or position changed (the camera keeps the selection in view). */
+  /** The card's content changed size (labels re-layout around it). */
   moved: () => void;
   /** The enrichment document (`retry` refetches a partial one). */
   about: (ref: string, retry: boolean, signal: AbortSignal) => Promise<About>;
   /** Opens the Data & credits dialog. */
   credits: () => void;
+  /** True for the "You are here" node (Homo sapiens), which says so in its head. */
+  home: (n: NodeInfo) => boolean;
 }
 
 /** If an image or map tile never answers, the panel stops counting as busy after this. */
@@ -172,20 +147,15 @@ export class Panel {
   private readonly hooks: PanelHooks;
   private readonly obstacles: Obstacles;
   private readonly dataVersion: string;
-  private readonly handle: HTMLButtonElement;
   private readonly progress: HTMLElement;
   private readonly body: HTMLElement;
   private shown: NodeInfo | null = null;
   private open = false;
-  private snap: Snap = 'half';
   private pendingMrca = 0;
   /** About requests, images and map tiles still loading (screenshots wait for them). */
   private pendingAbout = 0;
   private aboutCtl: AbortController | null = null;
   private slots: Slots | null = null;
-  private hideTimer = 0;
-  private returnFocus: Element | null = null;
-  reducedMotion = false;
 
   constructor(root: HTMLElement, obstacles: Obstacles, dataVersion: string, hooks: PanelHooks) {
     this.root = root;
@@ -193,46 +163,31 @@ export class Panel {
     this.dataVersion = dataVersion;
     this.hooks = hooks;
     root.setAttribute('aria-labelledby', 'panel-title');
-    this.handle = el('button', { className: 'sheet-handle', label: 'Resize the details sheet' });
-    this.handle.type = 'button';
-    this.handle.append(el('span', { className: 'sheet-bar' }));
     this.progress = el('div', { className: 'panel-progress' });
     this.progress.setAttribute('aria-hidden', 'true');
     this.body = el('div', { className: 'panel-body' });
-    root.replaceChildren(this.handle, this.progress, this.body);
+    root.replaceChildren(this.progress, this.body);
     obstacles.set('panel', () => {
       const box = this.open ? elementBox(this.root) : null;
-      return box ? [{ box, keepClear: true, toEdge: false, dim: 0 }] : [];
+      // Out to the top edge: no label squeezes into the header strip above the card.
+      return box ? [{ box, keepClear: true, toEdge: true, dim: 0 }] : [];
     });
-    this.bindSheet();
-    window.addEventListener('resize', () => {
-      if (this.open) this.applySnap(false);
-    });
-    root.addEventListener('transitionend', () => this.obstacles.changed());
   }
 
-  isOpen(): boolean {
-    return this.open;
+  /** Puts the card at `box` (CSS px, from layout.ts); `compact` on a phone or portrait window. */
+  place(box: Box, compact: boolean): void {
+    const st = this.root.style;
+    st.left = `${box.x0}px`;
+    st.top = `${box.y0}px`;
+    st.width = `${box.x1 - box.x0}px`;
+    st.height = `${box.y1 - box.y0}px`;
+    this.root.classList.toggle('compact', compact);
+    this.obstacles.changed();
   }
 
-  /** True while the panel waits for data (the scene is not idle for screenshots). */
+  /** True while the card waits for data (the scene is not idle for screenshots). */
   busy(): boolean {
     return this.pendingMrca > 0 || this.pendingAbout > 0;
-  }
-
-  /** Below 720 px the panel is a bottom sheet. */
-  isSheet(): boolean {
-    return window.innerWidth <= MOBILE_MAX;
-  }
-
-  /**
-   * The screen area the panel covers when open, CSS px: its width on the
-   * right (desktop), or the sheet's height at its open snap at the bottom.
-   */
-  inset(): { right: number; bottom: number } {
-    if (this.isSheet()) return { right: 0, bottom: this.heights().half };
-    const r = this.root.getBoundingClientRect();
-    return { right: r.width > 0 ? window.innerWidth - r.left : 0, bottom: 0 };
   }
 
   /** Shows a hairline loading line while the next node is fetched. */
@@ -241,34 +196,30 @@ export class Panel {
   }
 
   /**
-   * Fills the panel with `node` and opens it. `focus` moves keyboard focus
-   * to the title when it opens (a user's selection, not a deep link loading).
+   * Fills the card with `node`, showing it the first time. `focus` moves
+   * keyboard focus to the title when focus was already in the card (a
+   * keyboard user walking the lineage or children stays in the card).
    */
   show(node: NodeInfo, focus: boolean): void {
-    const opening = !this.open;
     const hadFocus = this.root.contains(document.activeElement);
     this.shown = node;
     this.render(node);
-    window.clearTimeout(this.hideTimer);
-    if (opening) {
-      this.returnFocus = document.activeElement;
-      this.root.hidden = false;
-      this.open = true;
-      this.snap = 'half';
-      // Next frame, so the transition runs from the closed state.
-      requestAnimationFrame(() => {
-        this.root.classList.add('open');
-        this.applySnap(true);
-      });
-    }
-    if (focus && (opening || hadFocus)) {
+    this.reveal();
+    if (focus && hadFocus) {
       // Keyboard and screen-reader users land on the title (DESIGN.md §8).
       this.root.querySelector<HTMLElement>('#panel-title')?.focus({ preventScroll: true });
     }
-    if (!opening) {
-      this.body.scrollTop = 0;
-    }
+    this.body.scrollTop = 0;
     this.obstacles.changed();
+  }
+
+  /** Unhides the card (it starts hidden until the first selection is in) and fades it in. */
+  private reveal(): void {
+    if (this.open) return;
+    this.open = true;
+    this.root.hidden = false;
+    // Next frame, so the transition runs from the hidden state.
+    requestAnimationFrame(() => this.root.classList.add('open'));
   }
 
   /** Shows an error in place of the content (DESIGN.md §7: specific copy). */
@@ -280,50 +231,14 @@ export class Panel {
       this.header(el('h2', { className: 'panel-title', text: 'Taxon unavailable' })),
       el('p', { className: 'panel-error' }, ['Couldn’t load this taxon. ', again]),
     );
-    if (!this.open) {
-      this.root.hidden = false;
-      this.open = true;
-      requestAnimationFrame(() => {
-        this.root.classList.add('open');
-        this.applySnap(true);
-      });
-    }
+    this.reveal();
     this.obstacles.changed();
-  }
-
-  hide(): void {
-    if (!this.open) return;
-    this.open = false;
-    this.shown = null;
-    this.aboutCtl?.abort();
-    this.aboutCtl = null;
-    this.root.classList.remove('open');
-    document.documentElement.style.setProperty('--sheet-h', '0px');
-    this.root.style.removeProperty('--sheet-visible');
-    const done = (): void => {
-      if (!this.open) this.root.hidden = true;
-    };
-    window.clearTimeout(this.hideTimer);
-    this.hideTimer = window.setTimeout(done, this.reducedMotion ? 0 : 240);
-    // Focus goes back where it was, if that is still on the page.
-    const back = this.returnFocus;
-    this.returnFocus = null;
-    if (this.root.contains(document.activeElement)) {
-      if (back instanceof HTMLElement && back.isConnected && !this.root.contains(back)) back.focus({ preventScroll: true });
-      else (document.activeElement as HTMLElement | null)?.blur();
-    }
-    this.obstacles.changed();
-    this.hooks.moved();
   }
 
   private header(title: HTMLElement): HTMLElement {
-    const close = el('button', { className: 'ctl panel-close', label: 'Close details', title: 'Close (Esc)' });
-    close.type = 'button';
-    close.innerHTML = CLOSE_ICON;
-    close.addEventListener('click', () => this.hooks.close());
     title.id = 'panel-title';
     title.tabIndex = -1;
-    return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title, close])]);
+    return el('header', { className: 'panel-head' }, [title]);
   }
 
   private render(n: NodeInfo): void {
@@ -356,6 +271,7 @@ export class Panel {
     }
     ctx.append(...parts);
     if (parts.length > 0) head.append(ctx);
+    if (this.hooks.home(n)) head.append(el('p', { className: 'panel-context panel-here', text: 'You are here' }));
 
     // The GBIF common name from tree.db (P11) shows at once; the about
     // section's own list replaces it once it loads, if it has one.
@@ -598,91 +514,5 @@ export class Panel {
     } finally {
       this.pendingMrca--;
     }
-  }
-
-  // ---- Bottom sheet (mobile) ----
-
-  private heights(): Record<Snap, number> {
-    const h = window.innerHeight;
-    const head = this.root.querySelector('.panel-head')?.getBoundingClientRect().height ?? 72;
-    const handle = this.handle.getBoundingClientRect().height || 40;
-    return { peek: Math.round(handle + head + 8), half: Math.round(h * SHEET_HALF), full: Math.round(h * SHEET_FULL) };
-  }
-
-  /** Moves the sheet to its snap (no-op on desktop) and tells the HUD how much is covered. */
-  private applySnap(notify: boolean): void {
-    if (!this.isSheet()) {
-      document.documentElement.style.setProperty('--sheet-h', '0px');
-      this.root.style.removeProperty('--sheet-visible');
-      if (notify) this.hooks.moved();
-      return;
-    }
-    const visible = this.heights()[this.snap];
-    this.setVisible(visible);
-    this.handle.setAttribute('aria-expanded', String(this.snap === 'full'));
-    if (notify) this.hooks.moved();
-  }
-
-  private setVisible(px: number): void {
-    this.root.style.setProperty('--sheet-visible', `${px}px`);
-    document.documentElement.style.setProperty('--sheet-h', `${px}px`);
-    this.obstacles.changed();
-  }
-
-  setSnap(s: Snap): void {
-    this.snap = s;
-    this.applySnap(true);
-  }
-
-  /** Drag the handle (or the header) to resize; tap the handle to step half ↔ full. */
-  private bindSheet(): void {
-    let drag: { y: number; start: number; lastY: number; lastT: number; v: number; moved: boolean } | null = null;
-    const start = (e: PointerEvent): void => {
-      if (!this.isSheet() || !this.open) return;
-      if (e.target instanceof Element && e.target.closest('button:not(.sheet-handle), a')) return;
-      const visible = this.heights()[this.snap];
-      drag = { y: e.clientY, start: visible, lastY: e.clientY, lastT: e.timeStamp, v: 0, moved: false };
-      this.root.classList.add('dragging-sheet');
-      (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    };
-    const move = (e: PointerEvent): void => {
-      if (!drag) return;
-      const dy = e.clientY - drag.y;
-      if (Math.abs(dy) > 4) drag.moved = true;
-      const h = this.heights();
-      const visible = Math.min(h.full, Math.max(h.peek, drag.start - dy));
-      const dt = Math.max(1, e.timeStamp - drag.lastT);
-      drag.v = 0.6 * ((drag.lastY - e.clientY) / dt) + 0.4 * drag.v;
-      drag.lastY = e.clientY;
-      drag.lastT = e.timeStamp;
-      this.setVisible(visible);
-    };
-    const end = (e: PointerEvent): void => {
-      if (!drag) return;
-      const d = drag;
-      drag = null;
-      this.root.classList.remove('dragging-sheet');
-      if (!d.moved) {
-        if (e.currentTarget === this.handle) this.setSnap(this.snap === 'full' ? 'half' : 'full');
-        else this.applySnap(false);
-        return;
-      }
-      const visible = d.start - (e.clientY - d.y);
-      this.setSnap(nearestSnap(visible, d.v, this.heights()));
-    };
-    for (const target of [this.handle, this.root]) {
-      target.addEventListener('pointerdown', (e) => {
-        if (target === this.root && !(e.target instanceof Element && e.target.closest('.panel-head'))) return;
-        if (target === this.root && e.target instanceof Element && e.target.closest('.sheet-handle')) return;
-        start(e);
-      });
-      target.addEventListener('pointermove', move);
-      target.addEventListener('pointerup', end);
-      target.addEventListener('pointercancel', end);
-    }
-    // Keyboard: the handle is a button; Enter or Space steps between half and full.
-    this.handle.addEventListener('click', (e) => {
-      if (e.detail === 0) this.setSnap(this.snap === 'full' ? 'half' : 'full');
-    });
   }
 }

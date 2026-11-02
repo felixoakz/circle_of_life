@@ -11,7 +11,10 @@ import { Flight } from './flyto';
 import { type Dim, type GpuTile, type Highlight, NO_HIGHLIGHT, type Renderer } from './render/types';
 import { Input } from './input';
 import { type View, computeView, levelFade, radialWindow, rangeUniforms } from './lod';
-import { AutoOrient, compositionRotation } from './orient';
+import { AutoOrient } from './orient';
+import { Rig } from './rig';
+import { Spin } from './spin';
+import type { Tour } from './tour';
 import type { RunPalette } from './palette';
 import { leaderLength } from './leader';
 import { DIM_PAD_PX, DIM_SOFT_PX, HOME_LEADER_GAP_PX, INTRO_EASE, INTRO_MS, REVEAL_END } from './style';
@@ -56,10 +59,18 @@ export interface BenchResult {
 
 export class Scene {
   readonly camera: Camera;
+  /** The user's view, zoom and rotation, written into the camera (rig.ts). */
+  readonly rig: Rig;
   readonly input: Input;
   readonly cache: TileCache<GpuTile>;
   readonly orient: AutoOrient;
   readonly flight: Flight;
+  /** The wheel's ambient turn and fling inertia (spin.ts). */
+  readonly spin: Spin;
+  /** The idle tour (tour.ts), set by main.ts; stepped every frame. */
+  tour: Tour | null = null;
+  /** Called on any user input that moves the view (main.ts stops the tour). */
+  onInteract: () => void = () => {};
   /** Screen areas labels keep clear of and the tree is darkened behind (HUD, panel, search). */
   readonly obstacles = new Obstacles();
   /** Angle → kingdom colour (labels colour tip names from it). */
@@ -130,19 +141,20 @@ export class Scene {
       this.cache.rebuild();
       this.requestRender();
     };
-    this.input = new Input(canvas, this.camera, () => this.requestRender());
-    this.orient = new AutoOrient(this.camera, compositionRotation(meta.runs));
-    this.flight = new Flight(this.camera);
-    // Flights own the rotation while they travel; auto-orient predicts where
-    // it ends and takes over again afterwards (flyto.ts, orient.ts).
-    this.flight.endRotation = (to) => this.orient.rotationFor(to);
-    this.flight.onStart = () => this.orient.flightStart();
-    this.flight.onEnd = (now) => {
-      this.orient.flightEnd(now);
-      this.requestRender();
-    };
+    this.rig = new Rig(this.camera);
+    this.input = new Input(canvas, this.rig, () => this.requestRender());
+    this.orient = new AutoOrient(this.rig);
+    this.flight = new Flight(this.rig);
+    this.flight.onEnd = () => this.requestRender();
+    this.spin = new Spin(this.rig);
+    this.spin.wake = () => this.requestRender();
+    this.input.onFling = (v) => this.spin.fling(v, performance.now());
     this.flight.onCut = () => this.snapshotForCut(canvas);
-    this.input.onUserInput = () => this.flight.cancel();
+    this.input.onUserInput = () => {
+      this.flight.cancel();
+      this.spin.interact(performance.now());
+      this.onInteract();
+    };
     this.obstacles.onChange = () => this.requestRender();
     window.__renderIdle = false;
   }
@@ -321,13 +333,15 @@ export class Scene {
     this.dirty = false;
     this.input.step(now);
     const flying = this.flight.step(now);
-    // While flying, the flight turns the view (flyto.ts).
-    const orienting = flying ? false : this.orient.step(now);
+    const orienting = this.orient.step(now);
+    const spinning = this.spin.step(now);
+    this.tour?.step(now);
     const revealing = this.stepIntro(now);
     const animating =
       this.input.animating() ||
       flying ||
       orienting ||
+      spinning ||
       revealing ||
       this.highlightAnimating ||
       (this.animate?.(now) ?? false);

@@ -274,12 +274,10 @@ function cameras(tipCount: number): CameraCase[] {
   const make = (angle: number, r: number, scale: number | null, rot: number): Camera => {
     const cam = new Camera(tipCount);
     cam.setViewport(1440, 900, 1);
-    cam.fit();
-    if (scale !== null) {
-      cam.scale = scale;
-      cam.angle = angle;
-      cam.r = r;
-    }
+    // The whole wheel by default: centred, the rim 360 px out.
+    cam.scale = scale ?? 360;
+    cam.angle = angle;
+    cam.r = r;
     cam.rot = rot;
     return cam;
   };

@@ -20,7 +20,10 @@
 //   - the home label, "Homo sapiens" in white, between the rim and the
 //     renderer's leader bar (1.png: bar → label → rim). The bar starts
 //     HOME_LEADER_PAD_PX past the measured label (`leaderGap`), and is an
-//     obstacle for other labels. Its two subspecies share its bar and row.
+//     obstacle for other labels. Its two subspecies share its bar and row;
+//   - the selection's leader to the card (callout.ts): a hairline in text-1
+//     that text keeps clear of. While Homo sapiens is the selection, the
+//     leader takes the place of "You are here" (the card says it).
 //
 // Names are set in runs (names.ts): the Latin parts in serif italic, rank
 // markers and informal parts in sans roman. OTT placeholders get no label.
@@ -46,6 +49,7 @@ import {
   radialText,
   rotatedBox,
 } from './labelLayout';
+import { type Leader, leaderBoxes } from './callout';
 import { leaderLength } from './leader';
 import { type NameRun, abbreviateGenus, isPlaceholderName, italicName, nameRuns } from './names';
 import type { RunPalette } from './palette';
@@ -161,6 +165,13 @@ export class Labels {
   private hadContent = false;
   /** Last layout's numbers (debug HUD, screenshot report). */
   stats = { candidates: 0, shown: 0, drawn: 0, layoutMs: 0, paintMs: 0 };
+  /** The selection's leader this frame, CSS px (main.ts: selection.ts + callout.ts), or null. */
+  callout: () => Leader | null = () => null;
+  /** True while "You are here" should not show (Homo sapiens is selected). */
+  hideHere: () => boolean = () => false;
+  /** The selected node's pre-order id: its tip name wins over its neighbours'. */
+  selectedId: () => number = () => -1;
+  private leader: Leader | null = null;
 
   constructor(canvas: HTMLCanvasElement, meta: Meta, palette: RunPalette, hud: Obstacles) {
     const ctx = canvas.getContext('2d');
@@ -181,6 +192,25 @@ export class Labels {
   /** Starts showing labels (after the intro), fading in unless `instant`. */
   show(now: number, instant = false): void {
     if (this.shownAt === null) this.shownAt = instant ? -Infinity : now;
+  }
+
+  /**
+   * How far past the rim a selected tip's name reaches, CSS px, faded in as
+   * tip names show (0 for a clade, and before fonts load): the selection's
+   * leader leaves from there (callout.ts `afterName`).
+   */
+  nameRun(name: string, spacing: number): number {
+    if (!this.fontsReady || !name) return 0;
+    const fade = smoothstep(S.TIP_LABEL_SPACING * S.LABEL_HIDE_FIT, S.TIP_LABEL_SPACING, spacing);
+    if (fade <= 0) return 0;
+    const text = this.styled(nameRuns(name, 'species', this.genusNames.has(name)), S.tipFontPx(spacing), 400);
+    return (S.TIP_GAP_PX + text.width + 4) * fade;
+  }
+
+  /** How far past the rim the column of tip names reaches, CSS px, faded in as they show (a clade's leader leaves from there). */
+  columnRun(spacing: number): number {
+    const fade = smoothstep(S.TIP_LABEL_SPACING * S.LABEL_HIDE_FIT, S.TIP_LABEL_SPACING, spacing);
+    return fade > 0 && this.tipColumn > 0 ? (S.TIP_GAP_PX + this.tipColumn + 4) * fade : 0;
   }
 
   /**
@@ -205,7 +235,9 @@ export class Labels {
       }
       return false;
     }
-    const sig = `${signature(f)}|${this.hud.version}`;
+    this.leader = this.callout();
+    const leaderKey = this.leader ? this.leader.path.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`).join(';') : '';
+    const sig = `${signature(f)}|${this.hud.version}|${leaderKey}|${this.hideHere()}`;
     const t0 = performance.now();
     if (sig !== this.sig) {
       this.sig = sig;
@@ -239,6 +271,11 @@ export class Labels {
       if (it.kind === 'bar') this.barsShown = true;
       ctx.globalAlpha = a;
       it.draw(ctx, this.winners.get(it.key) ?? 0);
+      drawn++;
+    }
+    if (this.leader) {
+      ctx.globalAlpha = intro;
+      drawLeader(ctx, this.leader, dpr);
       drawn++;
     }
     ctx.globalAlpha = 1;
@@ -321,12 +358,12 @@ export class Labels {
     const g = new Geometry(f.camera);
     const items: Item[] = [];
     this.obstacles = this.hudObstacles(g);
-    this.soft = [];
+    this.soft = this.leader ? leaderBoxes(this.leader.path, 3, 16) : [];
     const share = g.rimPx / (TAU * g.radius);
     this.wheelOn = this.wheelOn ? share >= S.WHEEL_SHARE[0] : share >= S.WHEEL_SHARE[1];
     const spacing = f.camera.tipSpacingPx() / f.camera.dpr;
     const homeFade = smoothstep(S.HOME_LEADER_SPACING[0], S.HOME_LEADER_SPACING[1], spacing);
-    this.hereLabel(g, 1 - homeFade, items);
+    if (!this.hideHere()) this.hereLabel(g, 1 - homeFade, items);
     if (this.wheelOn || this.groupsShown) this.groupLabels(g, items);
     this.homeLabel(g, spacing, homeFade, items);
     this.tipLabels(f, g, spacing, items);
@@ -510,12 +547,18 @@ export class Labels {
         const runs = nameRuns(name, species ? 'species' : null, this.genusNames.has(name));
         const psi = Math.atan2(p.uy, p.ux);
         const boxFor = (w: number): Box => rotatedBox(p.x + (p.ux * w) / 2, p.y + (p.uy * w) / 2, w, h, psi);
-        const fits = (b: Box): boolean => b.x0 >= S.GUTTER_PX / 2 && b.x1 <= g.w - S.GUTTER_PX / 2;
+        // Inside the side gutters, off the card and the HUD, and off the selection's leader.
+        const fits = (b: Box): boolean =>
+          b.x0 >= S.GUTTER_PX / 2 &&
+          b.x1 <= g.w - S.GUTTER_PX / 2 &&
+          !this.obstacles.some((o) => overlap(o, b)) &&
+          !this.soft.some((o) => overlap(o, b));
         let text = this.styled(runs, size, 400);
         let box = boxFor(text.width);
-        // A name cut off at the side of the screen is no use (long names on
-        // a phone): shorten the genus to its initial ("D. ruscinensis"), and
-        // drop the label only if even that does not fit.
+        // A name cut off at the side of the screen or by the card is no use
+        // (long names on a phone, rows beside the card): shorten the genus to
+        // its initial ("D. ruscinensis"), and drop the label only if even
+        // that does not fit.
         if (!fits(box)) {
           const short = abbreviateGenus(runs);
           if (!short) continue;
@@ -528,8 +571,8 @@ export class Labels {
         items.push({
           key: t.id[i] ?? 0,
           text: text.text,
-          // Above every clade: species names are what deep zoom is for.
-          priority: 1e9,
+          // Above every clade: species names are what deep zoom is for; the selection's first.
+          priority: (t.id[i] ?? 0) === this.selectedId() ? 1e13 : 1e9,
           fit,
           boxes: [box],
           alpha: f.fade(t.level),
@@ -731,7 +774,11 @@ export class Labels {
         if (Math.abs(k * step) + t.size / 2 > half && k !== 0) continue;
         const phi = phiC + (k * step) / rb;
         const p = g.circlePoint(rb + S.CLADE_BAR_TEXT_PX, phi);
-        spots.push({ ...p, right: Math.cos(phi) < 0 });
+        const right = Math.cos(phi) < 0;
+        // A name cut off by the screen's side is no use: such places are not offered.
+        const x0 = right ? p.x - t.width : p.x;
+        if (x0 < S.GUTTER_PX / 2 || x0 + t.width > g.w - S.GUTTER_PX / 2) continue;
+        spots.push({ ...p, right });
       }
       alts = spots.map((s) => [
         { x0: s.right ? s.x - t.width : s.x, x1: s.right ? s.x : s.x + t.width, y0: s.y - t.size / 2 - 1, y1: s.y + t.size / 2 + 1 },
@@ -1033,6 +1080,53 @@ function rgbCss(r: number, g: number, b: number): string {
 }
 
 /** Changes whenever the layout could: camera, viewport, tiles. */
+function overlap(a: Box, b: Box): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+/**
+ * The selection's leader: a 1 px text-1 hairline, like "You are here". Its
+ * square run into the card is snapped to the pixel grid so it stays crisp.
+ */
+function drawLeader(ctx: CanvasRenderingContext2D, leader: Leader, dpr: number): void {
+  const path = leader.path;
+  // A 1 CSS px line is dpr device px wide: centre it where it covers whole pixels.
+  const snap = (v: number): number => (Math.round(v * dpr - dpr / 2) + dpr / 2) / dpr;
+  const pts = path.map((p, i) => {
+    const prev = path[i - 1];
+    const next = path[i + 1];
+    const flatY = (prev && Math.abs(prev.y - p.y) < 0.5) || (next && Math.abs(next.y - p.y) < 0.5);
+    const flatX = (prev && Math.abs(prev.x - p.x) < 0.5) || (next && Math.abs(next.x - p.x) < 0.5);
+    return { x: flatX ? snap(p.x) : p.x, y: flatY ? snap(p.y) : p.y };
+  });
+  ctx.strokeStyle = S.TEXT_1;
+  ctx.lineWidth = 1;
+  ctx.lineJoin = 'miter';
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.stroke();
+  // Off screen: an open arrowhead at the start, pointing the way.
+  const a = leader.arrow;
+  if (a) {
+    const back = 8;
+    const spread = 0.45;
+    const base = ctx.globalAlpha;
+    ctx.globalAlpha = base * a.alpha;
+    ctx.beginPath();
+    for (const s of [spread, -spread]) {
+      const c = Math.cos(s);
+      const n = Math.sin(s);
+      // The arrow's unit vector turned by ±spread, pointing back from the tip.
+      const ux = a.ux * c - a.uy * n;
+      const uy = a.ux * n + a.uy * c;
+      ctx.moveTo(a.x - ux * back, a.y - uy * back);
+      ctx.lineTo(a.x, a.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = base;
+  }
+}
+
 function signature(f: LabelFrame): string {
   const c = f.camera;
   let tiles = '';

@@ -1,12 +1,15 @@
-// Bootstrap: fonts → meta → scene (renderer, tiles, input) → URL view,
-// then the label overlay, the HUD, hover, the selection panel and the search
-// palette.
+// Bootstrap: fonts → meta → scene (renderer, tiles, input) → layout and URL
+// view, then the label overlay, the HUD, hover, the selection card and the
+// search palette.
 //
 // URL parameters understood so far:
-//   ?n=ott770315       selected node (see url.ts); reload restores it
-//   ?v=a,r,z,rot       camera (see url.ts)
+//   ?n=ott770315       selected node (see url.ts; default Homo sapiens)
+//   ?v=a,z             view: rotation and zoom (see url.ts; old a,r,z,rot links still parse)
 //   ?shot              screenshot mode: hides the cursor, skips the intro
-//   ?reduced           force reduced motion (no intro, no inertia, cuts)
+//   ?reduced           force reduced motion (no intro, no fling, cuts; no ambient turn, no tour)
+//   ?still             no ambient turn, no fling, no idle tour (implied by ?shot and reduced motion)
+//   ?tour=<seconds>    the idle tour's dwell (default 10; resumes after 3 dwells); with ?still or
+//                      ?shot it turns the tour on by itself (tests, screenshots)
 //   ?debug             debug HUD;  ?debug=precision  max-zoom jitter test
 //   ?debug=parity      WGSL vs TS compute check (gpu/parity.ts, window.__gpuParity)
 //   ?nowebgl           the no-GPU fallback (still image, search, panel)
@@ -22,6 +25,9 @@ import '@fontsource/spline-sans-mono/400.css';
 import './styles.css';
 
 import { fetchMeta } from './api';
+import { toRad } from './angle';
+import { afterName, leaderPath, leaderStart } from './callout';
+import { layoutFor } from './layout';
 import { mountFallback } from './fallback';
 import { Labels } from './labels';
 import { RunPalette } from './palette';
@@ -44,9 +50,12 @@ import { TileIndex } from './picking';
 import { Selection } from './selection';
 import { Credits, mountWordmarkMenu } from './ui/credits';
 import { Hud } from './ui/hud';
+import { ZoomStrip } from './ui/zoomstrip';
 import { SearchPalette } from './ui/search';
 import { levelFade } from './lod';
-import { applyView, formatView, parseLink, viewOf } from './url';
+import { FLAG_HOME } from './tiles/decode';
+import { DWELL_MS, POINTER_HOLD_MS, Tour } from './tour';
+import { formatView, parseLink, viewOf, viewPose } from './url';
 
 declare global {
   interface Window {
@@ -107,13 +116,18 @@ async function main(): Promise<void> {
   renderer.onLost = (reason) => {
     console.warn(`GPU lost (${reason}); reloading with WebGL2`);
     rememberWebGpuLoss(sessionStore());
-    location.replace(webglReloadUrl(location.search, formatView(viewOf(scene.camera))));
+    location.replace(webglReloadUrl(location.search, formatView(viewOf(scene.rig.pose(), scene.camera.dpr))));
   };
   scene.cache.onStale = () => location.reload(); // re-ingested: start over with new meta
   const reduced = params.has('reduced') || matchMedia('(prefers-reduced-motion: reduce)').matches;
   scene.input.reducedMotion = reduced;
   scene.orient.reducedMotion = reduced;
   scene.flight.reducedMotion = reduced;
+  // The wheel's own motion (spin.ts, tour.ts): never under reduced motion;
+  // `?still` (and `?shot`) keep screenshots and tests deterministic.
+  const still = reduced || shot || params.has('still');
+  const tourParam = params.get('tour');
+  scene.spin.enabled = !still;
   // Debug aids are a separate chunk: ordinary visits never download them.
   const dbg = debug !== null ? await import('./debug') : null;
   if (dbg) {
@@ -125,7 +139,7 @@ async function main(): Promise<void> {
     window.__scene = scene; // flight timing in screenshot scripts
   }
 
-  // Size the canvases, then place the camera once the viewport is known.
+  // Size the canvases, then place the view once the viewport is known.
   // The tree canvas's DPR is capped (PLAN §7.12); the overlay keeps the full one.
   const screenDpr = (): number => window.devicePixelRatio || 1;
   const dpr = (): number =>
@@ -133,15 +147,17 @@ async function main(): Promise<void> {
   fitCanvas(treeCanvas, dpr());
   fitCanvas(overlayCanvas, screenDpr());
   scene.camera.setViewport(treeCanvas.width, treeCanvas.height, dpr());
-  scene.camera.rot = scene.orient.baseRot; // the default composition (orient.ts)
-  scene.camera.fit();
+  // The composition for this window (layout.ts): the card, the anchor and
+  // the wheel at minimum zoom.
+  let layout = layoutFor(treeCanvas.clientWidth, treeCanvas.clientHeight);
+  scene.rig.setLayout(layout);
   const link = parseLink(location.search);
   const view = link.v;
-  if (view) applyView(scene.camera, view);
-  else if (debug === 'precision') dbg?.precisionCamera(scene, meta);
-  // The precision test pans at a fixed rotation.
-  if (debug === 'precision') scene.orient.enabled = false;
-  scene.orient.prime();
+  // Without a view: minimum zoom, Homo sapiens (the default selection) on
+  // the anchor; a deep link's own selection turns onto it once it loads.
+  if (view) scene.rig.set(viewPose(view, scene.camera.dpr));
+  else scene.rig.set({ theta: toRad(meta.home?.angle ?? 0), scale: scene.rig.minScale() });
+  if (debug === 'precision') dbg?.precisionCamera(scene, meta);
   window.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key !== 'r' && e.key !== 'R') return;
@@ -154,10 +170,10 @@ async function main(): Promise<void> {
   const store = new NodeStore();
   const hud = new Hud(scene, meta, store);
 
-  // Hover (mouse only) and selection: click or tap selects and flies.
+  // Hover (mouse only) and selection: click or tap selects and turns it onto the anchor.
   const index = new TileIndex();
   const hover = new Hover(scene, meta, store, index, treeCanvas);
-  // Data & credits: from the wordmark menu and the panel footer.
+  // Data & credits: from the wordmark menu and the card's footer.
   const credits = new Credits(meta);
   mountWordmarkMenu(byId('wordmark', HTMLElement), credits);
   const selection = new Selection(
@@ -168,11 +184,15 @@ async function main(): Promise<void> {
     byId('announcer', HTMLElement),
     () => credits.open(),
   );
-  selection.panel.reducedMotion = reduced;
+  selection.panel.place(layout.card, layout.compact);
+  // Zoom: the scale on the left edge, with the reset button (ui/zoomstrip.ts).
+  const strip = new ZoomStrip(scene, byId('zoom-strip', HTMLElement), () => hud.reset());
+  strip.place(layout, treeCanvas.clientHeight);
   hud.selected = () => selection.selected();
+  hud.select = (ref) => void selection.select(ref, { motion: 'fly', history: 'push' });
   scene.input.onTap = (x, y, touch) => {
     const hit = pickAt(scene, meta, x, y, touch);
-    if (hit) void selection.select(hit.id, { fly: true, history: 'push' });
+    if (hit) void selection.select(hit.id, { motion: 'turn', history: 'push' });
   };
   scene.highlight = (now) => {
     const h = hover.draw(now);
@@ -186,22 +206,85 @@ async function main(): Promise<void> {
     };
   };
   scene.leaderGap = (spacing) => labels.leaderGap(spacing);
+  // The leader from the selection to the card (callout.ts).
+  // Never hidden: off screen it starts at the edge and points the way.
+  labels.callout = () => {
+    const t = selection.leaderTarget();
+    if (!t) return null;
+    const w = treeCanvas.clientWidth;
+    const h = treeCanvas.clientHeight;
+    const a = scene.rig.anchor();
+    const anchor = { x: a.x / scene.camera.dpr, y: a.y / scene.camera.dpr };
+    let start = leaderStart(t.node, t.rim, anchor, layout.card, w, h);
+    // Leave from past the names: a tip's own, or the column beside a clade's tips.
+    const spacing = scene.camera.tipSpacingPx() / scene.camera.dpr;
+    const run = t.tip ? labels.nameRun(t.n.name ?? '', spacing) : labels.columnRun(spacing) * start.atRim;
+    start = afterName(start, t.out, run, layout.card, w, h);
+    return leaderPath(start, layout.card, layout.compact);
+  };
+  labels.selectedId = () => selection.selected()?.id ?? -1;
+  labels.hideHere = () => ((selection.selected()?.flags ?? 0) & FLAG_HOME) !== 0;
   if (shot || debug !== null) {
     window.__labels = labels.stats;
     window.__labelDump = () => labels.dump();
   }
-  // Search: choosing a result selects it and flies there (selection.ts).
+  // Search: choosing a result selects it, turns it onto the anchor and zooms to suit it (selection.ts).
   const search = new SearchPalette({
     slot: byId('search-slot', HTMLElement),
     obstacles: scene.obstacles,
     speciesCount: meta.speciesCount,
     home: meta.home,
     tipCount: meta.tipCount,
-    choose: (hit) => void selection.select(hit.id, { fly: true, history: 'push' }),
+    choose: (hit) => void selection.select(hit.id, { motion: 'fly', history: 'push' }),
     prefetch: (hit) => void store.get(hit.id).catch(() => undefined),
     redraw: () => scene.requestRender(),
   });
-  scene.busy = () => hud.busy() || selection.busy() || search.busy();
+  scene.busy = () => selection.busy() || search.busy();
+
+  // Ambient turn and idle tour pause while the user is looking at
+  // something: the card under the pointer, search, a focused input, a
+  // hidden tab, the intro.
+  let overCard = false;
+  const card = byId('panel', HTMLElement);
+  card.addEventListener('pointerenter', () => (overCard = true));
+  card.addEventListener('pointerleave', () => {
+    overCard = false;
+    scene.requestRender();
+  });
+  const looking = (): boolean =>
+    overCard ||
+    document.querySelector('.search-layer.open') !== null ||
+    document.activeElement instanceof HTMLInputElement ||
+    document.hidden ||
+    scene.introPlaying();
+  scene.spin.blocked = () => looking() || scene.input.dragging() || scene.flight.active();
+  document.addEventListener('visibilitychange', () => scene.requestRender());
+  const dwell = tourParam !== null && Number(tourParam) > 0 ? Number(tourParam) * 1000 : DWELL_MS;
+  const tour = new Tour(performance.now(), dwell);
+  tour.enabled = !reduced && (!still || tourParam !== null);
+  // A pointer moving over the page in the last few seconds also holds the
+  // tour's countdown (someone is exploring); a pointer resting on the wheel
+  // does not, so "not touching anything" moves on. Resting on the card does
+  // hold it (looking(): people read there).
+  let lastMove = -Infinity;
+  window.addEventListener('pointermove', () => (lastMove = performance.now()), { passive: true });
+  tour.held = () =>
+    looking() || performance.now() - lastMove < POINTER_HOLD_MS || scene.flight.active() || selection.busy();
+  tour.go = (id) => void selection.select(id, { motion: 'tour', history: 'replace', announce: false });
+  tour.wake = () => scene.requestRender();
+  scene.tour = tour;
+  // Any real input stops the tour (and the ambient turn): pointer, wheel, keys, anywhere on the page.
+  const interact = (): void => {
+    const now = performance.now();
+    tour.interact(now);
+    scene.spin.interact(now);
+  };
+  scene.onInteract = () => tour.interact(performance.now());
+  for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
+    window.addEventListener(type, interact, { capture: true, passive: true });
+  }
+  // A deep link stays put for a while before the tour moves on.
+  if (link.n || view) tour.interact(performance.now());
   scene.overlay = (now) => {
     const v = scene.lastView;
     if (!v) return false;
@@ -214,12 +297,13 @@ async function main(): Promise<void> {
       fade: (level) => levelFade(level, v.lambda),
     });
     hud.frame(now);
+    strip.frame();
     hover.frame(now);
     selection.frame();
     return fading;
   };
 
-  // The one intro (DESIGN.md §6): only when landing on the whole wheel.
+  // The one intro (DESIGN.md §6): only when landing on the default view.
   // Labels and HUD fade in once it is over.
   if (!shot && !reduced && !view && !link.n && debug === null) {
     const root = document.documentElement;
@@ -238,11 +322,16 @@ async function main(): Promise<void> {
     const changed = fitCanvas(treeCanvas, dpr());
     fitCanvas(overlayCanvas, screenDpr());
     if (!changed) return;
-    // Keep the same world point centred and the same zoom relative to the
-    // window's shorter side, so resizing feels like scaling the picture.
-    const old = scene.camera.fitScale();
+    // A new composition; the same rotation and the same zoom relative to the
+    // minimum, so resizing feels like scaling the picture.
+    const rig = scene.rig;
+    const zoom = rig.scale / rig.minScale();
     scene.camera.setViewport(treeCanvas.width, treeCanvas.height, dpr());
-    scene.camera.scale = scene.camera.clampScale((scene.camera.scale * scene.camera.fitScale()) / old);
+    layout = layoutFor(treeCanvas.clientWidth, treeCanvas.clientHeight);
+    rig.setLayout(layout);
+    rig.set({ theta: rig.theta, scale: zoom * rig.minScale() });
+    selection.panel.place(layout.card, layout.compact);
+    strip.place(layout, treeCanvas.clientHeight);
     scene.requestRender();
   };
   new ResizeObserver(resize).observe(treeCanvas);
@@ -276,9 +365,10 @@ async function main(): Promise<void> {
     });
   scene.requestRender();
 
-  // A deep link's selection: with a camera in the URL it is restored as is,
-  // without one the view flies there (PLAN §7.11).
-  if (link.n) void selection.select(link.n, { fly: !view, history: 'none' });
+  // The selection: the link's, else Homo sapiens. With a view in the URL the
+  // view is restored as is; a link with only a node cuts to it, zoomed to
+  // suit (PLAN §7.11).
+  void selection.select(link.n ?? selection.defaultRef(), { motion: !view && link.n ? 'cut' : 'none', history: 'none' });
 
   if (dbg && debug === 'precision') {
     window.__precision = await dbg.runPrecisionTest(scene, renderer);

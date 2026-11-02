@@ -6,6 +6,7 @@
 // when `?debug` is in the URL.
 
 import { toRad } from './angle';
+import type { Camera } from './camera';
 import type { GpuParity } from './gpu/parity';
 import { type FrameComparison, compareFrames } from './render/pixels';
 import type { Pixels, Renderer } from './render/types';
@@ -78,7 +79,11 @@ function precisionLine(p: PrecisionResult): string {
   );
 }
 
-/** Max zoom on the rim next to Homo sapiens, rotation 0 so lines are diagonal. */
+/**
+ * Max zoom on the rim next to Homo sapiens, rotation 0 so lines are
+ * diagonal. The camera is set directly, not through the rig (rig.ts): this
+ * tests the renderer at a fixed pose and moves it by exact pixels.
+ */
 export function precisionCamera(scene: Scene, meta: Meta): void {
   const cam = scene.camera;
   cam.rot = 0;
@@ -87,15 +92,21 @@ export function precisionCamera(scene: Scene, meta: Meta): void {
   cam.r = 1 - (0.3 * Math.min(cam.width, cam.height)) / cam.scale;
 }
 
+/** Moves the picture by (dx, dy) screen pixels, as if dragged (the test's camera only). */
+function shift(cam: Camera, dx: number, dy: number): void {
+  const c = cam.screenToWorld(cam.width / 2 - dx, cam.height / 2 - dy);
+  cam.setCentre(c.x, c.y);
+}
+
 /**
- * Renders, pans by an exact whole number of pixels, renders again and
+ * Renders, shifts by an exact whole number of pixels, renders again and
  * compares where each line crosses each pixel row (render/pixels.ts
  * `compareFrames`). A jitter-free renderer draws the same picture shifted,
  * so every line comes back to within a small fraction of a pixel; float
  * jitter moves lines by whole pixels.
  */
 export async function runPrecisionTest(scene: Scene, renderer: Renderer): Promise<PrecisionResult> {
-  const shift: [number, number] = [37, 23];
+  const offset: [number, number] = [37, 23];
   const grab = async (): Promise<Pixels> => {
     await scene.whenIdle();
     scene.renderNow();
@@ -106,13 +117,13 @@ export async function runPrecisionTest(scene: Scene, renderer: Renderer): Promis
   // Geometry only: the HUD's dim plates are fixed to the screen (scene.ts).
   scene.dimsOn = false;
   const a = await grab();
-  scene.camera.panBy(shift[0], shift[1]);
+  shift(scene.camera, offset[0], offset[1]);
   scene.requestRender();
   const b = await grab();
-  scene.camera.panBy(-shift[0], -shift[1]);
+  shift(scene.camera, -offset[0], -offset[1]);
   scene.dimsOn = true;
   scene.requestRender();
-  return { shift, ...compareFrames(a, b, shift) };
+  return { shift: offset, ...compareFrames(a, b, offset) };
 }
 
 /** After the test, glide slowly in a circle so jitter is visible to the eye. */
@@ -124,7 +135,7 @@ export function precisionGlide(scene: Scene): void {
       const dt = (now - last) / 1000;
       // Velocity of a 120 px circle with a 6 s period.
       const w = (2 * Math.PI) / 6;
-      scene.camera.panBy(-120 * w * Math.sin(w * t) * dt, 120 * w * Math.cos(w * t) * dt);
+      shift(scene.camera, -120 * w * Math.sin(w * t) * dt, 120 * w * Math.cos(w * t) * dt);
     }
     last = now;
     return true;

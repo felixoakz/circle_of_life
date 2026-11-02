@@ -1,9 +1,11 @@
 // No GPU drawing, neither WebGPU nor WebGL2 (DESIGN.md §7): a still image of the wheel and one sentence in
-// place of the canvas, with search, the panel and Data & credits still
-// working, since they need only the API. Choosing a search result opens its
-// panel; lineage and children links in the panel open theirs.
+// place of the canvas, with search, the card and Data & credits still
+// working, since they need only the API. Choosing a search result shows it
+// in the card; lineage and children links in the card show theirs.
 
 import { fetchAbout } from './api';
+import { FLAG_HOME } from './tiles/decode';
+import { layoutFor } from './layout';
 import { NodeStore } from './nodes';
 import type { Meta } from './types';
 import { Credits, mountWordmarkMenu } from './ui/credits';
@@ -19,7 +21,7 @@ function byId(id: string): HTMLElement {
   return el;
 }
 
-/** Replaces the canvases with the still image and wires search and the panel. */
+/** Replaces the canvases with the still image and wires search and the card. */
 export function mountFallback(meta: Meta): void {
   document.body.classList.add('no-webgl');
   const figure = document.createElement('figure');
@@ -51,15 +53,18 @@ export function mountFallback(meta: Meta): void {
   };
   const panel = new Panel(byId('panel'), obstacles, meta.dataVersion, {
     select: (id) => void show(id),
-    close: () => panel.hide(),
     node: (ref) => store.get(ref),
     moved: () => {},
     about: (ref, retry, signal) => fetchAbout(ref, retry, signal),
     credits: () => credits.open(),
+    home: (n) => (n.flags & FLAG_HOME) !== 0,
   });
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && panel.isOpen() && !document.querySelector('dialog[open]')) panel.hide();
-  });
+  const place = (): void => {
+    const layout = layoutFor(window.innerWidth, window.innerHeight);
+    panel.place(layout.card, layout.compact);
+  };
+  place();
+  window.addEventListener('resize', place);
   new SearchPalette({
     slot: byId('search-slot'),
     obstacles,

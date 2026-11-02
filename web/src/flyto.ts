@@ -1,30 +1,24 @@
-// Camera flights (PLAN §7.9, DESIGN.md §6): van Wijk & Nuij's "smooth and
-// efficient zooming and panning" (2003), with ρ = 1.4.
+// Camera flights (PLAN §7.9, DESIGN.md §6). The view is a rotation and a
+// zoom (rig.ts), so a flight moves `theta`, the world angle at the anchor,
+// and `scale`.
 //
-// The camera here is a world point at the screen centre, a log scale and a
-// rotation. The flight moves the first two along the optimal path in world
-// space (doubles throughout): for a far target it zooms out until both ends
-// fit, glides, then dives in; for a near one it is almost a straight zoom.
-// The path is parameterised by its length S (in "screen widths" of
-// perceived motion), so the speed feels constant; a smoothstep on top eases
-// the start and the stop. Duration is clamp(S · 600 ms, 600, 2000).
+// Fly-to (search, lineage, keys): van Wijk & Nuij's "smooth and efficient
+// zooming and panning" (2003), with ρ = 1.4, in one dimension: the "pan" is
+// the arc along the rim from the old angle to the new (the short way round),
+// and the view's width w is the screen's shorter side over the scale. For a
+// far target it zooms out until both ends fit, glides, then dives in; for a
+// near one it is almost a straight zoom. The path is parameterised by its
+// length S (in "screen widths" of perceived motion), so the speed feels
+// constant; a smoothstep on top eases the start and the stop. Duration is
+// clamp(S · 600 ms, 600, 2000). Zoom is clamped to the rig's range, so a long
+// way round at minimum zoom simply turns.
 //
-// Rotation is eased separately (Flight): auto-orient (orient.ts) predicts
-// the rotation the view will have on arrival, the flight turns there while
-// it travels, and auto-orient sits out until the flight ends or is
-// cancelled, so the two never fight over the rotation mid-air.
+// Turn (a click on the canvas): the zoom stays, and only the angle eases to
+// the target, 250–900 ms by how far the anchor travels on screen.
 
-import { TAU, wrapRad } from './angle';
-import type { Camera } from './camera';
+import { wrapRad } from './angle';
 import { smoothstep } from './ease';
-
-export interface Pose {
-  /** World point at the screen centre. */
-  x: number;
-  y: number;
-  /** Device px per world unit. */
-  scale: number;
-}
+import type { Pose, Rig } from './rig';
 
 /** A path between two poses: its duration, and the pose at t ∈ [0, 1]. */
 export interface FlightPath {
@@ -32,14 +26,15 @@ export interface FlightPath {
   at(t: number): Pose;
 }
 
-export type Interpolator = (from: Pose, to: Pose, viewport: { width: number; height: number }) => FlightPath;
-
 /** Zoom/pan trade-off: higher zooms out further on long pans (van Wijk & Nuij suggest √2). */
 export const RHO = 1.4;
 /** Duration per unit of path length S, and its bounds (PLAN §7.9). */
 export const MS_PER_S = 600;
 export const MIN_MS = 600;
 export const MAX_MS = 2000;
+/** Turn-only bounds. */
+export const TURN_MIN_MS = 250;
+export const TURN_MAX_MS = 900;
 
 export function flightMs(S: number): number {
   return Math.min(MAX_MS, Math.max(MIN_MS, S * MS_PER_S));
@@ -50,23 +45,24 @@ function ease(t: number): number {
   return smoothstep(0, 1, t);
 }
 
-/**
- * van Wijk–Nuij between two poses. The view's width w (world units) is the
- * viewport's shorter side over the scale; the centre moves along the
- * straight line between the two centres, by u(s) out of u1.
- */
-export const interpolate: Interpolator = (from, to, viewport) => {
-  const span = Math.max(1, Math.min(viewport.width, viewport.height));
+/** The target angle the short way round from `from`. */
+function nearAngle(from: number, to: number): number {
+  return from + wrapRad(to - from);
+}
+
+/** van Wijk–Nuij between two poses; `span` is the screen's shorter side, device px. */
+export function interpolate(from: Pose, to: Pose, span: number): FlightPath {
+  span = Math.max(1, span);
   const w0 = span / from.scale;
   const w1 = span / to.scale;
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const u1 = Math.hypot(dx, dy);
+  const end = nearAngle(from.theta, to.theta);
+  const du = end - from.theta;
+  const u1 = Math.abs(du);
   const rho2 = RHO * RHO;
-  const exact = (t: number, p: Pose): Pose => (t <= 0 ? from : t >= 1 ? to : p);
+  const exact = (t: number, p: Pose): Pose => (t <= 0 ? from : t >= 1 ? { ...to, theta: end } : p);
 
-  // Same centre (to within far less than a pixel): a pure zoom, exponential
-  // in s, with the centre moved along in step in case it differs at all.
+  // Same angle (to within far less than a pixel): a pure zoom, exponential
+  // in s, with the angle moved along in step in case it differs at all.
   if (u1 < 1e-6 * Math.min(w0, w1)) {
     const k = Math.log(w1 / w0);
     const S = Math.abs(k) / RHO;
@@ -75,7 +71,7 @@ export const interpolate: Interpolator = (from, to, viewport) => {
       at(t) {
         const e = ease(t);
         const w = w0 * Math.exp(k * e);
-        return exact(t, { x: from.x + dx * e, y: from.y + dy * e, scale: span / w });
+        return exact(t, { theta: from.theta + du * e, scale: span / w });
       },
     };
   }
@@ -95,89 +91,36 @@ export const interpolate: Interpolator = (from, to, viewport) => {
       const s = S * ease(t);
       const u = (w0 / rho2) * (coshR0 * Math.tanh(RHO * s + r0) - sinhR0);
       const w = (w0 * coshR0) / Math.cosh(RHO * s + r0);
-      const f = u / u1;
-      return exact(t, { x: from.x + dx * f, y: from.y + dy * f, scale: span / w });
+      return exact(t, { theta: from.theta + du * (u / u1), scale: span / w });
     },
   };
-};
-
-export function poseOf(cam: Camera): Pose {
-  const c = cam.centre();
-  return { x: c.x, y: c.y, scale: cam.scale };
 }
 
-export function applyPose(cam: Camera, p: Pose): void {
-  cam.scale = cam.clampScale(p.scale);
-  cam.setCentre(p.x, p.y);
-}
-
-/** The whole wheel, centred above the HUD band once the view has turned to `rot`. */
-export function wheelPose(cam: Camera, rot = cam.rot): Pose {
-  const c = cam.fitCentre(rot);
-  return { x: c.x, y: c.y, scale: cam.fitScale() };
-}
-
-/**
- * A pose framing a clade: the arc [lo, hi] (radians) at the rim, plus the
- * wedge inward from it down to radius `rIn`, but not much deeper than the arc
- * is wide, so a small clade is framed at the rim where its tips are. Clades
- * wider than a half turn get the whole wheel.
- */
-export function cladePose(cam: Camera, lo: number, hi: number, rIn: number, wheelRot = cam.rot): Pose {
-  const span = hi - lo;
-  if (span > Math.PI) return wheelPose(cam, wheelRot);
-  const inner = Math.max(rIn, 1 - 1.5 * Math.max(span, 1e-9));
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  const add = (theta: number, r: number): void => {
-    const x = r * Math.cos(theta);
-    const y = r * Math.sin(theta);
-    x0 = Math.min(x0, x);
-    y0 = Math.min(y0, y);
-    x1 = Math.max(x1, x);
-    y1 = Math.max(y1, y);
+/** Turns from `from` to `to`'s angle at `from`'s zoom; `span` as for `interpolate`. */
+export function turnPath(from: Pose, to: Pose, span: number): FlightPath {
+  const end = nearAngle(from.theta, to.theta);
+  const du = end - from.theta;
+  // How far the anchor's content travels, in screen widths.
+  const travel = (Math.abs(du) * from.scale) / Math.max(1, span);
+  const ms = Math.min(TURN_MAX_MS, Math.max(TURN_MIN_MS, travel * MS_PER_S));
+  return {
+    ms,
+    at: (t) => (t >= 1 ? { theta: end, scale: from.scale } : { theta: from.theta + du * ease(t), scale: from.scale }),
   };
-  const steps = 16;
-  for (let i = 0; i <= steps; i++) {
-    const th = lo + (span * i) / steps;
-    add(th, 1);
-    add(th, inner);
-  }
-  const cx = (x0 + x1) / 2;
-  const cy = (y0 + y1) / 2;
-  // The screen may turn (auto-orient), so fit the box's circumscribed
-  // circle rather than the box itself.
-  const radius = Math.max(Math.hypot(x1 - x0, y1 - y0) / 2, 1e-12);
-  const scale = (Math.min(cam.width, cam.height) / 2) * (0.8 / radius);
-  return { x: cx, y: cy, scale: cam.clampScale(Math.min(scale, cam.maxScale())) };
-}
-
-/** Converts a u32 [arcLo, arcHi] pair to radians, keeping lo ≤ hi. */
-export function arcRadians(arcLo: number, arcHi: number): [number, number] {
-  const k = TAU / 2 ** 32;
-  return [arcLo * k, arcHi * k];
 }
 
 export interface FlyOptions {
-  /** The rotation to arrive with; by default `Flight.endRotation(to)`. */
-  rot?: number;
+  /** Keep the zoom and only turn (a click on the canvas). */
+  turnOnly?: boolean;
+  /** Take at least this long (the idle tour's calm steps), ms. */
+  minMs?: number;
   now?: number;
 }
 
-/**
- * Drives one flight at a time; any user input cancels it. It owns the
- * camera's rotation while flying (see the file comment).
- */
+/** Drives one flight at a time; any user input cancels it. */
 export class Flight {
   reducedMotion = false;
-  interpolate: Interpolator = interpolate;
-  /** The rotation a flight to `to` arrives with (the scene asks auto-orient); by default it keeps the current one. */
-  endRotation: (to: Pose) => number = () => this.camera.rot;
-  /** A flight starts (auto-orient stands aside). */
-  onStart: () => void = () => {};
-  /** A flight landed, was cancelled, or was cut (auto-orient takes over again). */
+  /** A flight landed, was cancelled, or was cut. */
   onEnd: (now: number) => void = () => {};
   /**
    * Reduced motion: called just before a cut with the camera still at the
@@ -185,37 +128,31 @@ export class Flight {
    */
   onCut: () => void = () => {};
 
-  private readonly camera: Camera;
+  private readonly rig: Rig;
   private path: FlightPath | null = null;
   private t0 = 0;
-  private rot0 = 0;
-  private rot1 = 0;
 
-  constructor(camera: Camera) {
-    this.camera = camera;
+  constructor(rig: Rig) {
+    this.rig = rig;
   }
 
   fly(to: Pose, opts: FlyOptions = {}): void {
     const now = opts.now ?? performance.now();
-    const cam = this.camera;
-    const target = { ...to, scale: cam.clampScale(to.scale) };
-    const rot = opts.rot ?? this.endRotation(target);
-    // Turn the short way round.
-    const rot1 = cam.rot + wrapRad(rot - cam.rot);
+    const rig = this.rig;
+    const target = { theta: to.theta, scale: opts.turnOnly ? rig.scale : rig.clampScale(to.scale) };
     if (this.reducedMotion) {
       // Reduced motion: a cut plus a short crossfade (DESIGN.md §6).
       this.path = null;
       this.onCut();
-      applyPose(cam, target);
-      cam.rot = rot1;
+      rig.set(target);
       this.onEnd(now);
       return;
     }
-    this.path = this.interpolate(poseOf(cam), target, cam);
+    const cam = rig.camera;
+    const span = Math.min(cam.width, cam.height);
+    const path = opts.turnOnly ? turnPath(rig.pose(), target, span) : interpolate(rig.pose(), target, span);
+    this.path = opts.minMs && path.ms < opts.minMs ? { ...path, ms: opts.minMs } : path;
     this.t0 = now;
-    this.rot0 = cam.rot;
-    this.rot1 = rot1;
-    this.onStart();
   }
 
   cancel(now = performance.now()): void {
@@ -228,13 +165,12 @@ export class Flight {
     return this.path !== null;
   }
 
-  /** Moves the camera to time `now`; true while flying. */
+  /** Moves the rig to time `now`; true while flying. */
   step(now: number): boolean {
     const path = this.path;
     if (!path) return false;
     const t = Math.min(1, Math.max(0, (now - this.t0) / path.ms));
-    applyPose(this.camera, path.at(t));
-    this.camera.rot = this.rot0 + (this.rot1 - this.rot0) * smoothstep(0, 1, t);
+    this.rig.set(path.at(t));
     if (t >= 1) {
       this.path = null;
       this.onEnd(now);

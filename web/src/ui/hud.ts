@@ -1,42 +1,30 @@
 // The persistent HUD (DESIGN.md §4.1, PLAN §7.10): the breadcrumb and
-// readout at the bottom left, zoom buttons and the kingdom key at the bottom
-// right, and the 1 px loading line at the top.
+// readout at the bottom left, the kingdom key at the bottom right, and the
+// 1 px loading line at the top. Zoom has its own control on the left edge
+// (ui/zoomstrip.ts), whose reset button calls `reset` here.
 //
-// Breadcrumb. The node under the screen centre is found in the loaded tiles
-// (reticle.ts, at most 4 times a second), but its full lineage is not: an
-// ancestor's tile is the one holding its arc's midpoint, which is usually
-// off screen and not loaded. So the lineage comes from /api/nodes/{id}
-// (debounced 120 ms, the previous request aborted, answers cached in the
-// NodeStore shared with hover and the panel). The
-// local lookup keeps requests rare: one per change of node under the
-// reticle, not one per frame. Segments fly the camera to that clade.
-//
-// With a selection whose point is on screen, the breadcrumb is the
-// selection's lineage instead (the white path and the panel name the same
-// node, so the HUD never contradicts them); panning the selection away
-// hands it back to the reticle.
+// The breadcrumb is the selection's lineage (there is always a selection,
+// selection.ts), so the canvas, the card and the HUD never name different
+// nodes. Its segments select that clade and fly to it. The kingdom key
+// selects a group's largest root clade the same way. Reset goes back to
+// minimum zoom with the selection on the anchor.
 //
 // The HUD registers its text and controls as obstacles (ui/obstacles.ts):
 // labels keep clear of them and the renderer darkens the tree behind them,
 // so the DOM stays flat (no opaque plates). It re-registers whenever the
 // breadcrumb or readout changes size.
 
-import { TWO_32, fromRad, toRad } from '../angle';
-import { type Pose, arcRadians, cladePose, wheelPose } from '../flyto';
+import { toRad } from '../angle';
 import { tipsInView } from '../inview';
 import type { NodeStore } from '../nodes';
 import { isPlaceholderName, nameRuns, nameSpans, type NameRun } from '../names';
-import { nodeAtReticle } from '../reticle';
 import { DIM_HUD } from '../style';
 import type { Scene } from '../scene';
 import type { Meta, NodeInfo } from '../types';
 import { type Obstacle, elementBox, textBox, union } from './obstacles';
 
-const PROBE_MS = 250;
-const FETCH_DEBOUNCE_MS = 120;
 /** The progress line shows only for loads longer than this. */
 const PROGRESS_DELAY_MS = 250;
-const ZOOM_STEP = 1.5;
 /**
  * Kingdom key: swatch colours (DESIGN.md §2.2), in the order the groups
  * come clockwise round the default view, starting at Animals (upper left).
@@ -49,14 +37,6 @@ const KEY: readonly { id: number; swatch: string }[] = [
   { id: 4, swatch: '--k-bacteria' },
   { id: 5, swatch: '--k-archaea' },
 ];
-
-/** Zoom and reset icons: 1 px strokes on a 16 px grid, so they match the text weight on every OS. */
-const ICONS: Record<'minus' | 'plus' | 'reset', string> = {
-  minus: 'M3.5 8h9',
-  plus: 'M3.5 8h9M8 3.5v9',
-  // An open circle with an arrowhead: "back to the start".
-  reset: 'M12.2 5.6A4.8 4.8 0 1 0 12.8 9M12.6 2.8v3h-3',
-};
 
 const nf = new Intl.NumberFormat('en');
 
@@ -126,18 +106,13 @@ export class Hud {
   private readonly store: NodeStore;
   private readonly version: string;
 
-  /** The current selection, if any (set by main.ts from selection.ts). */
+  /** The current selection (set by main.ts from selection.ts). */
   selected: () => NodeInfo | null = () => null;
+  /** Selects a node and flies to it (set by main.ts from selection.ts). */
+  select: (ref: number | string) => void = () => {};
 
-  private lastProbe = -Infinity;
-  /** Camera and tiles as of the last probe; no new probe until they change. */
-  private probedKey = '';
-  private probeTimer = 0;
-  private fetchTimer = 0;
-  private ctl: AbortController | null = null;
-  /** Node whose lineage is shown, and the one wanted next. */
+  /** Node whose lineage is shown. */
   private shownId = -1;
-  private wantedId = -1;
   private readoutText = '';
   private loadStart = -1;
   private settledOnce = false;
@@ -157,7 +132,6 @@ export class Hud {
     this.progress = el('div', { className: 'progress' });
     this.progress.setAttribute('aria-hidden', 'true');
     document.body.append(this.progress);
-    this.buildControls();
     this.buildKey();
     scene.input.onDrag = (dragging) => document.documentElement.classList.toggle('dragging', dragging);
     scene.obstacles.set('hud', () => this.obstacles());
@@ -180,25 +154,11 @@ export class Hud {
     return out;
   }
 
-  /** True while the breadcrumb is still catching up (the scene is not idle yet). */
-  busy(): boolean {
-    return this.probeTimer !== 0 || this.fetchTimer !== 0 || this.ctl !== null;
-  }
-
-  /** Called after every frame: readout now, breadcrumb throttled. */
+  /** Called after every frame: the readout, and the breadcrumb when the selection changed. */
   frame(now: number): void {
     this.updateReadout(now);
-    if (this.probeKey() === this.probedKey) return;
-    if (now - this.lastProbe >= PROBE_MS) {
-      this.probe();
-    } else if (this.probeTimer === 0) {
-      // Trailing probe, so the breadcrumb settles where the camera stopped.
-      this.probeTimer = window.setTimeout(() => {
-        this.probeTimer = 0;
-        this.probe();
-        this.scene.requestOverlay();
-      }, PROBE_MS - (now - this.lastProbe));
-    }
+    const sel = this.selected();
+    if (sel) this.renderCrumbs(sel);
   }
 
   private updateReadout(now: number): void {
@@ -230,65 +190,6 @@ export class Hud {
     } else {
       this.loadStart = -1;
       this.progress.classList.remove('on');
-    }
-  }
-
-  private probeKey(): string {
-    const cam = this.scene.camera;
-    const sel = this.selected();
-    return `${cam.angle},${cam.r},${cam.scale},${this.scene.lastView?.level},${this.scene.lastTiles.length},${sel?.id}`;
-  }
-
-  private probe(): void {
-    this.lastProbe = performance.now();
-    this.probedKey = this.probeKey();
-    const view = this.scene.lastView;
-    if (!view) return;
-    const cam = this.scene.camera;
-    // A hair under half a slot: exactly between two tips (where a species
-    // with two subspecies sits) reads as the parent, not either tip.
-    const halfSlot = (TWO_32 / this.meta.tipCount / 2) * 0.999;
-    const hit = nodeAtReticle(this.scene.lastTiles, fromRad(cam.angle), cam.r, view.level, halfSlot);
-    const sel = this.selected();
-    const id = sel && this.onScreen(sel) ? sel.id : (hit?.id ?? 0);
-    if (id === this.wantedId) return;
-    this.wantedId = id;
-    window.clearTimeout(this.fetchTimer);
-    this.fetchTimer = window.setTimeout(() => {
-      this.fetchTimer = 0;
-      void this.load(id);
-    }, FETCH_DEBOUNCE_MS);
-  }
-
-  /**
-   * True when a node's place on the rim (the middle of its tips, where a
-   * flight to it frames it) is inside the window. The rim, not the node's
-   * own point: deep in, a species with subspecies has its fork off screen
-   * while its tips fill the view.
-   */
-  private onScreen(n: NodeInfo): boolean {
-    const cam = this.scene.camera;
-    const p = cam.polarToScreen(toRad(n.angle), n.lineage.length === 0 ? 0 : 1);
-    return p.x >= 0 && p.y >= 0 && p.x <= cam.width && p.y <= cam.height;
-  }
-
-  private node(id: number, signal?: AbortSignal): Promise<NodeInfo> {
-    return this.store.get(id, signal);
-  }
-
-  private async load(id: number): Promise<void> {
-    this.ctl?.abort();
-    const ctl = new AbortController();
-    this.ctl = ctl;
-    try {
-      const n = await this.node(id, ctl.signal);
-      if (ctl.signal.aborted) return;
-      this.renderCrumbs(n);
-    } catch (err) {
-      if (!ctl.signal.aborted) console.warn('breadcrumb', err);
-    } finally {
-      if (this.ctl === ctl) this.ctl = null;
-      this.scene.requestOverlay();
     }
   }
 
@@ -326,54 +227,19 @@ export class Hud {
       const b = el('button', { className: `crumb${last ? ' current' : ''}`, title: `Go to ${s.name}` }, nameSpans(s.runs));
       b.type = 'button';
       if (last) b.setAttribute('aria-current', 'location');
-      b.addEventListener('click', () => void this.flyToNode(s.id));
+      b.addEventListener('click', () => this.select(s.id));
       out.push(b);
     });
     return out;
   }
 
-  /** Flies to a clade, framed at its rim (flyto.ts). */
-  private async flyToNode(id: number): Promise<void> {
-    const cam = this.scene.camera;
-    let pose: Pose;
-    const rot = this.scene.orient.baseRot;
-    if (id === 0) {
-      pose = wheelPose(cam, rot);
-    } else {
-      const n = await this.node(id);
-      const [lo, hi] = arcRadians(n.arcLo, n.arcHi);
-      pose = cladePose(cam, lo, hi, n.r, rot);
-    }
-    this.fly(pose);
-  }
-
-  private fly(pose: Pose): void {
+  /** Back to minimum zoom, the selection on the anchor (the zoom strip's reset button). */
+  reset(): void {
+    const rig = this.scene.rig;
+    const sel = this.selected();
     this.scene.input.cancel();
-    this.scene.flight.fly(pose);
+    this.scene.flight.fly({ theta: sel ? toRad(sel.angle) : rig.theta, scale: rig.minScale() });
     this.scene.requestRender();
-  }
-
-  private buildControls(): void {
-    const box = need('.zoom-controls', HTMLElement);
-    const cam = this.scene.camera;
-    const button = (icon: keyof typeof ICONS, label: string, onClick: () => void): HTMLButtonElement => {
-      const b = el('button', { className: 'ctl', label, title: label });
-      b.type = 'button';
-      b.innerHTML =
-        `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">` +
-        `<path d="${ICONS[icon]}" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="square"/></svg>`;
-      b.addEventListener('click', onClick);
-      return b;
-    };
-    const zoom = (f: number) => (): void => {
-      this.scene.flight.cancel();
-      this.scene.input.zoomTo(cam.width / 2, cam.height / 2, f);
-    };
-    box.replaceChildren(
-      button('minus', 'Zoom out', zoom(1 / ZOOM_STEP)),
-      button('plus', 'Zoom in', zoom(ZOOM_STEP)),
-      button('reset', 'Show the whole tree', () => this.fly(wheelPose(cam, this.scene.orient.baseRot))),
-    );
   }
 
   private buildKey(): void {
@@ -386,20 +252,25 @@ export class Hud {
       sw.style.background = `var(${k.swatch})`;
       const b = el('button', { title: `Go to ${g.name}` }, [sw, g.name]);
       b.type = 'button';
-      b.addEventListener('click', () => this.flyToGroup(g.id));
+      b.addEventListener('click', () => void this.flyToGroup(g.id));
       items.push(el('li', {}, [b]));
     }
     ul.replaceChildren(...items);
   }
 
-  private flyToGroup(group: number): void {
-    let best: { lo: number; hi: number } | null = null;
-    for (const run of this.meta.runs) {
-      if (run.group !== group) continue;
-      if (!best || run.angleHi - run.angleLo > best.hi - best.lo) best = { lo: run.angleLo, hi: run.angleHi };
+  /** Selects a group's largest root clade (a group may have several, e.g. the protists). */
+  private async flyToGroup(group: number): Promise<void> {
+    const g = this.meta.groups.find((x) => x.id === group);
+    if (!g) return;
+    let best: NodeInfo | null = null;
+    for (const id of g.rootIds) {
+      try {
+        const n = await this.store.get(id);
+        if (!best || n.leafCount > best.leafCount) best = n;
+      } catch (err) {
+        console.warn('kingdom key', err);
+      }
     }
-    if (!best) return;
-    const [lo, hi] = arcRadians(best.lo, best.hi);
-    this.fly(cladePose(this.scene.camera, lo, hi, 0.55, this.scene.orient.baseRot));
+    if (best) this.select(best.id);
   }
 }
