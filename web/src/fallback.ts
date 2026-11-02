@@ -1,4 +1,4 @@
-// No WebGL2 (DESIGN.md §7): a still image of the wheel and one sentence in
+// No GPU drawing, neither WebGPU nor WebGL2 (DESIGN.md §7): a still image of the wheel and one sentence in
 // place of the canvas, with search, the panel and Data & credits still
 // working, since they need only the API. Choosing a search result opens its
 // panel; lineage and children links in the panel open theirs.
@@ -11,7 +11,7 @@ import { Obstacles } from './ui/obstacles';
 import { Panel } from './ui/panel';
 import { SearchPalette } from './ui/search';
 
-export const NO_WEBGL_TEXT = 'Your browser can’t draw the interactive tree (WebGL2 unavailable). Search still works.';
+export const NO_GPU_TEXT = 'Your browser can’t draw the interactive tree (no WebGPU or WebGL2). Search still works.';
 
 function byId(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -30,7 +30,7 @@ export function mountFallback(meta: Meta): void {
   img.width = 1200;
   img.height = 1200;
   const caption = document.createElement('figcaption');
-  caption.textContent = NO_WEBGL_TEXT;
+  caption.textContent = NO_GPU_TEXT;
   figure.append(img, caption);
   document.body.append(figure);
 
