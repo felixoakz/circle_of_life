@@ -1,8 +1,14 @@
-// Debug aids behind `?debug` (PLAN §7.11): a small HUD with fps, frame time,
-// tiles, instances, λ and V; and `?debug=precision`, which checks that the
-// picture moves rigidly at max zoom (no float jitter, PLAN §7.2).
+// Debug aids behind `?debug` (PLAN §7.11): a small HUD with fps, frame time
+// (CPU, and GPU when the backend times frames), tiles, instances, λ and V;
+// `?debug=precision`, which checks that the picture moves rigidly at max
+// zoom (no float jitter, PLAN §7.2); and the result line of
+// `?debug=parity` (gpu/parity.ts). main.ts loads this module lazily, only
+// when `?debug` is in the URL.
 
 import { toRad } from './angle';
+import type { GpuParity } from './gpu/parity';
+import { type FrameComparison, compareFrames } from './render/pixels';
+import type { Pixels, Renderer } from './render/types';
 import type { FrameInfo, Scene } from './scene';
 import type { Meta } from './types';
 
@@ -24,6 +30,7 @@ export function mountDebugHud(scene: Scene): void {
 
   const frameTimes: number[] = [];
   let msAvg = 0;
+  let gpuAvg = 0;
   let lastPaint = 0;
   scene.onFrame = (f: FrameInfo) => {
     const now = performance.now();
@@ -31,32 +38,37 @@ export function mountDebugHud(scene: Scene): void {
     while (frameTimes.length > 0 && (frameTimes[0] ?? 0) < now - 1000) frameTimes.shift();
     msAvg = msAvg === 0 ? f.ms : 0.9 * msAvg + 0.1 * f.ms;
     window.__frameMs = msAvg;
+    // The GPU time arrives a frame or two late (gpu/timing.ts); null on WebGL2.
+    const gpu = scene.renderer.gpuMs();
+    if (gpu !== null) gpuAvg = gpuAvg === 0 ? gpu : 0.9 * gpuAvg + 0.1 * gpu;
     if (now - lastPaint < 250) return;
     lastPaint = now;
     const s = scene.cache.stats();
     const cam = scene.camera;
     el.textContent = [
-      `fps ${frameTimes.length}  frame ${msAvg.toFixed(1)} ms`,
+      `fps ${frameTimes.length}  frame ${msAvg.toFixed(1)} ms` +
+        (gpu !== null ? `  gpu ${gpuAvg.toFixed(2)} ms` : '') +
+        `  ${scene.renderer.kind}`,
       `tiles ${f.tiles} drawn · ${s.resident} resident · ${s.inFlight} in flight · ${s.pending} pending · ${s.aborted} aborted`,
       `instances ${f.instances.toLocaleString('en')} · ${f.drawCalls} draws`,
       `λ ${f.view.lambda.toFixed(2)}  V ${f.view.level}  fetch ≤ ${f.view.fetchLevel}`,
       `tip spacing ${cam.tipSpacingPx().toFixed(3)} px`,
       window.__precision ? precisionLine(window.__precision) : '',
-    ].join('\n');
+      window.__gpuParity ? parityLine(window.__gpuParity) : '',
+    ]
+      .filter((line) => line !== '')
+      .join('\n');
   };
 }
 
-export interface PrecisionResult {
+function parityLine(p: GpuParity): string {
+  if (p.error) return `parity: ${p.error}`;
+  const failed = p.results.filter((r) => !r.ok).map((r) => r.name);
+  return `parity ${p.ok ? 'ok' : 'FAIL'} on ${p.adapter}: ${p.results.length} checks` + (failed.length > 0 ? `, failed ${failed.join(', ')}` : '');
+}
+
+export interface PrecisionResult extends FrameComparison {
   shift: [number, number];
-  /** Line crossings (lit runs along pixel rows) compared between the two frames. */
-  lines: number;
-  /** Largest and mean offset of a line's centre after undoing the pan, px. */
-  maxOffsetPx: number;
-  meanOffsetPx: number;
-  /** Lines with no counterpart within 3 px (missing or jumped). */
-  unmatched: number;
-  /** Where the largest offset was found: CSS-free device px, y down. */
-  maxAt: [number, number];
 }
 
 function precisionLine(p: PrecisionResult): string {
@@ -76,47 +88,19 @@ export function precisionCamera(scene: Scene, meta: Meta): void {
 }
 
 /**
- * Centres (intensity-weighted, in px) of the lit runs in one pixel row,
- * restricted to columns [x0, x1).
- */
-function rowCentres(px: Uint8Array, w: number, row: number, x0: number, x1: number): number[] {
-  const out: number[] = [];
-  let sum = 0;
-  let moment = 0;
-  for (let x = x0; x <= x1; x++) {
-    const i = (row * w + x) * 4;
-    const v = x < x1 ? (px[i] ?? 0) + (px[i + 1] ?? 0) + (px[i + 2] ?? 0) : 0;
-    if (v > 12) {
-      sum += v;
-      moment += v * x;
-    } else if (sum > 0) {
-      out.push(moment / sum);
-      sum = 0;
-      moment = 0;
-    }
-  }
-  return out;
-}
-
-/**
  * Renders, pans by an exact whole number of pixels, renders again and
- * compares where each line crosses each pixel row. A jitter-free renderer
- * draws the same picture shifted, so every line comes back to within a
- * small fraction of a pixel; float jitter moves lines by whole pixels.
+ * compares where each line crosses each pixel row (render/pixels.ts
+ * `compareFrames`). A jitter-free renderer draws the same picture shifted,
+ * so every line comes back to within a small fraction of a pixel; float
+ * jitter moves lines by whole pixels.
  */
-export async function runPrecisionTest(
-  scene: Scene,
-  gl: WebGL2RenderingContext,
-): Promise<PrecisionResult> {
+export async function runPrecisionTest(scene: Scene, renderer: Renderer): Promise<PrecisionResult> {
   const shift: [number, number] = [37, 23];
-  const w = gl.drawingBufferWidth;
-  const h = gl.drawingBufferHeight;
-  const grab = async (): Promise<Uint8Array> => {
+  const grab = async (): Promise<Pixels> => {
     await scene.whenIdle();
     scene.renderNow();
-    const px = new Uint8Array(w * h * 4);
-    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    return px;
+    // Same task as the draw: the frame is not readable afterwards.
+    return renderer.readPixels();
   };
 
   // Geometry only: the HUD's dim plates are fixed to the screen (scene.ts).
@@ -128,34 +112,7 @@ export async function runPrecisionTest(
   scene.camera.panBy(-shift[0], -shift[1]);
   scene.dimsOn = true;
   scene.requestRender();
-
-  // readPixels rows run bottom-up: content that moved down by dy on screen
-  // sits dy rows lower in the buffer, and dx columns further right.
-  const [dx, dy] = shift;
-  let lines = 0;
-  let unmatched = 0;
-  let maxOffsetPx = 0;
-  let maxAt: [number, number] = [0, 0];
-  let total = 0;
-  for (let row = dy; row < h; row++) {
-    const ca = rowCentres(a, w, row, 1, w - dx - 1);
-    const cb = rowCentres(b, w, row - dy, dx + 1, w - 1).map((x) => x - dx);
-    for (const x of ca) {
-      let best = Infinity;
-      for (const y of cb) best = Math.min(best, Math.abs(x - y));
-      if (best > 3) {
-        unmatched++;
-        continue;
-      }
-      lines++;
-      total += best;
-      if (best > maxOffsetPx) {
-        maxOffsetPx = best;
-        maxAt = [Math.round(x), h - 1 - row];
-      }
-    }
-  }
-  return { shift, lines, maxOffsetPx, meanOffsetPx: total / Math.max(1, lines), unmatched, maxAt };
+  return { shift, ...compareFrames(a, b, shift) };
 }
 
 /** After the test, glide slowly in a circle so jitter is visible to the eye. */
