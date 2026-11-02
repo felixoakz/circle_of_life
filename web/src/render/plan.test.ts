@@ -212,19 +212,6 @@ describe('planFrame: tiles', () => {
     const look = S.frameLook(params());
     expect(arcs[0] as ArcsCmd).toMatchObject({ alpha: look.branchAlpha, homeAlpha: S.HOME_LINE_ALPHA, fade: 1 });
   });
-
-  it('tipCut: the tip bar length once tip bars pass 0.5 alpha, else 0 (l. 315)', () => {
-    const cut = (lambda: number): number => {
-      const p = params({ lambda, lambdaExt: lambda, dpr: 2 });
-      const [b] = ofPass(planFrame([tile(9, 1, 0)], NO_FANS, p, SIZE).cmds, 'branches');
-      return b?.tipCut ?? NaN;
-    };
-    expect(S.frameLook(params({ lambda: 12 })).tipBar).toBeLessThanOrEqual(0.5);
-    expect(cut(12)).toBe(0);
-    expect(cut(5)).toBe(0);
-    expect(S.frameLook(params({ lambda: 13.5 })).tipBar).toBeGreaterThan(0.5);
-    expect(cut(13.5)).toBe(S.TIP_BAR_MAX_LEN_PX * 2);
-  });
 });
 
 describe('planFrame: rim ring', () => {
@@ -273,9 +260,9 @@ describe('planFrame: rim marks', () => {
       fade: 1,
       px: 2,
       spike: [S.SPIKE_ALPHA * look.glow, S.SPIKE_MAX_W_PX * 2],
-      tipBar: [look.tipBar, look.tipWidth * 2, S.TIP_BAR_MAX_LEN_PX * 2],
-      tipHalo: [S.TIP_HALO, look.tipHalo * 2],
-      leader: [look.leader, 30 * 2, 200 * 2],
+      tipBar: [look.tipBar, S.TIP_BAR_MAX_LEN_PX * 2],
+      leader: [look.leader, 30 * 2, 200 * 2, look.leaderWidth * 2],
+      leaderHalo: [S.LEADER_HALO, look.leaderHalo * 2],
     });
   });
 
@@ -284,7 +271,8 @@ describe('planFrame: rim marks', () => {
       const p = params({ tipSpacing: 12, leaderGap: 10, leaderLen, dpr: 2 });
       expect(S.frameLook(p).leader).toBe(1);
       const [m] = ofPass(planFrame([tile(8, 1, 0)], NO_FANS, p, SIZE).cmds, 'marks');
-      return m?.leader ?? [NaN, NaN, NaN];
+      const [alpha = NaN, gap = NaN, len = NaN] = m?.leader ?? [];
+      return [alpha, gap, len];
     };
     expect(leader(0)).toEqual([0, 20, 2]); // length clamped to ≥ 1 px
     expect(leader(24)).toEqual([0, 20, 48]);
