@@ -52,7 +52,7 @@ describe('strandsRef', () => {
 
 describe('polarRef', () => {
   const cases: [string, (c: Camera) => void][] = [
-    ['overview', (c) => c.fit()],
+    ['overview', (c) => Object.assign(c, { scale: 360, angle: 0, r: 0, rot: 0 })],
     ['max zoom', (c) => Object.assign(c, { scale: c.maxScale(), angle: 4.1, r: 1 - 300 / c.maxScale(), rot: 0.3 })],
     ['max zoom across 0', (c) => Object.assign(c, { scale: c.maxScale(), angle: 2 * Math.PI - 1e-7, r: 0.99999, rot: 2.5 })],
   ];
@@ -73,7 +73,7 @@ describe('polarRef', () => {
   it('grid points land on screen', () => {
     const cam = new Camera(2_390_000);
     cam.setViewport(1440, 900, 1);
-    cam.fit();
+    cam.scale = 360;
     for (const p of polarInputs(cam)) {
       const [x, y] = polarRef(cam, p.a, p.r, [0, 0]);
       expect(Math.abs(x)).toBeLessThan(721);

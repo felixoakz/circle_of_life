@@ -3,6 +3,9 @@ import { TAU } from './angle';
 import { Camera } from './camera';
 import { circleInRect, tipsInArc, tipsInView } from './inview';
 
+/** Scale (px per world unit) at which the whole wheel fits a 1440×900 screen. */
+const WHEEL = 360;
+
 const total = (arcs: { len: number }[]): number => arcs.reduce((s, a) => s + a.len, 0);
 
 describe('circleInRect', () => {
@@ -37,9 +40,9 @@ describe('tipsInView', () => {
   it('counts every tip on the whole wheel, and none off the rim', () => {
     const cam = new Camera(2_385_875);
     cam.setViewport(1440, 900, 1);
-    cam.fit();
+    cam.scale = WHEEL; // the whole wheel, centred
     expect(tipsInView(cam, cam.tipCount)).toBe(cam.tipCount);
-    cam.scale = cam.fitScale() * 20;
+    cam.scale = WHEEL * 20;
     cam.setCentre(0.2, 0);
     expect(tipsInView(cam, cam.tipCount)).toBeNull();
   });

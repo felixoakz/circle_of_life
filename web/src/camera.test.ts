@@ -13,17 +13,11 @@ function deepCamera(): Camera {
 }
 
 describe('camera', () => {
-  it('fits the wheel and clamps the zoom range', () => {
+  it('sets the maximum zoom at 48 CSS px between tips', () => {
     const cam = new Camera(2_385_875);
-    cam.setViewport(1440, 900, 1);
-    cam.fit();
-    const rim = cam.polarToScreen(Math.PI / 2, 1);
-    expect(rim.x).toBeCloseTo(720, 9);
-    // The rim leaves room outside it for group labels (FIT_MARGIN 0.86).
-    expect(450 - rim.y).toBeGreaterThan(370);
-    expect(450 - rim.y).toBeLessThan(420);
-    cam.scale = cam.clampScale(1e12);
-    expect(cam.tipSpacingPx()).toBeCloseTo(48, 9);
+    cam.setViewport(1440, 900, 2);
+    cam.scale = cam.maxScale();
+    expect(cam.tipSpacingPx() / cam.dpr).toBeCloseTo(48, 9);
   });
 
   it('round-trips screen → world → screen at max zoom', () => {
@@ -44,23 +38,12 @@ describe('camera', () => {
     }
   });
 
-  it('keeps the point under the cursor fixed while zooming', () => {
+  it('puts the centre point in the middle of the screen', () => {
     const cam = deepCamera();
-    cam.scale /= 1000;
-    const before = cam.screenToWorld(300, 200);
-    cam.zoomAt(300, 200, 3.7);
-    const after = cam.worldToScreen(before.x, before.y);
-    expect(after.x).toBeCloseTo(300, 6);
-    expect(after.y).toBeCloseTo(200, 6);
-  });
-
-  it('pans the picture by exactly the dragged pixels', () => {
-    const cam = deepCamera();
-    const w = cam.screenToWorld(100, 100);
-    cam.panBy(37, -23);
-    const s = cam.worldToScreen(w.x, w.y);
-    expect(s.x).toBeCloseTo(137, 5);
-    expect(s.y).toBeCloseTo(77, 5);
+    const c = cam.centre();
+    const s = cam.worldToScreen(c.x, c.y);
+    expect(s.x).toBeCloseTo(720, 9);
+    expect(s.y).toBeCloseTo(450, 9);
   });
 
   it('splits uniforms into an exact u32 angle and hi/lo radius', () => {

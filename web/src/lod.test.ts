@@ -13,13 +13,16 @@ import {
   visibleRange,
 } from './lod';
 
+/** Scale (px per world unit) at which the whole wheel fits a 1440×900 screen. */
+const WHEEL = 360;
+
 const N = 2_385_875;
 const P = 512;
 
 function camera(): Camera {
   const cam = new Camera(N);
   cam.setViewport(1440, 900, 1);
-  cam.fit();
+  cam.scale = WHEEL; // the whole wheel, centred
   return cam;
 }
 
@@ -61,7 +64,7 @@ describe('lod', () => {
   it('caps every level at the sector budget near the origin', () => {
     // Zoomed in just beside the origin: a wide angular range at a deep level.
     const cam = camera();
-    cam.scale = cam.fitScale() * 300;
+    cam.scale = WHEEL * 300;
     cam.r = 0.02;
     const v = computeView(cam, P, 13);
     expect(v.fetchLevel).toBeGreaterThan(6);
@@ -94,7 +97,7 @@ describe('lod', () => {
 
   it('returns no range when the screen is outside the rim', () => {
     const cam = camera();
-    cam.scale = cam.fitScale() * 20;
+    cam.scale = WHEEL * 20;
     cam.r = 1.15;
     expect(visibleRange(cam)).toBeNull();
     expect(computeView(cam, P, 13).keys).toEqual([tileKey(0, 0)]);
