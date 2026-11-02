@@ -72,7 +72,7 @@ export function sectorWidth(level: number): number {
 /** Sector index of an integer angle at `level` (PLAN §3.6). */
 export function sectorOf(a: number, level: number): number {
   // `>>> 32` is a no-op in JS (shift counts are taken mod 32), so level 0 is
-  // special-cased, mirroring the Rust overflow guard.
+  // special-cased, as in the server's tree.SectorOf.
   return level === 0 ? 0 : Math.floor(a) >>> (32 - level);
 }
 

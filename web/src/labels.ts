@@ -1,5 +1,5 @@
 // Canvas2D label overlay (PLAN §7.7, DESIGN.md §3 and §5), drawn over the
-// WebGL canvas. At most MAX_LABELS per frame, from what the loaded tiles say:
+// tree canvas. At most MAX_LABELS per frame, from what the loaded tiles say:
 //
 //   - group labels (Animals, Plants…) outside the rim at each group's largest
 //     run, 13 px text-2 beside a 2 px rule in the group's hue (on the side

@@ -1,7 +1,7 @@
 // Reduced motion replaces flights with a cut plus a 120 ms crossfade
 // (DESIGN.md §6). Just before the cut, the canvases still show the old view:
 // they are copied into one snapshot canvas laid over them, which then fades
-// out over the new view. The WebGL canvas must be copied in the same task
+// out over the new view. The tree canvas must be copied in the same task
 // that drew it (its drawing buffer is not preserved), so the scene renders
 // the old view once more right before calling `snapshot`.
 

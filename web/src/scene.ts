@@ -8,11 +8,11 @@ import { Camera } from './camera';
 import { crossfade } from './crossfade';
 import { cubicBezier } from './ease';
 import { Flight } from './flyto';
-import { type Dim, type GpuTile, type Highlight, NO_HIGHLIGHT, Renderer } from './gl/renderer';
+import { type Dim, type GpuTile, type Highlight, NO_HIGHLIGHT, type Renderer } from './render/types';
 import { Input } from './input';
 import { type View, computeView, levelFade, radialWindow, rangeUniforms } from './lod';
 import { AutoOrient, compositionRotation } from './orient';
-import { RunPalette } from './palette';
+import type { RunPalette } from './palette';
 import { leaderLength } from './leader';
 import { DIM_PAD_PX, DIM_SOFT_PX, HOME_LEADER_GAP_PX, INTRO_EASE, INTRO_MS, REVEAL_END } from './style';
 import { TileCache } from './tiles/cache';
@@ -44,8 +44,14 @@ export interface FrameInfo {
   tiles: number;
   instances: number;
   drawCalls: number;
-  /** CPU time of the frame, plus GPU time when `syncGpu` is on. */
+  /** CPU time of the frame, plus GPU time when `syncGpu` is on (WebGL2 waits synchronously). */
   ms: number;
+}
+
+/** `Scene.bench`: average wall-clock frame time, and GPU time when the backend measures it. */
+export interface BenchResult {
+  ms: number;
+  gpuMs: number | null;
 }
 
 export class Scene {
@@ -89,15 +95,14 @@ export class Scene {
   lastView: View | null = null;
   lastTiles: Tile[] = [];
 
-  private readonly gl: WebGL2RenderingContext;
+  /** The backend drawing the tree (WebGPU or WebGL2, render/select.ts). */
+  readonly renderer: Renderer;
   private readonly meta: Meta;
-  private readonly renderer: Renderer;
   private scheduled = false;
   private dirty = false;
   /** The tree itself needs redrawing (not just the overlay). */
   private glDirty = false;
   private idleWaiters: (() => void)[] = [];
-  private readonly syncPixel = new Uint8Array(4);
   /** What the current fans were built from: F and the drawn tile keys. */
   private fanSource = '';
   /**
@@ -109,18 +114,22 @@ export class Scene {
   private reveal = Infinity;
   private highlightAnimating = false;
 
-  constructor(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement, meta: Meta) {
-    this.gl = gl;
+  constructor(renderer: Renderer, canvas: HTMLCanvasElement, meta: Meta, palette: RunPalette) {
+    this.renderer = renderer;
     this.meta = meta;
     this.camera = new Camera(meta.tipCount);
-    this.palette = new RunPalette(meta.runs, meta.tipCount);
-    this.renderer = new Renderer(gl, this.palette);
+    this.palette = palette;
     this.cache = new TileCache<GpuTile>({
       fetch: (level, sector, signal) => fetchTile(meta.dataVersion, level, sector, signal),
       upload: (tile) => this.renderer.upload(tile),
       release: (gpu) => this.renderer.release(gpu),
     });
     this.cache.onChange = () => this.requestRender();
+    // After a GPU loss the backend is on a new device: every tile goes up again.
+    renderer.onRestored = () => {
+      this.cache.rebuild();
+      this.requestRender();
+    };
     this.input = new Input(canvas, this.camera, () => this.requestRender());
     this.orient = new AutoOrient(this.camera, compositionRotation(meta.runs));
     this.flight = new Flight(this.camera);
@@ -168,15 +177,24 @@ export class Scene {
 
   /**
    * Average time of `n` back-to-back frames, waiting for the GPU after each
-   * (a frame-time measurement for headless runs).
+   * (a frame-time measurement for headless runs): wall-clock `ms`, and the
+   * GPU's own `gpuMs` when the backend can time frames (gpu/timing.ts).
    */
-  bench(n: number): number {
+  async bench(n: number): Promise<BenchResult> {
     const t0 = performance.now();
+    let gpuSum = 0;
+    let gpuFrames = 0;
     for (let i = 0; i < n; i++) {
       this.renderNow();
-      this.waitForGpu();
+      // finish() also waits for the frame's timestamps, so gpuMs() is this frame's.
+      await this.renderer.finish();
+      const g = this.renderer.gpuMs();
+      if (g !== null) {
+        gpuSum += g;
+        gpuFrames++;
+      }
     }
-    return (performance.now() - t0) / n;
+    return { ms: (performance.now() - t0) / n, gpuMs: gpuFrames > 0 ? gpuSum / gpuFrames : null };
   }
 
   /** Resolves the next time the scene goes idle. */
@@ -231,7 +249,8 @@ export class Scene {
       dims: this.dims(),
       highlight: this.dimsOn ? hl.draw : NO_HIGHLIGHT,
     });
-    if (this.syncGpu) this.waitForGpu();
+    // WebGL2 waits inside finish() itself; WebGPU only resolves later, so its `ms` is CPU time.
+    if (this.syncGpu) void this.renderer.finish();
     const info = { view, ...stats, ms: performance.now() - t0 };
     const c = this.cache.stats();
     window.__stats = {
@@ -248,8 +267,8 @@ export class Scene {
   }
 
   /**
-   * Reduced motion: before a cut, redraw the old view (the WebGL drawing
-   * buffer is only readable in the task that drew it) and lay a fading
+   * Reduced motion: before a cut, redraw the old view (the canvas is only
+   * readable in the task that drew it) and lay a fading
    * copy of it, labels included, over the canvases.
    */
   private snapshotForCut(canvas: HTMLCanvasElement): void {
@@ -296,12 +315,6 @@ export class Scene {
     }
     this.reveal = REVEAL_END * this.introEase(t);
     return true;
-  }
-
-  /** gl.finish() does not block in Chrome; reading a pixel back does. */
-  private waitForGpu(): void {
-    const gl = this.gl;
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.syncPixel);
   }
 
   private frame(now: number): void {

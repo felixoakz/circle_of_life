@@ -18,7 +18,7 @@ import { nodePath, rankLine } from './hover';
 import { navMove, navTarget } from './nav';
 import type { NodeStore } from './nodes';
 import { encodePath, pathSegments } from './path';
-import type { PathDraw, RingDraw } from './gl/renderer';
+import type { PathDraw, RingDraw } from './render/types';
 import type { Scene } from './scene';
 import * as S from './style';
 import { FLAG_HOME } from './tiles/decode';

@@ -38,7 +38,7 @@ export type Snap = 'peek' | 'half' | 'full';
 /**
  * Ranks at or below genus: never "the clade it is in" (the genus is part of
  * a species' name already). The same list as the search context line
- * (`AT_OR_BELOW_GENUS` in src/db/queries.rs).
+ * (`atOrBelowGenus` in internal/db/search.go).
  */
 const AT_OR_BELOW_GENUS = new Set([
   'genus', 'subgenus', 'section', 'subsection', 'series', 'species group', 'species subgroup',

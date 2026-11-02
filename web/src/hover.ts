@@ -15,7 +15,7 @@ import { type Pick, type TileIndex, pick } from './picking';
 import { type PathPoint, encodePath, pathSegments, tilePoints } from './path';
 import { nameRuns, nameSpans } from './names';
 import type { Scene } from './scene';
-import type { PathDraw } from './gl/renderer';
+import type { PathDraw } from './render/types';
 import * as S from './style';
 import { FLAG_HOME, FLAG_SPECIES, tileName } from './tiles/decode';
 import type { Meta, NodeInfo } from './types';

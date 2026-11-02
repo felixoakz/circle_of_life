@@ -3,7 +3,7 @@
 // decoded tiles with their GPU objects. Levels ≤ 3 are never evicted, so the
 // coarse tree is always there to fall back on.
 //
-// It is generic over the GPU resource `G` so tests can run without WebGL.
+// It is generic over the GPU resource `G` so tests can run without a GPU.
 
 import { StaleVersionError } from '../api';
 import { keyLevel, keySector } from '../lod';
@@ -118,6 +118,19 @@ export class TileCache<G> {
     for (const entry of this.resident.values()) if (entry.gpu !== null) this.source.release(entry.gpu);
     this.resident.clear();
     this.failures.clear();
+  }
+
+  /**
+   * Re-uploads every resident tile from its CPU copy and releases the old
+   * GPU objects (after a device loss the old ones are dead anyway).
+   */
+  rebuild(): void {
+    for (const entry of this.resident.values()) {
+      if (entry.tile === null || entry.gpu === null) continue;
+      const old = entry.gpu;
+      entry.gpu = this.source.upload(entry.tile);
+      this.source.release(old);
+    }
   }
 
   private gaveUp(k: number): boolean {
