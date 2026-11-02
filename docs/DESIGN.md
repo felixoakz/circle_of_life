@@ -239,7 +239,7 @@ Glow exists **only** in the canvas. It comes from additive blending and soft-edg
 - "Couldn’t reach Wikidata. Retry"
 - "Tile failed to load. Retrying…", retried automatically 3× with backoff.
 
-**No WebGL2:** a static fallback image of the wheel and the sentence "Your browser can’t draw the interactive tree (WebGL2 unavailable). Search still works.", with search and the panel still functional.
+**No GPU drawing (neither WebGPU nor WebGL2):** a static fallback image of the wheel and the sentence "Your browser can’t draw the interactive tree (no WebGPU or WebGL2). Search still works.", with search and the panel still functional.
 
 **Polytomy:** "412 direct descendants · relationships unresolved". This wording is honest about synth fans.
 

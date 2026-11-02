@@ -1,6 +1,6 @@
 # Tile binary format v2
 
-Mirror of PLAN §3.7, with exact byte offsets. The encoder and a reference decoder are in `src/tiles.rs`; the TypeScript decoder (P5) must agree with them byte for byte on `tests/fixtures/golden_tile.bin`.
+Mirror of PLAN §3.7, with exact byte offsets. The encoder and a reference decoder are in `internal/tiles/tiles.go`; the TypeScript decoder (P5) must agree with them byte for byte on `tests/fixtures/golden_tile.bin`.
 
 ## Container
 - One tile holds every node whose LOD level is `level` and whose angle lies in sector `sector` of that level (`sector = level == 0 ? 0 : angle >>> (32 - level)`). Each node is in exactly one tile.
@@ -62,10 +62,10 @@ A clade's tips are contiguous on the rim, and tip `k` sits at `angle = ((2k + 1)
 The golden tile (`tests/fixtures/golden_tile.bin`) is the single tile `(0, 0)` of the mini fixture tree: 57 nodes (27 internal, 30 tips), so the u8 arrays end at `24 + 39·57 = 2247`, padding is 1 byte and `name_off` starts at 2248.
 
 ## Regenerating the golden tile
-`cargo test --test ingest golden_tile` builds the mini database and fails if tile `(0, 0)` differs from the fixture. After a deliberate format or fixture change run:
+`go test ./internal/ingest -run TestGoldenTile` builds the mini database and fails if tile `(0, 0)` differs from the fixture (`make check` runs it). After a deliberate format or fixture change run:
 
 ```
-make golden        # UPDATE_GOLDEN=1 cargo test --test ingest golden_tile
+make golden        # UPDATE_GOLDEN=1 go test ./internal/ingest -run TestGoldenTile
 ```
 
 and update the TypeScript decoder test expectations if needed.
