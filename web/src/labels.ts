@@ -14,9 +14,11 @@
 //   - clade bars, once the wheel is no longer whole on screen: a hairline
 //     over a clade's tips outside the rim with its name beside it, nested
 //     clades stacked outward in lanes, set horizontally at deep zoom;
-//   - tip labels once tips are ≥ 11 px apart: just outside the rim along the
-//     radius (horizontal once auto-orient turns the rim vertical), in the
-//     kingdom hue mixed halfway to text-1;
+//   - tip labels: just outside the rim along the radius (horizontal once
+//     auto-orient turns the rim vertical), in the kingdom hue mixed halfway
+//     to text-1; full size from 11 px between tips, shrinking and fading
+//     below that, then "greeked" (a faint stroke per word) until the rows
+//     are too dense (style.ts TIP_TEXT_FADE, TIP_GREEK_SPACING);
 //   - the home label, "Homo sapiens" in white, between the rim and the
 //     renderer's short leader bar (bar → label → rim). The bar starts
 //     HOME_LEADER_PAD_PX past the measured label (`leaderGap`), and is an
@@ -47,6 +49,8 @@ import {
   Fader,
   arcTextDirection,
   cull,
+  greekKnocks,
+  greekWords,
   inflate,
   outsideBox,
   radialText,
@@ -102,6 +106,20 @@ interface StyledText {
   size: number;
 }
 
+/** A greeked tip name: where it starts, its words as [start, length] px, its colour. */
+interface GreekRow {
+  p: RimPoint;
+  /** Its text box (for the hairline test). */
+  box: Box;
+  /** A hairline crosses it: cut the line round its strokes. */
+  knock: boolean;
+  words: [number, number][];
+  width: number;
+  colour: string;
+  /** The tile's fade-in. */
+  alpha: number;
+}
+
 /** A clade bar candidate, before lanes are known. */
 interface Bar {
   key: string;
@@ -126,6 +144,8 @@ const NO_PARENT = 0xffffffff;
 const HOME_NAME = 'Homo sapiens';
 /** Labels whose anchor is further than this off screen are not built. */
 const SCREEN_MARGIN = 40;
+/** Text is measured at this size and scaled (`styled`). */
+const MEASURE_PX = 16;
 /** Name cache cap (names are decoded lazily from tile bytes). */
 const NAME_CACHE = 50_000;
 /** Ink for a knockout halo (drawn with destination-out, so only its alpha counts). */
@@ -145,7 +165,9 @@ export class Labels {
   private readonly palette: RunPalette;
   private readonly hud: Obstacles;
   private readonly fader = new Fader();
-  private readonly widths = new Map<string, number>();
+  private readonly colours = new Map<number, string>();
+  /** Text widths by font, then text (no key strings to build per lookup). */
+  private readonly widths = new Map<string, Map<string, number>>();
   private readonly names = new Map<number, string>();
   /** Genus names: the first word of every binomial seen in the tiles. */
   private readonly genusNames = new Set<string>();
@@ -153,6 +175,10 @@ export class Labels {
   private homeName = HOME_NAME;
   /** Widest tip label on screen in the last layout, CSS px (rim labels go beyond). */
   private tipColumn = 0;
+  /** Greeked tip names (tipLabels), painted under the text while they show. */
+  private greek: GreekRow[] = [];
+  /** Tip spacing of the last layout, CSS px. */
+  private spacing = 0;
   /** Whether tip labels are on (with the labels' hysteresis). */
   private tipsOn = false;
   /**
@@ -213,12 +239,12 @@ export class Labels {
 
   /**
    * How far past the rim a selected tip's name reaches, CSS px, faded in as
-   * tip names show (0 for a clade, and before fonts load): the selection's
+   * the column of tip names (text or greeked) shows (0 for a clade, and before fonts load): the selection's
    * leader leaves from there (callout.ts `afterName`).
    */
   nameRun(name: string, spacing: number): number {
     if (!this.fontsReady || !name) return 0;
-    const fade = smoothstep(S.TIP_LABEL_SPACING * S.LABEL_HIDE_FIT, S.TIP_LABEL_SPACING, spacing);
+    const fade = S.tipColumnAlpha(spacing);
     if (fade <= 0) return 0;
     const text = this.styled(nameRuns(name, 'species', this.genusNames.has(name)), S.tipFontPx(spacing), 400);
     return (S.TIP_GAP_PX + text.width + 4) * fade;
@@ -226,7 +252,7 @@ export class Labels {
 
   /** How far past the rim the column of tip names reaches, CSS px, faded in as they show (a clade's leader leaves from there). */
   columnRun(spacing: number): number {
-    const fade = smoothstep(S.TIP_LABEL_SPACING * S.LABEL_HIDE_FIT, S.TIP_LABEL_SPACING, spacing);
+    const fade = S.tipColumnAlpha(spacing);
     return fade > 0 && this.tipColumn > 0 ? (S.TIP_GAP_PX + this.tipColumn + 4) * fade : 0;
   }
 
@@ -263,6 +289,11 @@ export class Labels {
       for (const b of this.soft) this.hairlines.add(b);
       // The first px of the leader too (left out of `soft`), tight to the line.
       if (this.leader) for (const b of leaderBoxes(this.leader.path, 2)) this.hairlines.add(b);
+      const knocks = greekKnocks(
+        this.greek.map((r) => r.box),
+        this.hairlines,
+      );
+      this.greek.forEach((r, i) => (r.knock = knocks[i] ?? false));
       this.winners = cull(this.items, (k) => this.fader.shown(k), S.MAX_LABELS, this.obstacles, this.soft);
       this.stats.candidates = this.items.length;
       this.stats.shown = this.winners.size;
@@ -289,6 +320,14 @@ export class Labels {
     if (this.leader) {
       ctx.globalAlpha = intro;
       drawLeader(ctx, this.leader, dpr);
+      drawn++;
+    }
+    // Greeked names under the text they cross-fade with (no culling: a
+    // stroke each, cheap; they already keep off the HUD and the leader).
+    const greekAlpha = S.tipGreekAlpha(this.spacing) * intro;
+    if (greekAlpha > 0.004 && this.greek.length > 0) {
+      drawGreek(ctx, this.greek, greekAlpha, this.spacing, dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawn++;
     }
     for (const it of this.items) {
@@ -358,13 +397,30 @@ export class Labels {
     return n;
   }
 
+  /** A tip label's colour at angle `a`, its CSS string cached (hundreds of rows share a few). */
+  private tipColour(a: number, seam: number): string {
+    const [r, g, b] = this.palette.colourAt(a, seam);
+    const key = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255);
+    let css = this.colours.get(key);
+    if (css === undefined) {
+      if (this.colours.size > 4096) this.colours.clear(); // seams blend: keep it bounded
+      css = tipColour([r, g, b]);
+      this.colours.set(key, css);
+    }
+    return css;
+  }
+
   private measure(font: string, text: string): number {
-    const key = `${font}|${text}`;
-    let w = this.widths.get(key);
+    let byText = this.widths.get(font);
+    if (!byText) {
+      byText = new Map();
+      this.widths.set(font, byText);
+    }
+    let w = byText.get(text);
     if (w === undefined) {
       this.ctx.font = font;
       w = this.ctx.measureText(text).width;
-      this.widths.set(key, w);
+      byText.set(text, w);
     }
     return w;
   }
@@ -378,7 +434,10 @@ export class Labels {
     const out: StyledText = { text: '', runs: [], width: 0, size };
     for (const r of runs) {
       const font = r.italic ? serifFont(size) : sansFont(size - 1, romanWeight);
-      const w = this.measure(font, r.text);
+      // Measured at one size and scaled: text widths are linear in the size,
+      // and the cache stays one entry per name however the zoom moves.
+      const ref = r.italic ? serifFont(MEASURE_PX) : sansFont(MEASURE_PX - 1, romanWeight);
+      const w = (this.measure(ref, r.text) * (r.italic ? size : size - 1)) / (r.italic ? MEASURE_PX : MEASURE_PX - 1);
       out.runs.push({ text: r.text, font, w });
       out.text += r.text;
       out.width += w;
@@ -394,6 +453,7 @@ export class Labels {
     const share = g.rimPx / (TAU * g.radius);
     this.wheelOn = this.wheelOn ? share >= S.WHEEL_SHARE[0] : share >= S.WHEEL_SHARE[1];
     const spacing = f.camera.tipSpacingPx() / f.camera.dpr;
+    this.spacing = spacing;
     this.selTips = selectedTips(f.tiles, this.selectedId());
     const homeFade = smoothstep(S.HOME_LEADER_SPACING[0], S.HOME_LEADER_SPACING[1], spacing);
     if (!this.hideHere()) this.hereLabel(g, 1 - homeFade, items);
@@ -566,16 +626,28 @@ export class Labels {
     });
   }
 
+  /**
+   * Tip names (DESIGN.md §3, §5): text while it can be read, fading out as it
+   * shrinks (S.tipTextAlpha), and a greeked stroke per word under it that
+   * takes over below that (S.tipGreekAlpha), so zooming out never leaves the
+   * column suddenly empty.
+   */
   private tipLabels(f: LabelFrame, g: Geometry, spacing: number, items: Item[]): void {
-    const fit = spacing / S.TIP_LABEL_SPACING;
-    // Built a little below the hide threshold too, so they fade out.
-    if (fit < S.LABEL_HIDE_FIT * 0.8) return;
+    this.tipColumn = 0;
+    this.greek = [];
+    if (S.tipColumnAlpha(spacing) <= 0) return;
+    // The text's own alpha does the zoom fade, so no hysteresis: a name is
+    // a candidate while it shows at all (fit ≥ 1).
+    const textAlpha = S.tipTextAlpha(spacing);
+    const fit = spacing / S.TIP_TEXT_FADE[0];
+    const withText = textAlpha > 0;
+    const withGreek = S.tipGreekAlpha(spacing) > 0;
     const size = S.tipFontPx(spacing);
     const homeId = this.meta.home?.id ?? -1;
     const h = 0.85 * size;
     const seam = g.seamUnits;
-    this.tipColumn = 0;
     for (const t of f.tiles) {
+      const tileAlpha = f.fade(t.level);
       for (let i = t.internalCount; i < t.count; i++) {
         // Homo sapiens' subspecies share its bar and its white label.
         if ((t.parent[i] ?? NO_PARENT) === homeId) continue;
@@ -610,7 +682,13 @@ export class Labels {
         // The selection's names (a tip, or a clade's tips) in text-1, the rest in their kingdom's hue.
         const rank = t.firstTip[i] ?? -1;
         const sel = this.selTips !== null && rank >= this.selTips[0] && rank < this.selTips[1];
-        const colour = sel ? S.TEXT_1 : tipColour(this.palette.colourAt(a, seam));
+        const colour = sel ? S.TEXT_1 : this.tipColour(a, seam);
+        // Hairlines cost no greeked name either: the leader is cut round
+        // its strokes where it crosses them (frame, drawGreek).
+        if (withGreek) {
+          this.greek.push({ p, box, words: greekWords(text.text, text.width), width: text.width, colour, alpha: tileAlpha, knock: false });
+        }
+        if (!withText) continue;
         items.push({
           key: t.id[i] ?? 0,
           text: text.text,
@@ -618,7 +696,7 @@ export class Labels {
           priority: (t.id[i] ?? 0) === this.selectedId() ? 1e13 : 1e9,
           fit,
           boxes: [box],
-          alpha: f.fade(t.level),
+          alpha: tileAlpha * textAlpha,
           draw: (ctx) => drawRadial(ctx, p, text, colour),
           knock: (ctx) => drawRadial(ctx, p, text, KNOCK, S.HAIRLINE_KNOCK_PX),
         });
@@ -636,10 +714,11 @@ export class Labels {
    */
   private cladeLabels(f: LabelFrame, g: Geometry, spacing: number, items: Item[]): void {
     const R = g.radius;
-    // Beyond the tip-label column while tip labels show (same hysteresis);
+    // Beyond the tip-name column while it shows (same hysteresis);
     // the two places are different labels, so moving between them is a
     // crossfade, not a slide through the tip labels.
-    const tipFit = spacing / S.TIP_LABEL_SPACING;
+    // The column is there (as text or greeked) down to TIP_GREEK_SPACING[0].
+    const tipFit = (spacing * S.LABEL_HIDE_FIT) / S.TIP_GREEK_SPACING[0];
     this.tipsOn = tipFit >= 1 || (this.tipsOn && tipFit >= S.LABEL_HIDE_FIT);
     const rimKey = this.tipsOn ? 'far' : 'rim';
     const slot = TWO_32 / this.meta.tipCount;
@@ -1157,6 +1236,42 @@ function drawRadial(ctx: CanvasRenderingContext2D, p: RimPoint, t: StyledText, c
   ctx.rotate(rot);
   drawRuns(ctx, t, align === 'left' ? 0 : -t.width, 0, colour, halo);
   ctx.restore();
+}
+
+/**
+ * Greeked names: a stroke per word, about an x-height thick, laid out as
+ * the text would be (radialText). `alpha` is the frame's greek alpha; the
+ * transform is left set.
+ */
+function drawGreek(ctx: CanvasRenderingContext2D, rows: readonly GreekRow[], alpha: number, spacing: number, dpr: number): void {
+  const size = S.tipFontPx(spacing);
+  // At least half a px (it fades with the rows anyway), and never into the next row.
+  const thick = Math.min(0.6 * spacing, Math.max(0.5, S.TIP_GREEK_THICK * size));
+  let fill = '';
+  for (const r of rows) {
+    const { rot, align } = radialText(Math.atan2(r.p.uy, r.p.ux));
+    const c = Math.cos(rot) * dpr;
+    const s = Math.sin(rot) * dpr;
+    ctx.setTransform(c, s, -s, c, r.p.x * dpr, r.p.y * dpr);
+    ctx.globalAlpha = alpha * r.alpha;
+    if (r.colour !== fill) {
+      fill = r.colour;
+      ctx.fillStyle = fill;
+    }
+    const x0 = align === 'left' ? 0 : -r.width;
+    if (r.knock) {
+      // Erase the hairline (drawn first, on this canvas) round the strokes,
+      // as text is cut round its glyphs (HAIRLINE_KNOCK_PX).
+      // (Never into the next row's strokes.)
+      const pad = Math.min(S.HAIRLINE_KNOCK_PX / 2, (spacing - thick) / 2);
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = 1;
+      for (const [start, len] of r.words) ctx.fillRect(x0 + start - pad, -thick / 2 - pad, len + 2 * pad, thick + 2 * pad);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = alpha * r.alpha;
+    }
+    for (const [start, len] of r.words) ctx.fillRect(x0 + start, -thick / 2, len, thick);
+  }
 }
 
 /** Kingdom hue mixed halfway to text-1 (DESIGN.md §2.2), for tip labels. */

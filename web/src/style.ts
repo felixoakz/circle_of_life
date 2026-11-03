@@ -28,14 +28,22 @@ export const BRANCH_ALPHA_RAMP: readonly [number, number] = [12.5, 15.5];
 /**
  * Line width (branches, arcs, tip bars, the home bar), CSS px: the hairline
  * thickens to LINE_DEEP_PX as tips spread over LINE_WIDTH_SPACING (px between
- * tips), where each branch reads as its own line running into its name.
- * Below one device px the lines stay native hairlines, so the overview and
- * mid zoom are drawn exactly as before (render/plan.ts).
+ * tips), where each branch reads as its own solid stroke running into its
+ * name. Below one device px the lines stay native hairlines, so the overview
+ * and mid zoom are drawn exactly as before (render/plan.ts). Over the same
+ * ramp the branch alpha rises from BRANCH_ALPHA_DEEP to LINE_DEEP_ALPHA: a
+ * thick line at 85% over black reads as a dim olive, not a stroke.
  */
-export const LINE_DEEP_PX = 1.75;
+export const LINE_DEEP_PX = 3;
 export const LINE_WIDTH_SPACING: readonly [number, number] = [8, 32];
-/** Highlighted paths are at least this many times the line width, so the selection stays heavier. */
+export const LINE_DEEP_ALPHA = 1;
+/**
+ * Highlighted paths are at least this many times the line width, so the
+ * selection stays heavier, but never wider than PATH_MAX_PX (a 6 px white
+ * bar beside 3 px lines shouts).
+ */
 export const PATH_LINE_RATIO = 2;
+export const PATH_MAX_PX = 5;
 
 /**
  * Lines take the kingdom colour as r goes 0.55 → 1 (DESIGN.md §5); raising
@@ -250,14 +258,51 @@ export const CLADE_FLAT_COS = 0.8;
 export const HAIRLINE_KNOCK_PX = 3;
 
 /**
- * Tip labels: shown once tips are TIP_LABEL_SPACING px apart, set
- * TIP_GAP_PX outside the rim, 12–22 px, growing with the tip spacing.
+ * Tip labels (DESIGN.md §3, §5): readable, full size, once tips are
+ * TIP_LABEL_SPACING px apart, set TIP_GAP_PX outside the rim, 12–22 px,
+ * growing with the tip spacing. Zooming out they do not vanish at a
+ * threshold; they keep shrinking with the rows (the font stays 12/11 of the
+ * spacing, so neighbours never touch) and fade out over TIP_TEXT_FADE (px
+ * between tips, so the last text is about 6 px). Under them, "greeked"
+ * names take over (tipGreekAlpha): a low-alpha bar per word, as long as the
+ * word would be, so the column still reads as a block of names that
+ * resolves into text as you zoom in. The greeking fades out in turn as rows
+ * close up below TIP_GREEK_SPACING, where it would only be noise.
  */
 export const TIP_LABEL_SPACING = 11;
 export const TIP_GAP_PX = 10;
+export const TIP_TEXT_FADE: readonly [number, number] = [5, 8];
+export const TIP_GREEK_SPACING: readonly [number, number] = [1.5, 3];
+/** Greeked names: peak alpha, and stroke thickness as a share of the font size (about its x-height). */
+export const TIP_GREEK_ALPHA = 0.45;
+export const TIP_GREEK_THICK = 0.42;
 
 export function tipFontPx(tipSpacing: number): number {
+  if (tipSpacing < TIP_LABEL_SPACING) return (12 * tipSpacing) / TIP_LABEL_SPACING;
   return Math.min(22, Math.max(12, 6.5 + 0.5 * tipSpacing));
+}
+
+/** Opacity of tip names as text: 1 from TIP_TEXT_FADE[1] px between tips, 0 at TIP_TEXT_FADE[0]. */
+export function tipTextAlpha(tipSpacing: number): number {
+  return smoothstep(TIP_TEXT_FADE[0], TIP_TEXT_FADE[1], tipSpacing);
+}
+
+/**
+ * Whether the column of tip names is there at all, 0–1 (text or greeked):
+ * the selection's leader leaves from past it, and clade bars stand beyond it.
+ */
+export function tipColumnAlpha(tipSpacing: number): number {
+  return smoothstep(TIP_GREEK_SPACING[0], TIP_GREEK_SPACING[1], tipSpacing);
+}
+
+/**
+ * Opacity of the greeked names: they take over from the text (squared, so
+ * the two barely overlap: half-faded text over a stroke reads as struck
+ * through) and thin out with dense rows.
+ */
+export function tipGreekAlpha(tipSpacing: number): number {
+  const text = tipTextAlpha(tipSpacing);
+  return TIP_GREEK_ALPHA * tipColumnAlpha(tipSpacing) * (1 - text) * (1 - text);
 }
 
 /** Zoom-dependent strengths for one frame, derived from the constants above. */
@@ -281,18 +326,28 @@ export interface Look {
 export function frameLook(p: { lambda: number; tipSpacing: number }): Look {
   const glow = 1 - (1 - GLOW_DEEP) * smoothstep(GLOW_RAMP[0], GLOW_RAMP[1], p.lambda);
   const deep = smoothstep(BRANCH_ALPHA_RAMP[0], BRANCH_ALPHA_RAMP[1], p.lambda);
+  const wide = smoothstep(LINE_WIDTH_SPACING[0], LINE_WIDTH_SPACING[1], p.tipSpacing);
+  const alpha = BRANCH_ALPHA + (BRANCH_ALPHA_DEEP - BRANCH_ALPHA) * deep;
   return {
     glow,
-    branchAlpha: BRANCH_ALPHA + (BRANCH_ALPHA_DEEP - BRANCH_ALPHA) * deep,
+    branchAlpha: alpha + (LINE_DEEP_ALPHA - alpha) * wide,
     ring: glow * (1 - smoothstep(RING_FADE[0], RING_FADE[1], p.lambda)),
     tipBar:
       TIP_BAR_ALPHA *
       smoothstep(TIP_BAR_RAMP[0], TIP_BAR_RAMP[1], p.lambda) *
       (1 - smoothstep(TIP_BAR_FADE_SPACING[0], TIP_BAR_FADE_SPACING[1], p.tipSpacing)),
     leader: smoothstep(HOME_LEADER_SPACING[0], HOME_LEADER_SPACING[1], p.tipSpacing),
-    lineWidth: LINE_DEEP_PX * smoothstep(LINE_WIDTH_SPACING[0], LINE_WIDTH_SPACING[1], p.tipSpacing),
+    lineWidth: LINE_DEEP_PX * wide,
     fans: 1 - smoothstep(FAN_FADE[0], FAN_FADE[1], p.lambda),
   };
+}
+
+/**
+ * Width of a highlighted path, CSS px: its own `widthPx`, or PATH_LINE_RATIO
+ * times the frame's line width once lines thicken, capped at PATH_MAX_PX.
+ */
+export function pathWidthPx(widthPx: number, lineWidth: number): number {
+  return Math.max(widthPx, Math.min(PATH_LINE_RATIO * lineWidth, PATH_MAX_PX));
 }
 
 // ---- Hover, selection and picking (DESIGN.md §5, §8; PLAN §7.8) ----

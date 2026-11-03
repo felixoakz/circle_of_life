@@ -255,3 +255,35 @@ export function arcTextDirection(phi: number): { dir: 1 | -1; rot: (phiAt: numbe
   if (useUpper) return { dir: -1, rot: (p) => Math.PI / 2 - p };
   return { dir: 1, rot: (p) => -Math.PI / 2 - p };
 }
+
+/**
+ * A greeked name (DESIGN.md §3, §5): one stroke per word of `text`, as
+ * [start, length] along a run `width` px long. Every character gets the same
+ * share, so the spaces between words become the gaps; good enough for a
+ * texture that stands in for text too small to read.
+ */
+export function greekWords(text: string, width: number): [number, number][] {
+  const out: [number, number][] = [];
+  if (text.length === 0 || width <= 0) return out;
+  const per = width / text.length;
+  let start = -1;
+  for (let i = 0; i <= text.length; i++) {
+    const space = i === text.length || text[i] === ' ';
+    if (!space && start < 0) start = i;
+    if (space && start >= 0) {
+      out.push([start * per, (i - start) * per]);
+      start = -1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Which greeked rows a hairline (the selection's leader, "You are here")
+ * crosses. Like a readable name, a greeked one is never dropped for a
+ * hairline: the line is cut round its strokes instead (labels.ts
+ * drawGreek). One flag per row box.
+ */
+export function greekKnocks(rows: readonly Box[], hairlines: CollisionGrid): boolean[] {
+  return rows.map((b) => hairlines.hits(b));
+}

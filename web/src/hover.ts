@@ -55,7 +55,8 @@ export function pickAt(scene: Scene, meta: Meta, x: number, y: number, touch: bo
     tolPx: (touch ? S.PICK_TOL_TOUCH_PX : S.PICK_TOL_MOUSE_PX) * px,
     // Once tips resolve, the last stretch of each tip's line (its bar's length) picks the tip.
     rimInPx: (view.lambda > S.TIP_BAR_RAMP[0] ? S.TIP_BAR_MAX_LEN_PX : S.PICK_RIM_IN_PX) * px,
-    rimOutPx: (spacing >= S.TIP_LABEL_SPACING ? S.PICK_LABEL_OUT_PX : S.PICK_RIM_OUT_PX) * px,
+    // Over the names (readable or greeked), the name picks its tip.
+    rimOutPx: (S.tipColumnAlpha(spacing) >= 0.5 ? S.PICK_LABEL_OUT_PX : S.PICK_RIM_OUT_PX) * px,
   });
 }
 

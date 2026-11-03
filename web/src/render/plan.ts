@@ -377,8 +377,8 @@ export function planFrame(
         slot,
         data: d.data,
         k: K_PATH,
-        // Never thinner than PATH_LINE_RATIO lines: the selection stays heavier as lines thicken.
-        halfW: 0.5 * Math.max(d.widthPx, S.PATH_LINE_RATIO * look.lineWidth) * p.dpr,
+        // Heavier than the lines as they thicken (PATH_LINE_RATIO), within PATH_MAX_PX.
+        halfW: 0.5 * S.pathWidthPx(d.widthPx, look.lineWidth) * p.dpr,
         colour: [d.rgb[0], d.rgb[1], d.rgb[2], d.alpha],
       });
       drawCalls++;
