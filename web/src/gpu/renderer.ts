@@ -39,7 +39,7 @@ import type { Tile } from '../tiles/decode';
 import { FAN_WORDS } from '../tiles/fans';
 import { describeAdapter, openDevice, watchErrors } from './device';
 import { structLayout } from './layout';
-import { type Layouts, createLayouts, createPipelines } from './pipelines';
+import { type Layouts, createLayouts, createPipelines, pipelineKey } from './pipelines';
 import { readTexture } from './readback';
 import { CanvasTarget } from './target';
 import { GpuTimer } from './timing';
@@ -122,7 +122,7 @@ interface DeviceState {
   device: GPUDevice;
   target: CanvasTarget;
   layouts: Layouts;
-  pipelines: Partial<Record<Pass, GPURenderPipeline>>;
+  pipelines: Map<string, GPURenderPipeline>;
   /** Group 0: the per-frame `Frame` uniforms and the static `Palette`. */
   frameBuffer: GPUBuffer;
   paletteBuffer: GPUBuffer;
@@ -141,7 +141,7 @@ function buildDeviceState(
   device: GPUDevice,
   target: CanvasTarget,
   layouts: Layouts,
-  pipelines: Partial<Record<Pass, GPURenderPipeline>>,
+  pipelines: Map<string, GPURenderPipeline>,
   palette: RunPalette,
   timing: boolean,
 ): DeviceState {
@@ -295,8 +295,9 @@ export class WebGpuRenderer implements Renderer {
     this.slots.reset();
     const encoded: Encoded[] = [];
     for (const cmd of plan.cmds) {
-      const pipeline = gpu.pipelines[cmd.pass];
-      if (!pipeline) continue; // createPipelines builds every pass; this only narrows the type
+      const wide = (cmd.pass === 'branches' || cmd.pass === 'arcs') && cmd.halfW > 0;
+      const pipeline = gpu.pipelines.get(pipelineKey(cmd.pass, wide));
+      if (!pipeline) continue; // createPipelines builds every pass and variant; this only narrows the type
       const slot = this.slots.next();
       encoded.push({ cmd, pipeline, slot, data: this.stage(cmd, slot) });
     }

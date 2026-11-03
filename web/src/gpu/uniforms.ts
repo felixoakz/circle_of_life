@@ -69,6 +69,7 @@ export const LINES_FIELDS: readonly (readonly [string, WgslType])[] = [
   ['alpha', 'f32'],
   ['homeAlpha', 'f32'],
   ['k', 'i32'],
+  ['halfW', 'f32'],
 ];
 
 type Fields = readonly (readonly [string, WgslType])[];
@@ -97,7 +98,7 @@ export const MARKS_FIELDS: Fields = [
   ['fade', 'f32'],
   ['px', 'f32'],
   ['spike', 'vec2f'],
-  ['tipBar', 'vec2f'],
+  ['tipBar', 'vec4f'],
   ['leaderHalo', 'vec2f'],
   ['leader', 'vec4f'],
 ];
@@ -189,6 +190,7 @@ export function packLines(c: BranchesCmd | ArcsCmd, out: ArrayBuffer, offset: nu
   f[word('alpha')] = c.alpha;
   f[word('homeAlpha')] = c.homeAlpha;
   i32[word('k')] = c.pass === 'arcs' ? c.k : 0;
+  f[word('halfW')] = c.halfW;
 }
 
 const layouts = new Map<Fields, StructLayout>();

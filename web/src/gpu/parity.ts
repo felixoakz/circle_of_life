@@ -260,6 +260,7 @@ function cameraCase(name: string, cam: Camera): CameraCase {
     homeAngle: 0,
     leaderGap: 0,
     leaderLen: 0,
+    homeLeader: 1,
     dims: [],
     highlight: NO_HIGHLIGHT,
   };

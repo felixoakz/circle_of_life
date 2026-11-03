@@ -25,6 +25,17 @@ export const BRANCH_ALPHA = 0.35;
 export const BRANCH_ALPHA_DEEP = 0.85;
 /** λ range over which branch alpha rises from overview to deep. */
 export const BRANCH_ALPHA_RAMP: readonly [number, number] = [12.5, 15.5];
+/**
+ * Line width (branches, arcs, tip bars, the home bar), CSS px: the hairline
+ * thickens to LINE_DEEP_PX as tips spread over LINE_WIDTH_SPACING (px between
+ * tips), where each branch reads as its own line running into its name.
+ * Below one device px the lines stay native hairlines, so the overview and
+ * mid zoom are drawn exactly as before (render/plan.ts).
+ */
+export const LINE_DEEP_PX = 1.75;
+export const LINE_WIDTH_SPACING: readonly [number, number] = [8, 32];
+/** Highlighted paths are at least this many times the line width, so the selection stays heavier. */
+export const PATH_LINE_RATIO = 2;
 
 /**
  * Lines take the kingdom colour as r goes 0.55 → 1 (DESIGN.md §5); raising
@@ -113,24 +124,21 @@ export const TIP_BAR_ALPHA = 0.6;
 export const TIP_BAR_MAX_LEN_PX = 120;
 
 /**
- * Home (Homo sapiens): its subtree is white, and a long outward leader bar
- * sits past its label (1.png: bar → label → rim), once tips are this far
- * apart (px). The bar starts HOME_LEADER_PAD_PX beyond the end of the label
- * (labels.ts measures it); HOME_LEADER_GAP_PX is the fallback before fonts load.
+ * Home (Homo sapiens): its subtree is white, and a short outward leader bar
+ * sits past its label (bar → label → rim), once tips are this far apart
+ * (px). It is drawn like a tip bar: one device px wide, no halo, fading in
+ * from its far end, HOME_LEADER_LEN_PX long. It is not drawn while Homo
+ * sapiens is the selection: the selection leader and the card say "you are
+ * here" then (scene.ts `homeLeader`). The bar starts HOME_LEADER_PAD_PX
+ * beyond the end of the label (labels.ts measures it); HOME_LEADER_GAP_PX is
+ * the fallback before fonts load.
  */
 export const HOME_LEADER_SPACING: readonly [number, number] = [8, 11];
 export const HOME_LEADER_GAP_PX = 190;
 export const HOME_LEADER_PAD_PX = 28;
-export const HOME_LEADER_LEN_PX = 280;
-/**
- * The leader is clamp(0.7·spacing, 1, LEADER_MAX_W_PX) px wide, with a soft
- * additive halo of LEADER_HALO decaying over min(LEADER_HALO_PX,
- * LEADER_HALO_SPACING · spacing) px.
- */
-export const LEADER_MAX_W_PX = 28;
-export const LEADER_HALO = 0.4;
-export const LEADER_HALO_PX = 7;
-export const LEADER_HALO_SPACING = 0.15;
+export const HOME_LEADER_LEN_PX = 120;
+/** The bar's width, device px (like the hairline it continues). */
+export const HOME_LEADER_WIDTH_DEVICE_PX = 1;
 /** Home lines are drawn this much stronger than ordinary branches. */
 export const HOME_LINE_ALPHA = 1;
 
@@ -235,6 +243,13 @@ export const CLADE_DEEP_FONT_PX = 13;
 export const CLADE_FLAT_COS = 0.8;
 
 /**
+ * A hairline (the selection's leader, "You are here") passes behind names
+ * rather than costing them: it is cut by a halo this wide (CSS px, so about
+ * 1.5 px each side) round each glyph it crosses.
+ */
+export const HAIRLINE_KNOCK_PX = 3;
+
+/**
  * Tip labels: shown once tips are TIP_LABEL_SPACING px apart, set
  * TIP_GAP_PX outside the rim, 12–22 px, growing with the tip spacing.
  */
@@ -254,10 +269,10 @@ export interface Look {
   ring: number;
   /** Tip bar alpha (0: off). */
   tipBar: number;
-  /** Home leader bar alpha (0: off), width and halo decay in CSS px. */
+  /** Home leader bar alpha (0: off). */
   leader: number;
-  leaderWidth: number;
-  leaderHalo: number;
+  /** Line width, CSS px (0 while lines are hairlines: see LINE_WIDTH_SPACING). */
+  lineWidth: number;
   /** Fan strength (0: not drawn). */
   fans: number;
 }
@@ -275,8 +290,7 @@ export function frameLook(p: { lambda: number; tipSpacing: number }): Look {
       smoothstep(TIP_BAR_RAMP[0], TIP_BAR_RAMP[1], p.lambda) *
       (1 - smoothstep(TIP_BAR_FADE_SPACING[0], TIP_BAR_FADE_SPACING[1], p.tipSpacing)),
     leader: smoothstep(HOME_LEADER_SPACING[0], HOME_LEADER_SPACING[1], p.tipSpacing),
-    leaderWidth: Math.min(LEADER_MAX_W_PX, Math.max(1, 0.7 * p.tipSpacing)),
-    leaderHalo: Math.min(LEADER_HALO_PX, LEADER_HALO_SPACING * p.tipSpacing),
+    lineWidth: LINE_DEEP_PX * smoothstep(LINE_WIDTH_SPACING[0], LINE_WIDTH_SPACING[1], p.tipSpacing),
     fans: 1 - smoothstep(FAN_FADE[0], FAN_FADE[1], p.lambda),
   };
 }

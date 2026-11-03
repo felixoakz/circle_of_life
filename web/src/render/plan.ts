@@ -70,16 +70,20 @@ export interface BranchesCmd extends DrawBase {
   fade: number;
   alpha: number;
   homeAlpha: number;
+  /** 0: native 1-device-px lines (vertexCount 4); else half the width, device px, drawn as quads (12). */
+  halfW: number;
 }
 
 export interface ArcsCmd extends DrawBase {
   pass: 'arcs';
   tile: GpuTile;
-  /** Chords per arc (vertexCount = 2k). */
+  /** Chords per arc (vertexCount = 2k as lines, 6k as quads). */
   k: number;
   fade: number;
   alpha: number;
   homeAlpha: number;
+  /** As BranchesCmd. */
+  halfW: number;
 }
 
 export interface RimCmd extends DrawBase {
@@ -98,8 +102,8 @@ export interface MarksCmd extends DrawBase {
   fade: number;
   px: number;
   spike: [number, number];
-  /** Alpha (0: off), max length px. Tip bars are one device px wide, like their hairline. */
-  tipBar: [number, number];
+  /** Alpha (0: off), max length px, half width px (as wide as their branch), unused. */
+  tipBar: [number, number, number, number];
   /** Home leader: alpha (0: off), gap px, length px, width px. */
   leader: [number, number, number, number];
   /** The leader's halo: amount, decay px. */
@@ -194,6 +198,16 @@ export function parsePasses(q: URLSearchParams): ReadonlySet<Pass> | null {
   return out.size > 0 ? out : null;
 }
 
+/**
+ * Half the line width, device px, for branches and arcs drawn as quads; 0
+ * while the width is at most one device px, where they stay native lines
+ * (so the overview and mid zoom are unchanged).
+ */
+export function lineHalfWidth(lineWidthCss: number, dpr: number): number {
+  const dev = lineWidthCss * dpr;
+  return dev > 1 ? dev / 2 : 0;
+}
+
 /** The fixed fields of a single, non-instanced-in-spirit draw. */
 function single(vertexCount: number): { vertexCount: number; instanceCount: number; firstInstance: number } {
   return { vertexCount, instanceCount: 1, firstInstance: 0 };
@@ -214,6 +228,9 @@ export function planFrame(
   const on = (pass: Pass): boolean => passes === null || passes.has(pass);
   const look = S.frameLook(p);
   const cmds: DrawCmd[] = [];
+  // Lines wider than a device px are quads; at or under it, native lines.
+  const lineDev = look.lineWidth * p.dpr;
+  const halfW = lineHalfWidth(look.lineWidth, p.dpr);
   let instances = 0;
   let drawCalls = 0;
 
@@ -259,13 +276,14 @@ export function planFrame(
       cmds.push({
         pass: 'branches',
         blend: PASS_BLEND.branches,
-        vertexCount: 4,
+        vertexCount: halfW > 0 ? 12 : 4,
         instanceCount: t.count,
         firstInstance: 0,
         tile: t,
         fade,
         alpha: look.branchAlpha,
         homeAlpha: S.HOME_LINE_ALPHA,
+        halfW,
       });
       instances += t.count;
       drawCalls++;
@@ -280,7 +298,7 @@ export function planFrame(
       cmds.push({
         pass: 'arcs',
         blend: PASS_BLEND.arcs,
-        vertexCount: 2 * k,
+        vertexCount: (halfW > 0 ? 6 : 2) * k,
         instanceCount: t.internalCount,
         firstInstance: 0,
         tile: t,
@@ -288,6 +306,7 @@ export function planFrame(
         fade,
         alpha: look.branchAlpha,
         homeAlpha: S.HOME_LINE_ALPHA,
+        halfW,
       });
       instances += t.internalCount;
       drawCalls++;
@@ -312,7 +331,7 @@ export function planFrame(
 
   if (on('marks')) {
     // A leader squeezed by the screen edge (leader.ts) fades out rather than shrinking to a stub.
-    const leaderAlpha = look.leader * Math.min(1, Math.max(0, (p.leaderLen - 24) / 40));
+    const leaderAlpha = p.homeLeader * look.leader * Math.min(1, Math.max(0, (p.leaderLen - 24) / 40));
     for (const t of tiles) {
       const fade = p.fade(t.level);
       if (fade <= 0) continue;
@@ -326,9 +345,10 @@ export function planFrame(
         fade,
         px: p.dpr,
         spike: [S.SPIKE_ALPHA * look.glow, S.SPIKE_MAX_W_PX * p.dpr],
-        tipBar: [look.tipBar, S.TIP_BAR_MAX_LEN_PX * p.dpr],
-        leader: [leaderAlpha, p.leaderGap * p.dpr, Math.max(1, p.leaderLen) * p.dpr, look.leaderWidth * p.dpr],
-        leaderHalo: [S.LEADER_HALO, look.leaderHalo * p.dpr],
+        tipBar: [look.tipBar, S.TIP_BAR_MAX_LEN_PX * p.dpr, Math.max(0.5, lineDev / 2), 0],
+        leader: [leaderAlpha, p.leaderGap * p.dpr, Math.max(1, p.leaderLen) * p.dpr, Math.max(S.HOME_LEADER_WIDTH_DEVICE_PX, lineDev)],
+        // No halo: the bar is a plain hairline like the tip bars (DESIGN.md §5).
+        leaderHalo: [0, 1],
       });
       instances += t.count;
       drawCalls++;
@@ -357,7 +377,8 @@ export function planFrame(
         slot,
         data: d.data,
         k: K_PATH,
-        halfW: 0.5 * d.widthPx * p.dpr,
+        // Never thinner than PATH_LINE_RATIO lines: the selection stays heavier as lines thicken.
+        halfW: 0.5 * Math.max(d.widthPx, S.PATH_LINE_RATIO * look.lineWidth) * p.dpr,
         colour: [d.rgb[0], d.rgb[1], d.rgb[2], d.alpha],
       });
       drawCalls++;

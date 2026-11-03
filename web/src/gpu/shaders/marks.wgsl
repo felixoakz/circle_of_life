@@ -64,6 +64,7 @@ fn vs_marks(@builtin(vertex_index) vid: u32, @builtin(instance_index) i: u32) ->
     // Inward bar over the hairline, as thin as it and without a halo, so
     // the branch reads as one line; never longer than the terminal branch.
     alpha = cmd.fade * cmd.tipBar.x;
+    halfW = cmd.tipBar.z;
     r0 = -min(cmd.tipBar.y, (1.0 - tileParentR(i)) * frame.scale);
     r1 = 0.0;
   } else if ((flags & 8u) != 0u) {

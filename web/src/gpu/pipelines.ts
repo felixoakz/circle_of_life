@@ -45,11 +45,23 @@ export interface PipelineSpec {
   blend: Blend;
   /** Bind group layouts: frame + draw, plus a storage `data` group (tile, fans or path). */
   groups: 'frame-draw-data' | 'frame-draw';
+  /**
+   * Branches and arcs wider than a device px are drawn as quads: the same
+   * shaders with another topology, a second pipeline (`pipelineKey`).
+   */
+  wide?: boolean;
+}
+
+/** The key a pass's pipeline is stored under: its name, or `branches-wide` / `arcs-wide` for quads. */
+export function pipelineKey(pass: Pass, wide: boolean): string {
+  return wide ? `${pass}-wide` : pass;
 }
 
 export const PIPELINES: readonly PipelineSpec[] = [
   { pass: 'branches', module: 'lines.wgsl', vertex: 'vs_branches', fragment: 'fs_line', topology: 'line-list', blend: 'saturating', groups: 'frame-draw-data' },
   { pass: 'arcs', module: 'lines.wgsl', vertex: 'vs_arcs', fragment: 'fs_line', topology: 'line-list', blend: 'saturating', groups: 'frame-draw-data' },
+  { pass: 'branches', module: 'lines.wgsl', vertex: 'vs_branches', fragment: 'fs_line', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw-data', wide: true },
+  { pass: 'arcs', module: 'lines.wgsl', vertex: 'vs_arcs', fragment: 'fs_line', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw-data', wide: true },
   { pass: 'fans', module: 'fans.wgsl', vertex: 'vs_fans', fragment: 'fs_fans', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw-data' },
   { pass: 'rim', module: 'rim.wgsl', vertex: 'vs_rim', fragment: 'fs_rim', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw' },
   { pass: 'marks', module: 'marks.wgsl', vertex: 'vs_marks', fragment: 'fs_marks', topology: 'triangle-strip', blend: 'additive', groups: 'frame-draw-data' },
@@ -185,9 +197,9 @@ export async function createPipelines(
   device: GPUDevice,
   format: GPUTextureFormat,
   layouts: Layouts,
-): Promise<Partial<Record<Pass, GPURenderPipeline>>> {
+): Promise<Map<string, GPURenderPipeline>> {
   const modules = new Map<string, GPUShaderModule>();
-  const out: Partial<Record<Pass, GPURenderPipeline>> = {};
+  const out = new Map<string, GPURenderPipeline>();
   for (const spec of PIPELINES) {
     let module = modules.get(spec.module);
     if (!module) {
@@ -198,14 +210,15 @@ export async function createPipelines(
       modules.set(spec.module, module);
     }
     // Async creation compiles in the background instead of stalling the page.
-    out[spec.pass] = await device.createRenderPipelineAsync({
-      label: spec.pass,
+    const key = pipelineKey(spec.pass, spec.wide === true);
+    out.set(key, await device.createRenderPipelineAsync({
+      label: key,
       layout: spec.groups === 'frame-draw-data' ? layouts.withData : layouts.withoutData,
       vertex: { module, entryPoint: spec.vertex },
       fragment: { module, entryPoint: spec.fragment, targets: [{ format, blend: blendState(spec.blend) }] },
       primitive: { topology: spec.topology },
       multisample: { count: SAMPLE_COUNT },
-    });
+    }));
   }
   return out;
 }

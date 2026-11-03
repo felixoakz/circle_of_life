@@ -18,7 +18,7 @@ uniform float uFade;       // this tile's level fade-in
 uniform float uLambdaExt;
 uniform float uPx;         // device px per CSS px
 uniform vec2 uSpike;       // alpha (× glow), max width px
-uniform vec2 uTipBar;      // alpha (0: off), max length px
+uniform vec4 uTipBar;      // alpha (0: off), max length px, half width px
 uniform vec2 uLeaderHalo;  // amount, decay px
 uniform vec4 uLeader;      // alpha (0: off), gap px, length px, width px
 
@@ -58,6 +58,7 @@ void main() {
     // Inward bar over the hairline, as thin as it and without a halo, so
     // the branch reads as one line; never longer than the terminal branch.
     alpha = uFade * uTipBar.x;
+    halfW = uTipBar.z;
     r0 = -min(uTipBar.y, (1.0 - aParentR) * uScale);
     r1 = 0.0;
   } else if ((aFlags & 8u) != 0u) {

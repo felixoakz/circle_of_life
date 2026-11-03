@@ -331,8 +331,10 @@ export class WebGl2Renderer implements Renderer {
     gl.uniform1f(u.uAlpha ?? null, c.alpha);
     gl.uniform1f(u.uHomeAlpha ?? null, c.homeAlpha);
     gl.uniform1f(u.uFade ?? null, c.fade);
+    gl.uniform1f(u.uHalfW ?? null, c.halfW);
     gl.bindVertexArray(glTile(c.tile).vao);
-    gl.drawArraysInstanced(gl.LINES, 0, c.vertexCount, c.instanceCount);
+    // Hairlines are native lines; wider ones are quads (branches.vert).
+    gl.drawArraysInstanced(c.halfW > 0 ? gl.TRIANGLES : gl.LINES, 0, c.vertexCount, c.instanceCount);
   }
 
   private drawArcs(c: ArcsCmd): void {
@@ -342,8 +344,9 @@ export class WebGl2Renderer implements Renderer {
     gl.uniform1f(u.uHomeAlpha ?? null, c.homeAlpha);
     gl.uniform1f(u.uFade ?? null, c.fade);
     gl.uniform1i(u.uK ?? null, c.k);
+    gl.uniform1f(u.uHalfW ?? null, c.halfW);
     gl.bindVertexArray(glTile(c.tile).vao);
-    gl.drawArraysInstanced(gl.LINES, 0, c.vertexCount, c.instanceCount);
+    gl.drawArraysInstanced(c.halfW > 0 ? gl.TRIANGLES : gl.LINES, 0, c.vertexCount, c.instanceCount);
   }
 
   private drawRim(c: RimCmd): void {
@@ -364,7 +367,7 @@ export class WebGl2Renderer implements Renderer {
     const u = this.programs.marks.u;
     gl.uniform1f(u.uPx ?? null, c.px);
     gl.uniform2f(u.uSpike ?? null, ...c.spike);
-    gl.uniform2f(u.uTipBar ?? null, ...c.tipBar);
+    gl.uniform4f(u.uTipBar ?? null, ...c.tipBar);
     gl.uniform2f(u.uLeaderHalo ?? null, ...c.leaderHalo);
     gl.uniform4f(u.uLeader ?? null, ...c.leader);
     gl.uniform1f(u.uFade ?? null, c.fade);

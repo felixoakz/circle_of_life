@@ -33,6 +33,8 @@ export interface FrameParams {
   leaderGap: number;
   /** Length of the home leader bar, CSS px (leader.ts: stops at the gutter). */
   leaderLen: number;
+  /** 1 to draw the home leader bar, 0 while Homo sapiens is the selection. */
+  homeLeader: number;
   /** Plates to darken (HUD, later panel and search), device px. */
   dims: readonly Dim[];
   /** Hover and selection highlights, drawn over the tree. */
