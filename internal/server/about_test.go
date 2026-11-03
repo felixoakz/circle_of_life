@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -195,5 +196,146 @@ func TestUnnamedCladesAreNeverEnriched(t *testing.T) {
 	status, _, _ = aboutGet(t, app, "/api/nodes/ott999999999/about")
 	if status != http.StatusNotFound {
 		t.Errorf("unknown node: status %d, want 404", status)
+	}
+}
+
+// cachedRow is the cache.db row for nodeID in dir, and whether there is one.
+func cachedRow(t *testing.T, dir, nodeID string) (db.Cached, bool) {
+	t.Helper()
+	cache, err := db.OpenCache(filepath.Join(dir, "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	row, found, err := db.GetCached(context.Background(), cache, nodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return row, found
+}
+
+// ageRow moves the row's fetched_at back by age, so it reads as stale.
+func ageRow(t *testing.T, dir, nodeID string, age time.Duration) {
+	t.Helper()
+	cache, err := db.OpenCache(filepath.Join(dir, "cache.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	row, found, err := db.GetCached(context.Background(), cache, nodeID)
+	if err != nil || !found {
+		t.Fatalf("no row for %s: %v", nodeID, err)
+	}
+	row.FetchedAt -= int64(age / time.Second)
+	if err := db.PutCached(context.Background(), cache, nodeID, row); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// eventually polls ok every 10 ms for up to 3 s.
+func eventually(ok func() bool) bool {
+	for range 300 {
+		if ok() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return ok()
+}
+
+func TestConcurrentRequestsShareOneFetch(t *testing.T) {
+	// One request alone, for the number of upstream calls a fetch makes.
+	alone := &enrichtest.Mock{}
+	app, _ := aboutApp(t, enrichtest.Start(t, alone), 4*time.Second)
+	aboutGet(t, app, "/api/nodes/ott770315/about")
+	want := alone.Hits()
+
+	// Eight at once against a slow upstream, so they overlap.
+	mock := &enrichtest.Mock{SlowPrefix: "/wikipedia", Delay: 300 * time.Millisecond}
+	app, _ = aboutApp(t, enrichtest.Start(t, mock), 4*time.Second)
+	var wg sync.WaitGroup
+	docs := make([]map[string]any, 8)
+	for i := range docs {
+		wg.Go(func() { _, _, docs[i] = aboutGet(t, app, "/api/nodes/ott770315/about") })
+	}
+	wg.Wait()
+	if mock.Hits() != want {
+		t.Errorf("8 concurrent requests made %d upstream calls, want %d (one fetch)", mock.Hits(), want)
+	}
+	for i, doc := range docs {
+		if doc["complete"] != true || field(doc, "summary", "title") != "Human" {
+			t.Errorf("request %d got complete = %v, summary %v", i, doc["complete"], doc["summary"])
+		}
+	}
+}
+
+func TestAFetchOutlivesTheRequestThatStartedIt(t *testing.T) {
+	mock := &enrichtest.Mock{SlowPrefix: "/wikipedia", Delay: 300 * time.Millisecond}
+	app, dir := aboutApp(t, enrichtest.Start(t, mock), 4*time.Second)
+
+	// The reader clicks on after 50 ms: the request's context ends.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest("GET", "/api/nodes/ott770315/about", nil).WithContext(ctx)
+	app.ServeHTTP(httptest.NewRecorder(), req)
+
+	// The fetch goes on and stores a complete document.
+	stored := eventually(func() bool {
+		row, found := cachedRow(t, dir, "ott770315")
+		return found && row.Complete
+	})
+	if !stored {
+		t.Fatal("the abandoned fetch stored no complete document")
+	}
+	hits := mock.Hits()
+	_, _, doc := aboutGet(t, app, "/api/nodes/ott770315/about")
+	if mock.Hits() != hits {
+		t.Errorf("the next visit called upstream %d times, want a cache hit", mock.Hits()-hits)
+	}
+	if doc["complete"] != true {
+		t.Errorf("complete = %v", doc["complete"])
+	}
+}
+
+func TestARateLimitedDocumentIsKeptMinutesAndNotRefreshedDuringTheCooldown(t *testing.T) {
+	mock := &enrichtest.Mock{FailPrefix: "/wikidata", FailStatus: http.StatusTooManyRequests, RetryAfter: "1"}
+	app, dir := aboutApp(t, enrichtest.Start(t, mock), 4*time.Second)
+
+	_, cacheControl, doc := aboutGet(t, app, "/api/nodes/ott770315/about")
+	if doc["rateLimited"] != true || doc["complete"] != false {
+		t.Fatalf("rateLimited = %v, complete = %v", doc["rateLimited"], doc["complete"])
+	}
+	if cacheControl != "no-store" {
+		t.Errorf("Cache-Control %q", cacheControl)
+	}
+	row, found := cachedRow(t, dir, "ott770315")
+	if !found {
+		t.Fatal("the rate-limited document was not stored")
+	}
+	// Stale after ten minutes, not a day.
+	if row.Freshness(row.FetchedAt+int64(db.TTLRateLimited), true) != db.Stale {
+		t.Error("a rate-limited row is still fresh after TTLRateLimited")
+	}
+
+	// Stale, but the gate is shut (Retry-After: 1): served, not refreshed.
+	ageRow(t, dir, "ott770315", 11*time.Minute)
+	hits := mock.Hits()
+	aboutGet(t, app, "/api/nodes/ott770315/about")
+	time.Sleep(100 * time.Millisecond)
+	if mock.Hits() != hits {
+		t.Errorf("a refresh during the cooldown made %d upstream calls", mock.Hits()-hits)
+	}
+
+	// Once the cooldown is over, a stale row is refreshed in the background
+	// (and stored, which also lets the test end with nothing running).
+	time.Sleep(1100 * time.Millisecond)
+	aged, _ := cachedRow(t, dir, "ott770315")
+	aboutGet(t, app, "/api/nodes/ott770315/about")
+	refreshed := eventually(func() bool {
+		row, _ := cachedRow(t, dir, "ott770315")
+		return row.FetchedAt > aged.FetchedAt
+	})
+	if !refreshed || mock.Hits() == hits {
+		t.Error("no background refresh after the cooldown")
 	}
 }

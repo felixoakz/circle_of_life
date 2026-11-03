@@ -48,17 +48,23 @@ func TestPartialDocumentsGoStaleSooner(t *testing.T) {
 	twoDays := int64(2 * 24 * 3600)
 
 	cases := []struct {
-		name string
-		row  Cached
-		now  int64
-		want Freshness
+		name    string
+		row     Cached
+		limited bool
+		now     int64
+		want    Freshness
 	}{
-		{"complete after two days", complete, twoDays, Fresh},
-		{"partial after two days", partial, twoDays, Stale},
-		{"complete at its TTL", complete, TTLComplete, Stale},
+		{"complete after two days", complete, false, twoDays, Fresh},
+		{"partial after two days", partial, false, twoDays, Stale},
+		{"complete at its TTL", complete, false, TTLComplete, Stale},
+		{"partial after five minutes", partial, false, 5 * 60, Fresh},
+		{"rate limited after five minutes", partial, true, 5 * 60, Fresh},
+		{"rate limited at its TTL", partial, true, TTLRateLimited, Stale},
+		// Complete means nothing failed, so the flag cannot shorten it.
+		{"complete and flagged after an hour", complete, true, 3600, Fresh},
 	}
 	for _, c := range cases {
-		if got := c.row.Freshness(c.now); got != c.want {
+		if got := c.row.Freshness(c.now, c.limited); got != c.want {
 			t.Errorf("%s: Freshness = %d, want %d", c.name, got, c.want)
 		}
 	}

@@ -161,6 +161,30 @@ func TestUnknownPathsFallBackToIndexHTML(t *testing.T) {
 	}
 }
 
+// A missing file with an extension is a real 404, never the app shell:
+// browsers remember a missing /favicon.ico, but keep asking for one that
+// answers with HTML.
+func TestMissingFilesWithAnExtensionAre404(t *testing.T) {
+	app := testRouter(t, testStaticDir(t))
+	for _, uri := range []string{"/favicon.ico", "/robots.txt", "/some/deep/link.png"} {
+		res, body := send(app, uri, false)
+		if res.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", uri, res.StatusCode)
+		}
+		if strings.Contains(string(body), "app") {
+			t.Errorf("%s: body is index.html", uri)
+		}
+		if got := res.Header.Get("Cache-Control"); got != "" {
+			t.Errorf("%s: Cache-Control = %q on a 404", uri, got)
+		}
+	}
+	// A dot earlier in the path is not an extension.
+	res, _ := send(app, "/v1.2/deep", false)
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("/v1.2/deep: status = %d, want the app shell", res.StatusCode)
+	}
+}
+
 func TestUnknownAPIPathIsJSON404(t *testing.T) {
 	res, body := send(testRouter(t, testStaticDir(t)), "/api/nope", false)
 	if res.StatusCode != http.StatusNotFound {
@@ -184,7 +208,6 @@ func TestBareAPIPathIsJSON404(t *testing.T) {
 }
 
 func TestStaticCacheHeaders(t *testing.T) {
-	app := testRouter(t, testStaticDir(t))
 	cases := []struct {
 		uri    string
 		status int
@@ -195,7 +218,14 @@ func TestStaticCacheHeaders(t *testing.T) {
 		{"/assets/gone-123.js", http.StatusNotFound, ""},
 		{"/", http.StatusOK, "no-cache"},
 		{"/?n=ott770315", http.StatusOK, "no-cache"},
+		{"/index.html", http.StatusOK, "no-cache"},
+		{"/some/deep/link", http.StatusOK, "no-cache"},
+		// Other files outside /assets: a day.
+		{"/favicon.svg", http.StatusOK, "public, max-age=86400"},
 	}
+	dir := testStaticDir(t)
+	writeTestFile(t, filepath.Join(dir, "favicon.svg"), "<svg/>")
+	app := testRouter(t, dir)
 	for _, c := range cases {
 		res, _ := send(app, c.uri, false)
 		if res.StatusCode != c.status {
