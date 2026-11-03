@@ -94,7 +94,7 @@ const LATIN_GENUS = /^[\p{Lu}][\p{Ll}-]+$/u;
  */
 export function nameRuns(name: string, rank: string | null = null, genus = false): NameRun[] {
   if (!name) return [];
-  if (!italicName(name, rank, genus)) return [{ text: name, italic: false }];
+  if (!italicName(name, rank, genus)) return hybridSigns([{ text: name, italic: false }]);
   const words = name.split(' ');
   const styles: boolean[] = [];
   let informal = false;
@@ -134,7 +134,12 @@ export function nameRuns(name: string, rank: string | null = null, genus = false
       runs.push({ text, italic });
     }
   });
-  return runs;
+  return hybridSigns(runs);
+}
+
+/** OTT writes the hybrid sign as a plain "x" ("x Vandachostylis"); print the real one, "×". */
+function hybridSigns(runs: NameRun[]): NameRun[] {
+  return runs.map((r) => (r.italic ? r : { ...r, text: r.text.replace(/(^|\s)x(?=\s|$)/g, '$1×') }));
 }
 
 /**

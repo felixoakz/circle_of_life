@@ -1,11 +1,13 @@
 // Keyboard tree navigation (DESIGN.md §8, PLAN §7.11), as plain functions:
-// with a node selected, ↑ (or Backspace) selects its parent, ↓ its largest
+// with a node selected, ↑ (or Backspace) selects its nearest named ancestor
+// (unnamed mrca nodes and OTT placeholders are stepped over), ↓ its largest
 // child, ← and → its siblings. Siblings are taken in the order the panel
 // lists children (largest first, `/api/nodes` children.top), so → steps to
 // the next smaller sibling and ← back, wrapping round. In a polytomy only
 // the 50 largest are listed; from a node outside them, → goes to the
 // largest and ← to the smallest listed.
 
+import { isPlaceholderName } from './names';
 import type { NodeInfo } from './types';
 
 export type NavMove = 'parent' | 'child' | 'prev' | 'next';
@@ -33,7 +35,13 @@ export function navMove(key: string): NavMove | null {
  * `/api/nodes` answer); the others do not.
  */
 export function navTarget(move: NavMove, node: NodeInfo, parent: NodeInfo | null): number | null {
-  if (move === 'parent') return node.lineage[node.lineage.length - 1]?.id ?? null;
+  if (move === 'parent') {
+    for (let i = node.lineage.length - 1; i >= 0; i--) {
+      const a = node.lineage[i];
+      if (a && (a.id === 0 || (a.name && !isPlaceholderName(a.name)))) return a.id;
+    }
+    return null;
+  }
   if (move === 'child') return node.children.top[0]?.id ?? null;
   const sibs = parent?.children.top ?? [];
   if (sibs.length === 0) return null;

@@ -5,7 +5,7 @@
 
 import { fetchAbout } from './api';
 import { FLAG_HOME } from './tiles/decode';
-import { layoutFor } from './layout';
+import { cardHeight, layoutFor } from './layout';
 import { NodeStore } from './nodes';
 import type { Meta } from './types';
 import { Credits, mountWordmarkMenu } from './ui/credits';
@@ -61,7 +61,7 @@ export function mountFallback(meta: Meta): void {
   });
   const place = (): void => {
     const layout = layoutFor(window.innerWidth, window.innerHeight);
-    panel.place(layout.card, layout.compact);
+    panel.place(layout.card, cardHeight(layout), layout.compact);
   };
   place();
   window.addEventListener('resize', place);

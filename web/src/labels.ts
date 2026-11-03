@@ -18,11 +18,14 @@
 //     radius (horizontal once auto-orient turns the rim vertical), in the
 //     kingdom hue mixed halfway to text-1;
 //   - the home label, "Homo sapiens" in white, between the rim and the
-//     renderer's leader bar (1.png: bar → label → rim). The bar starts
+//     renderer's short leader bar (bar → label → rim). The bar starts
 //     HOME_LEADER_PAD_PX past the measured label (`leaderGap`), and is an
-//     obstacle for other labels. Its two subspecies share its bar and row;
-//   - the selection's leader to the card (callout.ts): a hairline in text-1
-//     that text keeps clear of. While Homo sapiens is the selection, the
+//     obstacle for other labels; neither is there while Homo sapiens is the
+//     selection. Its two subspecies share its row;
+//   - the selection's leader to the card (callout.ts): a hairline in text-1,
+//     drawn under the names. It costs no label: where it passes behind one
+//     it is cut round the glyphs (HAIRLINE_KNOCK_PX), and a clade bar's name
+//     slides off it where it can. While Homo sapiens is the selection, the
 //     leader takes the place of "You are here" (the card says it).
 //
 // Names are set in runs (names.ts): the Latin parts in serif italic, rank
@@ -79,6 +82,8 @@ interface Item extends Candidate {
   kind?: 'group' | 'bar';
   /** Paints the label; `alt` is the text alternative it won (see Candidate.alts). */
   draw: (ctx: CanvasRenderingContext2D, alt: number) => void;
+  /** Strokes a halo round the text's glyphs, to cut a hairline that passes behind it (frame). */
+  knock?: (ctx: CanvasRenderingContext2D, alt: number) => void;
 }
 
 interface RimPoint {
@@ -113,6 +118,8 @@ interface Bar {
   /** Horizontal name beside a vertical bar (deep zoom, auto-oriented). */
   flat: boolean;
   lane: number;
+  /** The selected clade's own bar: always offered, drawn in text-1. */
+  sel: boolean;
 }
 
 const NO_PARENT = 0xffffffff;
@@ -121,6 +128,8 @@ const HOME_NAME = 'Homo sapiens';
 const SCREEN_MARGIN = 40;
 /** Name cache cap (names are decoded lazily from tile bytes). */
 const NAME_CACHE = 50_000;
+/** Ink for a knockout halo (drawn with destination-out, so only its alpha counts). */
+const KNOCK = '#000';
 
 const sansFont = (px: number, weight = 500): string => `${weight} ${px}px ${S.FONT_SANS}`;
 const serifFont = (px: number): string => `italic 400 ${px}px ${S.FONT_SERIF}`;
@@ -159,8 +168,14 @@ export class Labels {
   private sig = '';
   private items: Item[] = [];
   private obstacles: Box[] = [];
-  /** Obstacles only text must avoid (the "You are here" hairline). */
+  /**
+   * Hairlines (the selection's leader, "You are here"): a clade bar's name
+   * slides off them where it can and the bar breaks round them; they never
+   * cost a label.
+   */
   private soft: Box[] = [];
+  /** The same hairlines, for the paint to find the names they pass behind. */
+  private hairlines = new CollisionGrid();
   private winners: Placement = new Map();
   private hadContent = false;
   /** Last layout's numbers (debug HUD, screenshot report). */
@@ -172,6 +187,8 @@ export class Labels {
   /** The selected node's pre-order id: its tip name wins over its neighbours'. */
   selectedId: () => number = () => -1;
   private leader: Leader | null = null;
+  /** The selected clade's tips as ranks [first, end) in this layout, or null (not in the loaded tiles). */
+  private selTips: [number, number] | null = null;
 
   constructor(canvas: HTMLCanvasElement, meta: Meta, palette: RunPalette, hud: Obstacles) {
     const ctx = canvas.getContext('2d');
@@ -242,6 +259,10 @@ export class Labels {
     if (sig !== this.sig) {
       this.sig = sig;
       this.items = this.build(f);
+      this.hairlines = new CollisionGrid();
+      for (const b of this.soft) this.hairlines.add(b);
+      // The first px of the leader too (left out of `soft`), tight to the line.
+      if (this.leader) for (const b of leaderBoxes(this.leader.path, 2)) this.hairlines.add(b);
       this.winners = cull(this.items, (k) => this.fader.shown(k), S.MAX_LABELS, this.obstacles, this.soft);
       this.stats.candidates = this.items.length;
       this.stats.shown = this.winners.size;
@@ -264,18 +285,29 @@ export class Labels {
     let drawn = 0;
     this.groupsShown = false;
     this.barsShown = false;
+    // The leader first: names drawn after it cut it round their glyphs.
+    if (this.leader) {
+      ctx.globalAlpha = intro;
+      drawLeader(ctx, this.leader, dpr);
+      drawn++;
+    }
     for (const it of this.items) {
       const a = this.fader.alpha(it.key) * it.alpha * intro;
       if (a <= 0.004) continue;
       if (it.kind === 'group') this.groupsShown = true;
       if (it.kind === 'bar') this.barsShown = true;
+      const alt = this.winners.get(it.key) ?? 0;
       ctx.globalAlpha = a;
-      it.draw(ctx, this.winners.get(it.key) ?? 0);
-      drawn++;
-    }
-    if (this.leader) {
-      ctx.globalAlpha = intro;
-      drawLeader(ctx, this.leader, dpr);
+      // Where a hairline passes behind the name, erase it round the glyphs
+      // (only this canvas: the tree beneath is untouched), so the name reads.
+      const textBoxes = it.alts?.[alt] ?? it.boxes;
+      if (it.knock && textBoxes.some((b) => this.hairlines.hits(b))) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        it.knock(ctx, alt);
+        ctx.restore();
+      }
+      it.draw(ctx, alt);
       drawn++;
     }
     ctx.globalAlpha = 1;
@@ -362,6 +394,7 @@ export class Labels {
     const share = g.rimPx / (TAU * g.radius);
     this.wheelOn = this.wheelOn ? share >= S.WHEEL_SHARE[0] : share >= S.WHEEL_SHARE[1];
     const spacing = f.camera.tipSpacingPx() / f.camera.dpr;
+    this.selTips = selectedTips(f.tiles, this.selectedId());
     const homeFade = smoothstep(S.HOME_LEADER_SPACING[0], S.HOME_LEADER_SPACING[1], spacing);
     if (!this.hideHere()) this.hereLabel(g, 1 - homeFade, items);
     if (this.wheelOn || this.groupsShown) this.groupLabels(g, items);
@@ -465,6 +498,10 @@ export class Labels {
     const w = this.measure(font, text);
     const h = S.HERE_FONT_PX + 4;
     const box = outsideBox(p1.x + p1.ux * 4, p1.y + p1.uy * 4, p1.ux, p1.uy, w, h);
+    // Never over the wordmark, the card or the rest of the HUD, not even
+    // while fading out: a callout that would land there is not made at all.
+    const line = { x0: Math.min(p0.x, p1.x), y0: Math.min(p0.y, p1.y), x1: Math.max(p0.x, p1.x), y1: Math.max(p0.y, p1.y) };
+    if (!g.boxInside(box, S.GUTTER_PX / 2) || this.obstacles.some((o) => overlap(o, inflate(box, 3)) || overlap(o, line))) return;
     // Only the text claims space: the hairline may cross a clade bar (it
     // points into Mammalia, after all), but clade names step aside and the
     // bar breaks around it.
@@ -507,13 +544,16 @@ export class Labels {
     const text = this.styled(nameRuns(this.homeName, 'species'), size, 400);
     const psi = Math.atan2(p.uy, p.ux);
     const box = rotatedBox(p.x + (p.ux * text.width) / 2, p.y + (p.uy * text.width) / 2, text.width, size, psi);
-    // The renderer's leader bar, beyond the label: other labels keep clear.
-    const gap = this.leaderGap(spacing);
-    const len = leaderLength(g.camera, home.angle, gap);
-    const mid = gap + len / 2;
-    this.obstacles.push(
-      rotatedBox(p.x + p.ux * (mid - S.TIP_GAP_PX), p.y + p.uy * (mid - S.TIP_GAP_PX), len, spacing, psi),
-    );
+    // The renderer's leader bar, beyond the label: other labels keep clear
+    // (it is not drawn while Homo sapiens is the selection).
+    if (!this.hideHere()) {
+      const gap = this.leaderGap(spacing);
+      const len = leaderLength(g.camera, home.angle, gap);
+      const mid = gap + len / 2;
+      this.obstacles.push(
+        rotatedBox(p.x + p.ux * (mid - S.TIP_GAP_PX), p.y + p.uy * (mid - S.TIP_GAP_PX), len, 6, psi),
+      );
+    }
     items.push({
       key: 'home',
       text: text.text,
@@ -522,6 +562,7 @@ export class Labels {
       boxes: [inflate(box, 2)],
       alpha,
       draw: (ctx) => drawRadial(ctx, p, text, S.HOME_WHITE),
+      knock: (ctx) => drawRadial(ctx, p, text, KNOCK, S.HAIRLINE_KNOCK_PX),
     });
   }
 
@@ -547,12 +588,11 @@ export class Labels {
         const runs = nameRuns(name, species ? 'species' : null, this.genusNames.has(name));
         const psi = Math.atan2(p.uy, p.ux);
         const boxFor = (w: number): Box => rotatedBox(p.x + (p.ux * w) / 2, p.y + (p.uy * w) / 2, w, h, psi);
-        // Inside the side gutters, off the card and the HUD, and off the selection's leader.
+        // Inside the side gutters, off the card and the HUD. Hairlines (the
+        // selection's leader, "You are here") cost no name: they pass behind
+        // it, knocked out round its glyphs (frame).
         const fits = (b: Box): boolean =>
-          b.x0 >= S.GUTTER_PX / 2 &&
-          b.x1 <= g.w - S.GUTTER_PX / 2 &&
-          !this.obstacles.some((o) => overlap(o, b)) &&
-          !this.soft.some((o) => overlap(o, b));
+          b.x0 >= S.GUTTER_PX / 2 && b.x1 <= g.w - S.GUTTER_PX / 2 && !this.obstacles.some((o) => overlap(o, b));
         let text = this.styled(runs, size, 400);
         let box = boxFor(text.width);
         // A name cut off at the side of the screen or by the card is no use
@@ -567,7 +607,10 @@ export class Labels {
           if (!fits(box)) continue;
         }
         if (g.onScreen(p.x, p.y, 0)) this.tipColumn = Math.max(this.tipColumn, text.width);
-        const colour = tipColour(this.palette.colourAt(a, seam));
+        // The selection's names (a tip, or a clade's tips) in text-1, the rest in their kingdom's hue.
+        const rank = t.firstTip[i] ?? -1;
+        const sel = this.selTips !== null && rank >= this.selTips[0] && rank < this.selTips[1];
+        const colour = sel ? S.TEXT_1 : tipColour(this.palette.colourAt(a, seam));
         items.push({
           key: t.id[i] ?? 0,
           text: text.text,
@@ -577,6 +620,7 @@ export class Labels {
           boxes: [box],
           alpha: f.fade(t.level),
           draw: (ctx) => drawRadial(ctx, p, text, colour),
+          knock: (ctx) => drawRadial(ctx, p, text, KNOCK, S.HAIRLINE_KNOCK_PX),
         });
       }
     }
@@ -633,7 +677,7 @@ export class Labels {
           const whole = vis.len >= (hi - lo) * RAD_PER_UNIT * 0.999;
           const stemPhi = toRad(t.angle[i] ?? 0) + g.rot;
           const phiC = whole ? stemPhi : vis.lo + vis.len / 2;
-          items.push(this.arcItem(g, id, leaves, fit, text, rc, phiC, stemPhi));
+          items.push(this.arcItem(g, id, leaves, fit, text, rc, phiC, stemPhi, id === this.selectedId()));
           continue;
         }
 
@@ -645,7 +689,8 @@ export class Labels {
         const span = rimSpan * RAD_PER_UNIT;
         // Horizontal names beside a near-vertical bar (deep zoom, auto-orient).
         const flat = this.tipsOn && Math.abs(Math.cos(lo2 + span / 2 + g.rot)) > S.CLADE_FLAT_COS;
-        bars.push({ key: `${rimKey}:${id}`, leaves, first, end: first + leaves, id, text, lo: lo2, span, flat, lane: 0 });
+        const sel = id === this.selectedId();
+        bars.push({ key: `${rimKey}:${id}`, leaves, first, end: first + leaves, id, text, lo: lo2, span, flat, lane: 0, sel });
       }
     }
     const rimOff = S.CLADE_RIM_GAP_PX + (this.tipsOn ? S.TIP_GAP_PX + this.tipColumn : 0);
@@ -667,6 +712,11 @@ export class Labels {
     for (const b of all) {
       const rv = g.barArc(R + rimOff, b.lo, b.span);
       if (!rv) continue;
+      // The selected clade's bar shows however much of it is in view: it says which tips are the selection.
+      if (b.sel) {
+        bars.push(b);
+        continue;
+      }
       const coverage = rv.len / b.span;
       if (coverage < S.CLADE_RIM_COVERAGE * S.LABEL_HIDE_FIT * 0.9) continue;
       if (b.span * R > (S.CLADE_RIM_MAX_SHARE * g.rimPx) / (S.LABEL_HIDE_FIT * 0.9)) continue;
@@ -693,7 +743,7 @@ export class Labels {
       // Rodentia › Myomorpha › Muroidea) gets tall and pushes names far
       // from their tips. The innermost, most specific clades stay; the
       // broader ones are the breadcrumb's job.
-      if (b.lane >= S.CLADE_MAX_LANES) continue;
+      if (b.lane >= S.CLADE_MAX_LANES && !b.sel) continue;
       const rb = R + (laneOff[b.lane] ?? rimOff);
       const rv = g.barArc(rb, b.lo, b.span);
       if (!rv) continue;
@@ -706,10 +756,12 @@ export class Labels {
         (S.CLADE_RIM_MAX_SHARE * g.rimPx) / (b.span * R),
       );
       const shown = this.fader.alpha(b.key) > 0;
-      if (fit < S.LABEL_HIDE_FIT * 0.9 && !shown) continue;
+      if (fit < S.LABEL_HIDE_FIT * 0.9 && !shown && !b.sel) continue;
       const startPhi = b.lo + g.rot;
       const ends: [boolean, boolean] = [nearAngle(rv.lo, startPhi), nearAngle(rv.lo + rv.len, startPhi + b.span)];
-      items.push(this.rimItem(g, b, this.wheelOn ? 0 : fit, rb, rv, ends));
+      // A bar is only ever drawn with its name (a bare bracket says nothing).
+      const item = this.rimItem(g, b, this.wheelOn ? 0 : b.sel ? Math.max(1, fit) : fit, rb, rv, ends);
+      if (item) items.push(item);
     }
   }
 
@@ -723,6 +775,7 @@ export class Labels {
     rc: number,
     phiC: number,
     stemPhi: number,
+    sel: boolean,
   ): Item {
     const { dir, rot } = arcTextDirection(phiC);
     const at = arcPoint(g, rc, phiC, dir);
@@ -747,8 +800,9 @@ export class Labels {
           ctx.fillRect(-2, -size / 2 - 2, 4, size + 4);
           ctx.restore();
         }
-        drawArcText(ctx, at, rot, t, S.TEXT_2);
+        drawArcText(ctx, at, rot, t, sel ? S.TEXT_1 : S.TEXT_2);
       },
+      knock: (ctx) => drawArcText(ctx, at, rot, t, KNOCK, S.HAIRLINE_KNOCK_PX),
     };
   }
 
@@ -759,13 +813,15 @@ export class Labels {
    * horizontally beside a near-vertical bar at deep zoom. The bar breaks
    * where the "You are here" hairline crosses it.
    */
-  private rimItem(g: Geometry, b: Bar, fit: number, rb: number, vis: Arc, ends: [boolean, boolean]): Item {
+  private rimItem(g: Geometry, b: Bar, fit: number, rb: number, vis: Arc, ends: [boolean, boolean]): Item | null {
     const t = b.text;
+    const ink = b.sel ? S.TEXT_1 : S.TEXT_2;
     const phiC = vis.lo + vis.len / 2;
     // The name goes at the middle of the bar, or slides along it to clear
-    // a "You are here" hairline.
+    // a hairline (the selection's leader, "You are here") if it can.
     const half = (vis.len * rb) / 2 - 4;
-    let draw: (ctx: CanvasRenderingContext2D, alt: number) => void;
+    // Paints the name at alternative `alt` (a halo when `halo` > 0, see drawRuns).
+    let draw: (ctx: CanvasRenderingContext2D, alt: number, colour: string, halo: number) => void;
     let alts: Box[][];
     if (b.flat) {
       const step = t.size + 10;
@@ -780,12 +836,13 @@ export class Labels {
         if (x0 < S.GUTTER_PX / 2 || x0 + t.width > g.w - S.GUTTER_PX / 2) continue;
         spots.push({ ...p, right });
       }
+      if (spots.length === 0) return null;
       alts = spots.map((s) => [
         { x0: s.right ? s.x - t.width : s.x, x1: s.right ? s.x : s.x + t.width, y0: s.y - t.size / 2 - 1, y1: s.y + t.size / 2 + 1 },
       ]);
-      draw = (ctx, alt) => {
+      draw = (ctx, alt, colour, halo) => {
         const s = spots[alt] ?? spots[0];
-        if (s) drawRuns(ctx, t, s.right ? s.x - t.width : s.x, s.y + 0.5, S.TEXT_2);
+        if (s) drawRuns(ctx, t, s.right ? s.x - t.width : s.x, s.y + 0.5, colour, halo);
       };
     } else {
       const { dir, rot } = arcTextDirection(phiC);
@@ -796,10 +853,11 @@ export class Labels {
         if (Math.abs(k * step) + t.width / 2 > half && k !== 0) continue;
         spots.push(arcPoint(g, rt, phiC + (dir * k * step) / rt, dir));
       }
+      if (spots.length === 0) return null;
       alts = spots.map((at) => arcTextBoxes(at, rot, t));
-      draw = (ctx, alt) => {
+      draw = (ctx, alt, colour, halo) => {
         const at = spots[alt] ?? spots[0];
-        if (at) drawArcText(ctx, at, rot, t, S.TEXT_2);
+        if (at) drawArcText(ctx, at, rot, t, colour, halo);
       };
     }
     // Leave a hair between neighbouring bars.
@@ -834,14 +892,15 @@ export class Labels {
     return {
       key: b.key,
       text: t.text,
-      priority: b.leaves,
+      // The selection's bar before any other clade's.
+      priority: b.sel ? 1e14 : b.leaves,
       fit,
       boxes,
       alts,
       alpha: 1,
       kind: 'bar',
       draw: (ctx, alt) => {
-        ctx.strokeStyle = S.TEXT_3;
+        ctx.strokeStyle = b.sel ? S.TEXT_1 : S.TEXT_3;
         ctx.lineWidth = 1;
         ctx.beginPath();
         bar.forEach((p, k) => (k === 0 || gap[k - 1] ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
@@ -851,8 +910,9 @@ export class Labels {
           ctx.lineTo(tk[1].x, tk[1].y);
         }
         ctx.stroke();
-        draw(ctx, alt);
+        draw(ctx, alt, ink, 0);
       },
+      knock: (ctx, alt) => draw(ctx, alt, KNOCK, S.HAIRLINE_KNOCK_PX),
     };
   }
 }
@@ -885,8 +945,14 @@ function drawArcText(
   rot: (phi: number) => number,
   t: StyledText,
   colour: string,
+  halo = 0,
 ): void {
   ctx.fillStyle = colour;
+  if (halo > 0) {
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = halo;
+    ctx.lineJoin = 'round';
+  }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   let s = -t.width / 2;
@@ -903,21 +969,32 @@ function drawArcText(
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(rot(p.phi));
-      ctx.fillText(ch, 0, 0);
+      if (halo > 0) ctx.strokeText(ch, 0, 0);
+      else ctx.fillText(ch, 0, 0);
       ctx.restore();
     });
   }
 }
 
-/** Runs left to right from `x`, vertically centred on `y` (current transform). */
-function drawRuns(ctx: CanvasRenderingContext2D, t: StyledText, x: number, y: number, colour: string): void {
+/**
+ * Runs left to right from `x`, vertically centred on `y` (current
+ * transform). With a `halo` width the glyphs are stroked that wide instead
+ * of filled (the knockout in `frame`).
+ */
+function drawRuns(ctx: CanvasRenderingContext2D, t: StyledText, x: number, y: number, colour: string, halo = 0): void {
   ctx.fillStyle = colour;
+  if (halo > 0) {
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = halo;
+    ctx.lineJoin = 'round';
+  }
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   let cx = x;
   for (const run of t.runs) {
     ctx.font = run.font;
-    ctx.fillText(run.text, cx, y);
+    if (halo > 0) ctx.strokeText(run.text, cx, y);
+    else ctx.fillText(run.text, cx, y);
     cx += run.w;
   }
 }
@@ -1012,6 +1089,19 @@ class Geometry {
   }
 }
 
+/** The tips (ranks [first, end)) of node `id` if a loaded tile holds it, else null. */
+export function selectedTips(tiles: readonly Tile[], id: number): [number, number] | null {
+  if (id < 0) return null;
+  for (const t of tiles) {
+    for (let i = 0; i < t.count; i++) {
+      if ((t.id[i] ?? -1) !== id) continue;
+      const first = t.firstTip[i] ?? 0;
+      return [first, first + (t.leafCount[i] ?? 1)];
+    }
+  }
+  return null;
+}
+
 /**
  * Angles (u32 units) to try for a group label: the run's middle, then out
  * towards its ends; a run under 12° (Protists, Archaea) also tries up to
@@ -1060,12 +1150,12 @@ function overlapsRange(lo: number, hi: number, range: AngleRange): boolean {
 }
 
 /** Text laid along the outward ray from `p`, kept upright. */
-function drawRadial(ctx: CanvasRenderingContext2D, p: RimPoint, t: StyledText, colour: string): void {
+function drawRadial(ctx: CanvasRenderingContext2D, p: RimPoint, t: StyledText, colour: string, halo = 0): void {
   const { rot, align } = radialText(Math.atan2(p.uy, p.ux));
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(rot);
-  drawRuns(ctx, t, align === 'left' ? 0 : -t.width, 0, colour);
+  drawRuns(ctx, t, align === 'left' ? 0 : -t.width, 0, colour, halo);
   ctx.restore();
 }
 

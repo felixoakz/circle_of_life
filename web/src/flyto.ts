@@ -165,6 +165,18 @@ export class Flight {
     return this.path !== null;
   }
 
+  /** The current flight's length, ms (0 when not flying). */
+  durationMs(): number {
+    return this.path?.ms ?? 0;
+  }
+
+  /** How far through the current flight `now` is, 0 to 1 (1 when not flying). */
+  progress(now: number): number {
+    const path = this.path;
+    if (!path) return 1;
+    return Math.min(1, Math.max(0, (now - this.t0) / path.ms));
+  }
+
   /** Moves the rig to time `now`; true while flying. */
   step(now: number): boolean {
     const path = this.path;

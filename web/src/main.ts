@@ -26,8 +26,8 @@ import './styles.css';
 
 import { fetchMeta } from './api';
 import { toRad } from './angle';
-import { afterName, leaderPath, leaderStart } from './callout';
-import { layoutFor } from './layout';
+import { afterName, columnLead, leaderPath, leaderStart } from './callout';
+import { cardHeight, layoutFor } from './layout';
 import { mountFallback } from './fallback';
 import { Labels } from './labels';
 import { RunPalette } from './palette';
@@ -47,14 +47,16 @@ import { FONT_SANS, FONT_SERIF, MAX_BACKING_PX } from './style';
 import { Hover, pickAt } from './hover';
 import { NodeStore } from './nodes';
 import { TileIndex } from './picking';
-import { Selection } from './selection';
-import { Credits, mountWordmarkMenu } from './ui/credits';
-import { Hud } from './ui/hud';
+import { Selection, atRim } from './selection';
+import { Credits, type MenuItem, mountWordmarkMenu } from './ui/credits';
+import { Hud, groupSwatch } from './ui/hud';
+import { KeysDialog } from './ui/keys';
 import { ZoomStrip } from './ui/zoomstrip';
-import { SearchPalette } from './ui/search';
+import { SearchPalette, suggestion } from './ui/search';
 import { levelFade } from './lod';
 import { FLAG_HOME } from './tiles/decode';
-import { DWELL_MS, POINTER_HOLD_MS, Tour } from './tour';
+import { DWELL_MS, FIRST_MS, POINTER_HOLD_MS, TOUCH_HOLD_MS, TOUR, Tour } from './tour';
+import type { NodeInfo } from './types';
 import { formatView, parseLink, viewOf, viewPose } from './url';
 
 declare global {
@@ -160,9 +162,14 @@ async function main(): Promise<void> {
   if (debug === 'precision') dbg?.precisionCamera(scene, meta);
   window.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key !== 'r' && e.key !== 'R') return;
-    scene.orient.toggle(performance.now());
-    scene.requestRender();
+    if (document.querySelector('dialog[open]')) return;
+    if (e.key === 'r' || e.key === 'R') {
+      scene.orient.toggle(performance.now());
+      scene.requestRender();
+    } else if ((e.key === 'h' || e.key === 'H') && meta.home) {
+      // "You are here" (DESIGN.md §8): back to Homo sapiens.
+      void selection.select(meta.home.nodeId, { motion: 'fly', history: 'push' });
+    }
   });
 
   // Labels (Canvas2D overlay) and the HUD, repainted after every frame.
@@ -175,7 +182,6 @@ async function main(): Promise<void> {
   const hover = new Hover(scene, meta, store, index, treeCanvas);
   // Data & credits: from the wordmark menu and the card's footer.
   const credits = new Credits(meta);
-  mountWordmarkMenu(byId('wordmark', HTMLElement), credits);
   const selection = new Selection(
     scene,
     meta,
@@ -184,7 +190,7 @@ async function main(): Promise<void> {
     byId('announcer', HTMLElement),
     () => credits.open(),
   );
-  selection.panel.place(layout.card, layout.compact);
+  selection.panel.place(layout.card, cardHeight(layout), layout.compact);
   // Zoom: the scale on the left edge, with the reset button (ui/zoomstrip.ts).
   const strip = new ZoomStrip(scene, byId('zoom-strip', HTMLElement), () => hud.reset());
   strip.place(layout, treeCanvas.clientHeight);
@@ -215,15 +221,27 @@ async function main(): Promise<void> {
     const h = treeCanvas.clientHeight;
     const a = scene.rig.anchor();
     const anchor = { x: a.x / scene.camera.dpr, y: a.y / scene.camera.dpr };
-    let start = leaderStart(t.node, t.rim, anchor, layout.card, w, h);
-    // Leave from past the names: a tip's own, or the column beside a clade's tips.
+    // The card as it is (it is as tall as its content), not its nominal box.
+    const card = selection.panel.box() ?? layout.card;
+    let start = leaderStart(t.node, t.rim, anchor, card, w, h);
+    // Leave from past the names: a tip's own, or the column beside a clade's
+    // tips (a species with subspecies too: its names are that column).
     const spacing = scene.camera.tipSpacingPx() / scene.camera.dpr;
-    const run = t.tip ? labels.nameRun(t.n.name ?? '', spacing) : labels.columnRun(spacing) * start.atRim;
-    start = afterName(start, t.out, run, layout.card, w, h);
-    return leaderPath(start, layout.card, layout.compact);
+    // Homo sapiens is drawn as one row (its subspecies share it), so its own name counts.
+    const ownName = t.tip && (!atRim(t.n) || (t.n.flags & FLAG_HOME) !== 0);
+    const column = labels.columnRun(spacing);
+    const run = ownName ? labels.nameRun(t.n.name ?? '', spacing) : column * start.atRim;
+    start = afterName(start, t.out, run, card, w, h);
+    // A tip's leader then runs on along its own row past the column before
+    // it rises, so it never crosses (and shortens) a neighbour's name.
+    const lead = ownName ? columnLead(start, t.out, column - run, card, layout.compact, w, h) : null;
+    return leaderPath(start, card, layout.compact, lead);
   };
   labels.selectedId = () => selection.selected()?.id ?? -1;
   labels.hideHere = () => ((selection.selected()?.flags ?? 0) & FLAG_HOME) !== 0;
+  // While Homo sapiens is the selection, its leader and the card say "you
+  // are here"; the white home bar would only compete with them.
+  scene.homeLeader = () => !labels.hideHere();
   if (shot || debug !== null) {
     window.__labels = labels.stats;
     window.__labelDump = () => labels.dump();
@@ -235,49 +253,124 @@ async function main(): Promise<void> {
     speciesCount: meta.speciesCount,
     home: meta.home,
     tipCount: meta.tipCount,
-    choose: (hit) => void selection.select(hit.id, { motion: 'fly', history: 'push' }),
-    prefetch: (hit) => void store.get(hit.id).catch(() => undefined),
+    choose: (hit) => void selection.select(hit.nodeId, { motion: 'fly', history: 'push' }),
+    prefetch: (hit) => void store.get(hit.nodeId).catch(() => undefined),
     redraw: () => scene.requestRender(),
+    tryList: TOUR.map((t) => suggestion({ nodeId: t.id, name: t.name, rank: 'species', group: t.group, common: t.common })),
   });
+  search.place(layout.compact ? null : layout.card);
+  // The visitor's own selections are the empty palette's "Recent".
+  selection.onChosen = (n: NodeInfo) => search.remember(recentHit(n));
   scene.busy = () => selection.busy() || search.busy();
 
   // Ambient turn and idle tour pause while the user is looking at
   // something: the card under the pointer, search, a focused input, a
   // hidden tab, the intro.
   let overCard = false;
+  let cardScrolled = -Infinity;
   const card = byId('panel', HTMLElement);
   card.addEventListener('pointerenter', () => (overCard = true));
   card.addEventListener('pointerleave', () => {
     overCard = false;
     scene.requestRender();
   });
+  card.addEventListener('scroll', () => (cardScrolled = performance.now()), { capture: true, passive: true });
+  const selecting = (): boolean => {
+    const sel = document.getSelection();
+    return sel !== null && !sel.isCollapsed && sel.toString().trim() !== '';
+  };
   const looking = (): boolean =>
     overCard ||
+    card.contains(document.activeElement) ||
+    performance.now() - cardScrolled < POINTER_HOLD_MS ||
+    selecting() ||
     document.querySelector('.search-layer.open') !== null ||
+    document.querySelector('dialog[open]') !== null ||
     document.activeElement instanceof HTMLInputElement ||
     document.hidden ||
     scene.introPlaying();
   scene.spin.blocked = () => looking() || scene.input.dragging() || scene.flight.active();
   document.addEventListener('visibilitychange', () => scene.requestRender());
-  const dwell = tourParam !== null && Number(tourParam) > 0 ? Number(tourParam) * 1000 : DWELL_MS;
-  const tour = new Tour(performance.now(), dwell);
+  const custom = tourParam !== null && Number(tourParam) > 0;
+  const dwell = custom ? Number(tourParam) * 1000 : DWELL_MS;
+  const tour = new Tour(performance.now(), dwell, Math.random, custom ? dwell : FIRST_MS);
   tour.enabled = !reduced && (!still || tourParam !== null);
   // A pointer moving over the page in the last few seconds also holds the
   // tour's countdown (someone is exploring); a pointer resting on the wheel
   // does not, so "not touching anything" moves on. Resting on the card does
-  // hold it (looking(): people read there).
+  // hold it (looking(): people read there), and so does a touch in the last
+  // TOUCH_HOLD_MS: a phone reader's thumb rests between scrolls.
   let lastMove = -Infinity;
+  let lastTouch = -Infinity;
   window.addEventListener('pointermove', () => (lastMove = performance.now()), { passive: true });
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') lastTouch = performance.now();
+  }, { capture: true, passive: true });
   tour.held = () =>
-    looking() || performance.now() - lastMove < POINTER_HOLD_MS || scene.flight.active() || selection.busy();
+    looking() ||
+    performance.now() - lastMove < POINTER_HOLD_MS ||
+    performance.now() - lastTouch < TOUCH_HOLD_MS ||
+    scene.flight.active() ||
+    selection.busy();
   tour.go = (id) => void selection.select(id, { motion: 'tour', history: 'replace', announce: false });
   tour.wake = () => scene.requestRender();
   scene.tour = tour;
+  hud.touring = () => tour.touring();
+  hud.stopTour = () => {
+    tour.setEnabled(false, performance.now());
+    scene.requestRender();
+  };
+
+  // The wordmark menu (DESIGN.md §4.1): Data & credits, Keyboard,
+  // Auto-orient, the tour, and on a phone the kingdoms (the key's place).
+  const keys = new KeysDialog();
+  const menu: MenuItem[] = [
+    { label: () => 'Keyboard', run: () => keys.open() },
+    {
+      label: () => `Auto-orient: ${scene.orient.enabled ? 'on' : 'off'}`,
+      run: () => {
+        scene.orient.toggle(performance.now());
+        scene.requestRender();
+      },
+    },
+  ];
+  if (!reduced) {
+    menu.push({
+      label: () => `Tour: ${tour.enabled ? 'on' : 'off'}`,
+      run: () => {
+        tour.setEnabled(!tour.enabled, performance.now());
+        scene.requestRender();
+      },
+    });
+  }
+  for (const g of meta.groups) {
+    const swatch = groupSwatch(g.id);
+    menu.push({ label: () => g.name, run: () => hud.goToGroup(g.id), compactOnly: true, ...(swatch ? { swatch } : {}) });
+  }
+  mountWordmarkMenu(byId('wordmark', HTMLElement), credits, menu);
+
+  // A first visit's hint, in the readout until the first input (DESIGN.md §4.1).
+  const store2 = sessionStore();
+  const touch = matchMedia('(pointer: coarse)').matches;
+  if (!shot && debug === null && store2?.getItem('col-hinted') !== '1') {
+    hud.hint = touch
+      ? 'Drag to turn · pinch or use the strip to zoom · tap a branch'
+      : 'Drag to turn · scroll or use the strip to zoom · click a branch';
+    try {
+      store2?.setItem('col-hinted', '1');
+    } catch {
+      // Blocked site data: the hint shows again next time, no harm.
+    }
+  }
   // Any real input stops the tour (and the ambient turn): pointer, wheel, keys, anywhere on the page.
   const interact = (): void => {
     const now = performance.now();
     tour.interact(now);
     scene.spin.interact(now);
+    if (hud.hint) {
+      hud.hint = null;
+      scene.requestOverlay();
+    }
   };
   scene.onInteract = () => tour.interact(performance.now());
   for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
@@ -330,7 +423,8 @@ async function main(): Promise<void> {
     layout = layoutFor(treeCanvas.clientWidth, treeCanvas.clientHeight);
     rig.setLayout(layout);
     rig.set({ theta: rig.theta, scale: zoom * rig.minScale() });
-    selection.panel.place(layout.card, layout.compact);
+    selection.panel.place(layout.card, cardHeight(layout), layout.compact);
+    search.place(layout.compact ? null : layout.card);
     strip.place(layout, treeCanvas.clientHeight);
     scene.requestRender();
   };
@@ -386,7 +480,37 @@ async function main(): Promise<void> {
   }
 }
 
+/** A search row for a selection, for the empty palette's "Recent". */
+function recentHit(n: NodeInfo): ReturnType<typeof suggestion> {
+  const names = n.lineage.filter((a) => a.id !== 0 && a.name && a.rank !== 'genus').map((a) => a.name ?? '');
+  return suggestion({
+    id: n.id,
+    nodeId: n.nodeId,
+    name: n.name ?? 'Unnamed clade',
+    rank: n.rank,
+    group: n.group,
+    flags: n.flags,
+    common: n.commonName,
+    lineage: names.slice(-3),
+  });
+}
+
+/** Nothing could start (the API is down): say so, with a way to try again (DESIGN.md §7). */
+function showBootError(): void {
+  document.body.classList.add('failed');
+  const again = document.createElement('button');
+  again.type = 'button';
+  again.className = 'text-button';
+  again.textContent = 'Reload';
+  again.addEventListener('click', () => location.reload());
+  const p = document.createElement('p');
+  p.className = 'boot-error';
+  p.setAttribute('role', 'alert');
+  p.append('Couldn’t load the tree. ', again);
+  document.body.append(p);
+}
+
 main().catch((err: unknown) => {
   console.error(err);
-  document.body.classList.add('failed');
+  showBootError();
 });

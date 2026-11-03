@@ -16,11 +16,12 @@
 import { fetchAbout } from './api';
 import { TAU, toRad } from './angle';
 import type { Point } from './camera';
-import { nodePath, rankLine } from './hover';
+import { nodePath } from './hover';
 import { navMove, navTarget } from './nav';
 import type { NodeStore } from './nodes';
 import { encodePath, pathSegments } from './path';
 import type { PathDraw, RingDraw } from './render/types';
+import { suitSpan } from './layout';
 import type { Pose, Rig } from './rig';
 import type { Scene } from './scene';
 import * as S from './style';
@@ -32,14 +33,23 @@ import { type DeepLink, linkSearch, parseLink, viewOf, viewPose } from './url';
 /** The URL's view is rewritten this long after the view stops (PLAN §7.11). */
 const URL_DEBOUNCE_MS = 300;
 const WHITE: readonly [number, number, number] = [1, 1, 1];
-/** Zoom to suit: the node's tips fill this share of the screen's height… */
-const SUIT_FILL = 0.6;
+/** Zoom to suit: the node's tips fill this share of the free column through the anchor… */
+const SUIT_FILL = 0.9;
 /** …but never fewer than this many tips (so a species shows its neighbours and their names). */
 const SUIT_MIN_TIPS = 24;
 /** A clade whose tips would be at least this far apart (CSS px) zooms on until their names show… */
 const SUIT_NAMES_FROM = 3;
-/** …at this spacing (tip names show from S.TIP_LABEL_SPACING). */
+/** …at this spacing (tip names show from S.TIP_LABEL_SPACING), if all its tips still fit. */
 const SUIT_NAMES_SPACING = 14;
+/** A flight longer than this swaps the card's content part-way, not at its start, ms. */
+const SWAP_MIN_FLIGHT_MS = 600;
+/** …at this share of the flight. */
+const SWAP_AT = 0.6;
+
+/** Ranks drawn at the rim with their children: a species with subspecies reads as one row group. */
+const RIM_RANKS = new Set([
+  'species', 'subspecies', 'variety', 'varietas', 'subvariety', 'forma', 'form', 'subform', 'infraspecificname',
+]);
 
 type History = 'push' | 'replace' | 'none';
 
@@ -66,37 +76,66 @@ const TOUR_FLIGHT_MS = 2400;
 
 /**
  * The zoom that suits a node, device px per world unit: its tips (leafCount
- * slots, at least SUIT_MIN_TIPS) fill SUIT_FILL of `span` along the rim,
- * through the anchor; the clade's depth runs inward from there, where the
- * screen has room. A small clade (tips SUIT_NAMES_FROM px apart or more)
- * zooms on to SUIT_NAMES_SPACING so its names show. The root and other huge
- * clades come out below the minimum zoom (the rig clamps it). (`arcLo` and
- * `arcHi` are the node's connector between its children, not its tips.)
+ * slots, at least SUIT_MIN_TIPS) fill SUIT_FILL of `span`, the free column
+ * through the anchor (device px; layout.ts `suitSpan`), so the whole clade is
+ * on screen; its depth runs inward from there. A small clade (tips
+ * SUIT_NAMES_FROM px apart or more) zooms on to SUIT_NAMES_SPACING so its
+ * names show, but only if all its own tips still fit the span: a family of
+ * 90 species is shown whole, its genera bracketed, rather than half of it
+ * with names. The root and other huge clades come out below the minimum
+ * zoom (the rig clamps it). (`arcLo` and `arcHi` are the node's connector
+ * between its children, not its tips.)
  */
 export function suitScale(n: NodeInfo, tipCount: number, span: number, dpr: number): number {
   const tips = Math.max(n.leafCount, SUIT_MIN_TIPS);
   let spacing = (SUIT_FILL * span) / tips / dpr;
-  if (spacing >= SUIT_NAMES_FROM) spacing = Math.max(spacing, SUIT_NAMES_SPACING);
+  const namesFit = n.leafCount * SUIT_NAMES_SPACING * dpr <= span;
+  if (spacing >= SUIT_NAMES_FROM && namesFit) spacing = Math.max(spacing, SUIT_NAMES_SPACING);
   return (spacing * dpr * tipCount) / TAU;
 }
 
 /** The pose that puts `n` on the anchor at its suiting zoom. */
 export function suitPose(rig: Rig, n: NodeInfo, tipCount: number): Pose {
   const cam = rig.camera;
-  // The height: once tips resolve, the rim runs up and down the screen at the anchor.
-  return { theta: toRad(n.angle), scale: rig.clampScale(suitScale(n, tipCount, cam.height, cam.dpr)) };
+  const l = rig.composition();
+  // Once tips resolve, the rim runs up and down the screen at the anchor:
+  // the clade fills the free height above and below it.
+  const span = l ? suitSpan(l, cam.height / cam.dpr) * cam.dpr : cam.height;
+  return { theta: toRad(n.angle), scale: rig.clampScale(suitScale(n, tipCount, span, cam.dpr)) };
 }
 
-/** The selection's ring sits at the node's point; Homo sapiens is drawn as a tip, so its ring is at the rim. */
+/**
+ * Drawn at the rim with its children: a species (or lower rank) whose
+ * subspecies are the tips. Its ring sits on the rim and its leader leaves
+ * past their names, like a tip's.
+ */
+export function atRim(n: NodeInfo): boolean {
+  return n.childCount > 0 && RIM_RANKS.has(n.rank ?? '');
+}
+
+/** The selection's ring sits at the node's point; tips, Homo sapiens and species with subspecies have theirs at the rim. */
 export function ringPoint(n: NodeInfo): { angle: number; r: number } {
-  const tipLike = n.childCount === 0 || (n.flags & FLAG_HOME) !== 0;
+  const tipLike = n.childCount === 0 || (n.flags & FLAG_HOME) !== 0 || atRim(n);
   return { angle: n.angle, r: tipLike ? 1 : n.r };
 }
 
-/** "Felidae, family · 47 species" for the live region. */
+const nf = new Intl.NumberFormat('en');
+
+/**
+ * What the live region says: "Homo sapiens, species, 2 subspecies. You are
+ * here.", "Felidae, family, 91 species.", "Panthera onca, species."
+ */
 export function announcement(n: NodeInfo): string {
   const name = n.name ?? 'Unnamed clade';
-  return `Selected ${name}, ${rankLine(n.rank, n.leafCount)}`;
+  const rank = n.rank && !n.rank.startsWith('no rank') ? n.rank : null;
+  const parts = [name];
+  if (rank) parts.push(rank);
+  if (n.childCount > 0) {
+    const sub = atRim(n) || (n.flags & FLAG_HOME) !== 0;
+    parts.push(sub ? `${nf.format(n.leafCount)} subspecies` : `${nf.format(n.leafCount)} species`);
+  }
+  const here = (n.flags & FLAG_HOME) !== 0 ? ' You are here.' : '';
+  return `${parts.join(', ')}.${here}`;
 }
 
 export class Selection {
@@ -113,6 +152,14 @@ export class Selection {
   private viewKey = '';
   /** The URL had a view, or the view has moved since load: keep `v` in it. */
   private trackView = false;
+  /**
+   * A selection waiting for its flight to be SWAP_AT through before the
+   * card, the leader and the breadcrumb switch to it, so they do not name
+   * the new node while the wheel still shows the old one.
+   */
+  private pending: { n: NodeInfo; focus: boolean; announce: boolean; user: boolean } | null = null;
+  /** A selection the user made (not the tour, not the opening one) was shown (main.ts: search's Recent list). */
+  onChosen: (n: NodeInfo) => void = () => {};
 
   constructor(
     scene: Scene,
@@ -148,9 +195,9 @@ export class Selection {
     return this.node;
   }
 
-  /** True while a selection is loading (the scene is not idle yet). */
+  /** True while a selection is loading or waiting to be shown (the scene is not idle yet). */
   busy(): boolean {
-    return this.ctl !== null || this.panel.busy();
+    return this.ctl !== null || this.pending !== null || this.panel.busy();
   }
 
   /** The selection's path and ring for this frame. */
@@ -187,10 +234,16 @@ export class Selection {
 
   /** Selects a node by pre-order id or OpenTree id. */
   async select(ref: number | string, opts: SelectOptions): Promise<void> {
-    if (this.node && (this.node.id === ref || this.node.nodeId === ref)) {
+    const pend = this.pending?.n;
+    if (pend && (pend.id === ref || pend.nodeId === ref)) {
+      this.move(pend, opts.motion);
+      return;
+    }
+    if (this.node && (this.node.id === ref || this.node.nodeId === ref) && !this.pending) {
       this.move(this.node, opts.motion);
       return;
     }
+    this.pending = null;
     this.ctl?.abort();
     const ctl = new AbortController();
     this.ctl = ctl;
@@ -200,9 +253,18 @@ export class Selection {
     try {
       const n = await this.store.get(ref, ctl.signal);
       if (ctl.signal.aborted) return;
-      this.apply(n, opts.history !== 'none' && opts.motion !== 'tour', opts.announce ?? true);
-      if (opts.history !== 'none') this.writeUrl(opts.history);
+      const shown = {
+        n,
+        focus: opts.history !== 'none' && opts.motion !== 'tour',
+        announce: opts.announce ?? true,
+        user: opts.history !== 'none' && opts.motion !== 'tour',
+      };
       this.move(n, opts.motion);
+      const flight = this.scene.flight;
+      // A long flight: the card switches part-way (frame()), with a crossfade.
+      if (this.node && flight.active() && flight.durationMs() > SWAP_MIN_FLIGHT_MS) this.pending = shown;
+      else this.show(shown, false);
+      if (opts.history !== 'none') this.writeUrl(opts.history, n);
     } catch (err) {
       if (ctl.signal.aborted) return;
       console.warn('select', err);
@@ -211,14 +273,21 @@ export class Selection {
       if (this.ctl === ctl) {
         this.ctl = null;
         this.loadingId = null;
-        this.panel.loading(false);
+        this.panel.loading(this.pending !== null);
         this.scene.requestOverlay();
       }
     }
   }
 
-  /** Called after every frame: keeps the URL's view in step, 300 ms after it settles. */
+  /** Called after every frame: shows a waiting selection, and keeps the URL's view in step, 300 ms after it settles. */
   frame(): void {
+    const p = this.pending;
+    const flight = this.scene.flight;
+    if (p && (!flight.active() || flight.progress(performance.now()) >= SWAP_AT)) {
+      this.pending = null;
+      this.panel.loading(this.ctl !== null);
+      this.show(p, true);
+    }
     const rig = this.scene.rig;
     const key = `${rig.theta},${rig.scale}`;
     if (key === this.viewKey) return;
@@ -237,26 +306,31 @@ export class Selection {
     }, URL_DEBOUNCE_MS);
   }
 
-  private apply(n: NodeInfo, focus: boolean, announce: boolean): void {
+  /** Makes `p.n` the selection everywhere: path, ring, card (crossfading when `fade`), live region. */
+  private show(p: { n: NodeInfo; focus: boolean; announce: boolean; user: boolean }, fade: boolean): void {
+    const n = p.n;
     this.node = n;
-    const { points, endR } = nodePath(n);
+    const { points } = nodePath(n);
     const ring = ringPoint(n);
+    // Tips, Homo sapiens and species with subspecies: the path runs on to the rim, to the ring.
+    const endR = ring.r === 1 ? 1 : undefined;
     this.draws = {
       path: { data: encodePath(pathSegments(points, undefined, endR)), rgb: WHITE, alpha: 1, widthPx: S.PATH_WIDTH_PX },
       ring: { ...ring, rgb: WHITE, alpha: 1, radiusPx: S.SELECT_RING_PX },
     };
-    this.panel.show(n, focus);
-    if (announce) this.announcer.textContent = announcement(n);
+    this.panel.show(n, p.focus, fade);
+    if (p.announce) this.announcer.textContent = announcement(n);
+    if (p.user) this.onChosen(n);
     this.scene.requestRender();
   }
 
-  private link(): DeepLink {
+  private link(node: NodeInfo | null = this.node): DeepLink {
     const rig = this.scene.rig;
-    return { n: this.node?.nodeId ?? null, v: this.trackView ? viewOf(rig.pose(), rig.camera.dpr) : null };
+    return { n: node?.nodeId ?? null, v: this.trackView ? viewOf(rig.pose(), rig.camera.dpr) : null };
   }
 
-  private writeUrl(mode: 'push' | 'replace'): void {
-    const search = linkSearch(location.search, this.link());
+  private writeUrl(mode: 'push' | 'replace', node: NodeInfo | null = this.pending?.n ?? this.node): void {
+    const search = linkSearch(location.search, this.link(node));
     if (search === location.search && mode === 'replace') return;
     const url = `${location.pathname}${search}${location.hash}`;
     if (mode === 'push') history.pushState(null, '', url);
@@ -291,7 +365,8 @@ export class Selection {
     // A modal dialog (Data & credits) handles its own keys.
     if (document.querySelector('dialog[open]')) return;
     const move = navMove(e.key);
-    const node = this.node;
+    // A selection still waiting for its flight counts: the keys walk on from it.
+    const node = this.pending?.n ?? this.node;
     if (!move || !node) return;
     // Buttons and links keep their own keys (Space/Enter); arrows walk the tree.
     e.preventDefault();
@@ -317,7 +392,7 @@ export class Selection {
         move === 'parent' ? 'This is the root' : move === 'child' ? 'No children: this is a tip' : 'No siblings';
       return;
     }
-    if (this.node !== node || this.loadingId !== null) return;
+    if ((this.pending?.n ?? this.node) !== node || this.loadingId !== null) return;
     await this.select(target, { motion: 'fly', history: 'push' });
   }
 

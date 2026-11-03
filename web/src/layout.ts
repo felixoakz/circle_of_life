@@ -31,8 +31,16 @@ export interface Point {
 export interface Layout {
   /** Phone or portrait: the card on top, the wheel below. */
   compact: boolean;
-  /** The selection card. */
+  /**
+   * The selection card's nominal box: the composition (the anchor) is built
+   * round it. The card itself is as tall as its content, from its top, at
+   * least `cardMinH` and at most down to `cardMax.y1` (ui/panel.ts).
+   */
   card: Box;
+  /** The card's largest box (desktop: taller than the nominal one, for long content). */
+  cardMax: Box;
+  /** The card's least height, CSS px. */
+  cardMinH: number;
   /** The anchor at minimum zoom: the rim point at the focus angle; zoom scales about it. */
   anchor: Point;
   /** The anchor's x at deep zoom, once tips resolve (it drifts there as the focus angle eases to 0°). */
@@ -46,14 +54,18 @@ export interface Layout {
 /** Edge gutter (desktop) and the card's side gutter on a phone. */
 const GUTTER = 16;
 const COMPACT_GUTTER = 12;
-/** The card's top: under the wordmark and the search trigger. */
-const CARD_TOP = 56;
+/** The card's top: under the search bar (ui/search.ts `placeTrigger`: 12 + 40 + 8). */
+const CARD_TOP = 60;
 const COMPACT_CARD_TOP = 64;
 /** Desktop card: left edge at this share of the width, bottom at this share of the height. */
 const CARD_LEFT = 0.62;
 const CARD_BOTTOM = 0.4;
 const CARD_MIN_W = 340;
 const CARD_MIN_H = 240;
+/** Desktop: the card's fixed box reaches down to this share of the height, keeps this far above the bottom, and is at most CARD_MAX_H tall. */
+const CARD_MAX_BOTTOM = 0.6;
+const CARD_MAX_BOTTOM_ROOM = 152;
+const CARD_MAX_H = 560;
 /** Phone card height: this share of the height, within bounds. */
 const COMPACT_CARD_H = 0.3;
 const COMPACT_CARD_MIN_H = 200;
@@ -96,7 +108,9 @@ function desktopLayout(w: number, h: number): Layout {
   // RIM_TOP: centre.y = anchor.y + R sin φ and centre.y − R = RIM_TOP.
   const radius = Math.max(anchor.y - RIM_TOP, 1) / (1 - Math.sin(FOCUS));
   const deepX = Math.max(GUTTER, Math.min(anchor.x, w * DEEP_X, left - DEEP_NAME_ROOM));
-  return { compact: false, card, anchor, deepX, focus: FOCUS, radius };
+  const maxBottom = Math.round(Math.max(bottom, Math.min(h * CARD_MAX_BOTTOM, h - CARD_MAX_BOTTOM_ROOM, CARD_TOP + CARD_MAX_H)));
+  const cardMax = { ...card, y1: maxBottom };
+  return { compact: false, card, cardMax, cardMinH: CARD_MIN_H, anchor, deepX, focus: FOCUS, radius };
 }
 
 function compactLayout(w: number, h: number): Layout {
@@ -108,10 +122,32 @@ function compactLayout(w: number, h: number): Layout {
   const radius = Math.max(h * COMPACT_CENTRE_Y - ay, 1) / Math.sin(COMPACT_FOCUS);
   const ax = w - COMPACT_RIM_RIGHT - radius * (1 - Math.cos(COMPACT_FOCUS));
   const deepX = Math.max(COMPACT_GUTTER, Math.min(ax, w * COMPACT_DEEP_X));
-  return { compact: true, card, anchor: { x: ax, y: ay }, deepX, focus: COMPACT_FOCUS, radius };
+  // A phone's card never grows past its nominal box: the wheel's focus is right under it.
+  return { compact: true, card, cardMax: card, cardMinH: COMPACT_CARD_MIN_H, anchor: { x: ax, y: ay }, deepX, focus: COMPACT_FOCUS, radius };
 }
 
 /** The wheel's centre at minimum zoom (the anchor, back along the focus angle by the radius). */
 export function wheelCentre(l: Layout): Point {
   return { x: l.anchor.x - l.radius * Math.cos(l.focus), y: l.anchor.y + l.radius * Math.sin(l.focus) };
+}
+
+/** The card's height, CSS px: its fixed box, down to `cardMax` (taller than the nominal box on desktop, which the anchor is built on). */
+export function cardHeight(l: Layout): number {
+  return l.cardMax.y1 - l.card.y0;
+}
+
+/** The bottom HUD band (breadcrumb, readout) that a fitted clade keeps clear of, CSS px. */
+const HUD_ROOM = 96;
+/** A fitted clade keeps this far under the card on a phone, CSS px. */
+const UNDER_CARD = 8;
+
+/**
+ * The height a clade can fill when it is centred on the anchor (selection.ts
+ * `suitPose`), CSS px: twice the smaller of the room above the anchor (to
+ * the header, or to the card on a phone) and below it (to the bottom HUD).
+ */
+export function suitSpan(l: Layout, h: number): number {
+  const top = l.compact ? l.card.y1 + UNDER_CARD : CARD_TOP;
+  const bottom = h - HUD_ROOM;
+  return Math.max(1, 2 * Math.min(l.anchor.y - top, bottom - l.anchor.y));
 }

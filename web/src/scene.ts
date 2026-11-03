@@ -102,6 +102,8 @@ export class Scene {
   highlight: (now: number) => { draw: Highlight; animating: boolean } = () => ({ draw: NO_HIGHLIGHT, animating: false });
   /** Distance from the rim to the home leader bar, CSS px (labels.ts measures the label). */
   leaderGap: (tipSpacing: number) => number = () => HOME_LEADER_GAP_PX;
+  /** Whether the home leader bar is drawn (not while Homo sapiens is the selection; main.ts). */
+  homeLeader: () => boolean = () => true;
   /** The last frame's view and drawable tiles (CPU side), for labels and HUD. */
   lastView: View | null = null;
   lastTiles: Tile[] = [];
@@ -258,6 +260,7 @@ export class Scene {
       homeAngle: this.meta.home?.angle ?? 0,
       leaderGap,
       leaderLen: leaderLength(cam, this.meta.home?.angle ?? 0, leaderGap),
+      homeLeader: this.homeLeader() ? 1 : 0,
       dims: this.dims(),
       highlight: this.dimsOn ? hl.draw : NO_HIGHLIGHT,
     });

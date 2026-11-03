@@ -22,6 +22,11 @@
 // desktop, vertically into its bottom edge on a phone. A start below a
 // desktop card's left edge enters the bottom edge instead, one above a
 // card enters its top edge, so the line never crosses the card.
+//
+// Once tip names show, a tip's leader first runs straight out along its own
+// row, past the end of the whole column of names (`columnLead`), and only
+// then rises: the rise never crosses a neighbour's name, so none has to be
+// shortened to make way for it.
 // Pure geometry here; labels.ts draws it and keeps text off it.
 
 import type { Box } from './labelLayout';
@@ -190,14 +195,38 @@ export function afterName(start: LeaderStart, out: Point, run: number, card: Box
   return { ...start, p };
 }
 
-/** The leader from `start` into `card`. */
-export function leaderPath(start: LeaderStart, card: Box, compact: boolean): Leader {
-  const from = start.p;
+/** The square run's room before the card, and the gap past the name column, px. */
+const COLUMN_GAP = 24;
+
+/**
+ * Where a tip's leader turns, once names show: `run` px further along `out`
+ * from the start (the rest of the name column beyond its own name, plus
+ * COLUMN_GAP), but never closer to the card than its square run or out of
+ * the free area. Null when there is nothing to add (off screen, or the
+ * column ends at its own name).
+ */
+export function columnLead(start: LeaderStart, out: Point, run: number, card: Box, compact: boolean, w: number, h: number): Point | null {
+  if (run <= 0 || start.arrow > 0.01) return null;
+  const screen = freeScreen(w, h);
+  let k = run + COLUMN_GAP;
+  // Stop short of the card's left edge (desktop) or the screen's right margin (phone).
+  const limitX = compact ? screen.x1 - INSET : card.x0 - RUN - 16;
+  if (out.x > 1e-6) k = Math.min(k, (limitX - start.p.x) / out.x);
+  if (k <= 1) return null;
+  const p = clampTo({ x: start.p.x + out.x * k, y: start.p.y + out.y * k }, screen);
+  if (inside(p, card, CARD_CLEAR)) return null;
+  return p;
+}
+
+/** The leader from `start` into `card`, by way of `lead` (columnLead) when given. */
+export function leaderPath(start: LeaderStart, card: Box, compact: boolean, lead: Point | null = null): Leader {
+  const from = lead ?? start.p;
   let path: Point[];
   if (!compact && from.x <= card.x0 - 8) path = intoLeft(from, card);
   else if (from.y >= card.y1 + 8) path = intoBottom(from, card, compact ? COMPACT_RUN : RUN);
   else if (from.y <= card.y0 - 8) path = intoTop(from, card);
   else path = [from, clampTo(from, card)];
+  if (lead) path = [start.p, ...path];
   // On screen the line starts just outside the ring; off screen, at the edge.
   path = trimStart(path, LEADER_START_GAP * (1 - start.arrow));
   const p0 = path[0] ?? from;

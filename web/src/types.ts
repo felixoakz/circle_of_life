@@ -162,4 +162,6 @@ export interface About {
   failed: string[];
   complete: boolean;
   fetchedAt: number;
+  /** A source failed because it was rate limited: the server keeps this document for minutes only. */
+  rateLimited: boolean;
 }

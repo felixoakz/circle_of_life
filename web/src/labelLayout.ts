@@ -34,7 +34,8 @@ export interface Candidate {
   boxes: Box[];
   /**
    * Alternative places for the text, best first; the first that is clear
-   * (also of the soft obstacles) wins. Without alternatives, `boxes` is all.
+   * (also of the soft obstacles, if any is) wins. Without alternatives,
+   * `boxes` is all.
    */
   alts?: Box[][];
 }
@@ -97,7 +98,8 @@ export function fits(fit: number, shown: boolean): boolean {
 /**
  * Greedy collision culling. `obstacles` (e.g. the home leader bar) are
  * placed first and never drawn; `soft` obstacles (a hairline leader) only
- * keep text alternatives off them. Returns the winners, at most `max`.
+ * steer text alternatives off them where one is clear, and never cost a
+ * label (the hairline passes behind it). Returns the winners, at most `max`.
  */
 export function cull(
   candidates: readonly Candidate[],
@@ -124,6 +126,7 @@ export function cull(
     let alt = 0;
     if (c.alts) {
       alt = c.alts.findIndex((boxes) => !boxes.some((b) => grid.hits(b) || softGrid.hits(b)));
+      if (alt < 0) alt = c.alts.findIndex((boxes) => !boxes.some((b) => grid.hits(b)));
       if (alt < 0) continue;
       for (const b of c.alts[alt] ?? []) grid.add(b);
     }
@@ -226,19 +229,29 @@ export function radialText(psi: number): { rot: number; align: 'left' | 'right' 
   return { rot: psi + Math.PI, align: 'right' };
 }
 
+/** How far past vertical arc text may lean before it turns the other way, radians (10°). */
+const ARC_SLACK = (10 * Math.PI) / 180;
+
 /**
  * Text along a circle, centred on screen angle `phi` (radians, y up, as
  * seen from the circle's centre). Above the centre the glyphs stand on the
  * circle with their tops outward and the text runs clockwise; below it their
  * tops point inward and it runs counter-clockwise, so it never reads upside
- * down. Near the sides (within 30° of horizontal, where auto-orient puts
- * the rim at deep zoom) it always reads bottom to top, so it cannot flip
- * back and forth as the view turns. `dir` is the sign of dφ per px of text;
- * `rot` gives a glyph's canvas rotation at its angle.
+ * down: whichever of the two turns the glyphs less than 90° (plus a little
+ * slack) from upright. Near the sides (within ARC_SLACK of vertical, where
+ * auto-orient puts the rim at deep zoom) both would do, and it reads bottom
+ * to top, so it cannot flip back and forth as the view turns. `dir` is the
+ * sign of dφ per px of text; `rot` gives a glyph's canvas rotation at its
+ * angle.
  */
 export function arcTextDirection(phi: number): { dir: 1 | -1; rot: (phiAt: number) => number } {
-  const s = Math.sin(phi);
-  const upper = Math.abs(s) < 0.5 ? Math.cos(phi) < 0 : s > 0;
-  if (upper) return { dir: -1, rot: (p) => Math.PI / 2 - p };
+  const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+  const upper = wrap(Math.PI / 2 - phi);
+  const lower = wrap(-Math.PI / 2 - phi);
+  const okUpper = Math.abs(upper) <= Math.PI / 2 + ARC_SLACK;
+  const okLower = Math.abs(lower) <= Math.PI / 2 + ARC_SLACK;
+  // Both readable (the text runs up or down the screen): bottom to top, a −90° turn.
+  const useUpper = okUpper && okLower ? Math.abs(upper + Math.PI / 2) < Math.abs(lower + Math.PI / 2) : okUpper;
+  if (useUpper) return { dir: -1, rot: (p) => Math.PI / 2 - p };
   return { dir: 1, rot: (p) => -Math.PI / 2 - p };
 }
