@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countriesLine, countryName, sourceList, statusLabel } from './about';
+import { RANGE_SIDE_SHARE, RANGE_TEXT_PX, countriesLine, countryName, leadText, mapSize, sentenceCase, sourceList, statusLabel } from './about';
 
 describe('about helpers', () => {
   it('writes IUCN categories as text', () => {
@@ -28,5 +28,34 @@ describe('about helpers', () => {
     expect(sourceList(['GBIF'])).toBe('GBIF');
     expect(sourceList(['Wikidata', 'GBIF'])).toBe('Wikidata and GBIF');
     expect(sourceList(['Wikidata', 'GBIF', 'iNaturalist'])).toBe('Wikidata, GBIF and iNaturalist');
+  });
+});
+
+describe('leadText', () => {
+  const text = 'One two three. Four five six seven. Eight nine ten eleven twelve.';
+  it('keeps whole sentences that fit', () => {
+    expect(leadText(text, 40)).toBe('One two three. Four five six seven.');
+    expect(leadText(text, 200)).toBe(text);
+  });
+
+  it('keeps a long first sentence whole within half again, else cuts at a word', () => {
+    expect(leadText(text, 12)).toBe('One two three.');
+    expect(leadText('Alpha beta gamma delta epsilon zeta. Eta.', 10)).toBe('Alpha…');
+  });
+
+  it('writes common names in sentence case', () => {
+    expect(sentenceCase('human')).toBe('Human');
+    expect(sentenceCase('giant panda')).toBe('Giant panda');
+  });
+});
+
+describe('mapSize', () => {
+  it('fits a 2:1 map into the tab area above its text lines', () => {
+    expect(mapSize(500, 400)).toEqual({ width: 500, height: 250 });
+    expect(mapSize(700, 200 + RANGE_TEXT_PX)).toEqual({ width: 400, height: 200 });
+    // A phone: beside the lines, at most RANGE_SIDE_SHARE of the width.
+    expect(mapSize(340, 100, true).width).toBeLessThanOrEqual(340 * RANGE_SIDE_SHARE);
+    const s = mapSize(342, 110);
+    expect(s.height + RANGE_TEXT_PX).toBeLessThanOrEqual(Math.max(110, 60 + RANGE_TEXT_PX));
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LEADER_START_GAP, afterName, leaderBoxes, leaderPath, leaderStart } from './callout';
+import { LEADER_START_GAP, afterName, columnLead, leaderBoxes, leaderPath, leaderStart } from './callout';
 import { layoutFor } from './layout';
 
 const W = 2000;
@@ -141,5 +141,29 @@ describe('leaderBoxes', () => {
     expect(boxes.length).toBeGreaterThan(3);
     for (const b of boxes) expect(b.x1 - b.x0).toBeLessThan(30);
     for (const b of leaderBoxes(path, 2, 30)) expect(b.x1).toBeGreaterThan(20);
+  });
+});
+
+describe('columnLead', () => {
+  const l = layoutFor(W, H);
+  const out = { x: 1, y: 0 };
+
+  it('runs along the row past the name column before rising, so the rise clears every name', () => {
+    const start = { p: { x: 900, y: 440 }, toward: { x: 0, y: 0 }, arrow: 0, atRim: 1 };
+    const lead = columnLead(start, out, 200, l.card, false, W, H);
+    expect(lead).toEqual({ x: 900 + 200 + 24, y: 440 });
+    const path = leaderPath(start, l.card, false, lead).path;
+    expect(path[0]).toEqual({ x: 900 + LEADER_START_GAP, y: 440 });
+    expect(path[1]).toEqual(lead);
+    // Every point after the lead is right of the column.
+    for (const p of path.slice(1)) expect(p.x).toBeGreaterThanOrEqual(1124);
+  });
+
+  it('stops short of the card, and adds nothing off screen or with no column', () => {
+    const start = { p: { x: 1100, y: 440 }, toward: { x: 0, y: 0 }, arrow: 0, atRim: 1 };
+    const lead = columnLead(start, out, 2000, l.card, false, W, H);
+    expect(lead?.x).toBe(l.card.x0 - 24 - 16);
+    expect(columnLead(start, out, 0, l.card, false, W, H)).toBeNull();
+    expect(columnLead({ ...start, arrow: 1 }, out, 200, l.card, false, W, H)).toBeNull();
   });
 });

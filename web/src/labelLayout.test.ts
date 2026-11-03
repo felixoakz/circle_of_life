@@ -11,6 +11,7 @@ import {
   radialText,
   rotatedBox,
 } from './labelLayout';
+import { leaderBoxes } from './callout';
 import { LABEL_FADE_MS, LABEL_HIDE_FIT } from './style';
 
 const box = (x0: number, y0: number, x1: number, y1: number): Box => ({ x0, y0, x1, y1 });
@@ -77,6 +78,26 @@ describe('cull', () => {
     expect(cull([c], () => false, 300, [], [leader]).has('clade')).toBe(true);
     // Hard obstacles over every spot: no label.
     expect(cull([c], () => false, 300, [box(0, 0, 300, 18)]).has('clade')).toBe(false);
+    // A hairline over every spot costs nothing: the first spot clear of hard obstacles wins.
+    const wide = box(0, 0, 300, 18);
+    expect(cull([c], () => false, 300, [], [wide]).get('clade')).toBe(0);
+    expect(cull([c], () => false, 300, [box(110, 0, 190, 18)], [wide]).get('clade')).toBe(1);
+  });
+
+  it('never drops a column of names for the selection leader crossing it', () => {
+    // A column of tip names 14 px apart, the leader rising at 60° through it
+    // to a card at the top right (as at deep zoom with the selection below).
+    const names = Array.from({ length: 20 }, (_, i) => cand(`tip${i}`, 1e9, box(400, i * 14, 560, i * 14 + 11)));
+    const path = [
+      { x: 300, y: 400 },
+      { x: 300 + 400 / Math.tan(Math.PI / 3), y: 0 },
+      { x: 900, y: 0 },
+    ];
+    const soft = leaderBoxes(path, 3, 16);
+    // The leader really does cross the column.
+    expect(names.filter((n) => n.boxes.some((b) => soft.some((s) => b.x0 < s.x1 && s.x0 < b.x1 && b.y0 < s.y1 && s.y0 < b.y1))).length).toBeGreaterThan(3);
+    const won = cull(names, () => false, 300, [], soft);
+    expect(won.size).toBe(names.length);
   });
 
   it('does not flicker while a label slowly loses room', () => {
@@ -159,5 +180,16 @@ describe('placement helpers', () => {
       // A glyph turned by −90°: its baseline runs up the screen.
       expect(Math.sin(d.rot(phi))).toBeCloseTo(-1, 3);
     }
+  });
+
+  it('never turns arc text more than 100° from upright', () => {
+    for (let deg = -180; deg <= 180; deg += 2.5) {
+      const phi = (deg * Math.PI) / 180;
+      const rot = arcTextDirection(phi).rot(phi);
+      expect(Math.cos(rot)).toBeGreaterThanOrEqual(Math.cos((100 * Math.PI) / 180) - 1e-9);
+    }
+    // A bar on the upper right, just under 30° (Chiroptera at mid zoom): down the slope, not up and backwards.
+    const phi = (28 * Math.PI) / 180;
+    expect(arcTextDirection(phi).rot(phi)).toBeCloseTo(Math.PI / 2 - phi);
   });
 });

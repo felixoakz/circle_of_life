@@ -92,3 +92,12 @@ describe('abbreviateGenus', () => {
     expect(abbreviateGenus(nameRuns('Homo', 'genus'))).toBeNull();
   });
 });
+
+describe('hybrid sign', () => {
+  it('prints OTT’s "x" as ×, in roman', () => {
+    const runs = nameRuns('x Vandachostylis', 'genus');
+    expect(runs.map((r) => r.text).join('')).toBe('× Vandachostylis');
+    expect(nameRuns('Mokara x Ascocenda').map((r) => r.text).join('')).not.toContain(' x ');
+    expect(nameRuns('Panthera onca').map((r) => r.text).join('')).toBe('Panthera onca');
+  });
+});

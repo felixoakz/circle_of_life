@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCompact, layoutFor, wheelCentre } from './layout';
+import { isCompact, layoutFor, suitSpan, wheelCentre } from './layout';
 
 describe('layoutFor', () => {
   it('matches the reference composition at 2000×1030', () => {
@@ -8,7 +8,7 @@ describe('layoutFor', () => {
     // The card: x 62%–99%, y ~6%–40%.
     expect(l.card.x0 / 2000).toBeCloseTo(0.62, 2);
     expect(l.card.x1).toBe(1984);
-    expect(l.card.y0).toBe(56);
+    expect(l.card.y0).toBe(60);
     expect(l.card.y1 / 1030).toBeCloseTo(0.4, 2);
     // The anchor just below and left of the card's corner.
     expect(l.anchor.x).toBeLessThan(l.card.x0);
@@ -45,5 +45,29 @@ describe('layoutFor', () => {
     const c = wheelCentre(l);
     expect(c.x + l.radius).toBeLessThan(390);
     expect(c.y / 844).toBeCloseTo(0.86, 6);
+  });
+});
+
+describe('card bounds', () => {
+  it('lets a desktop card grow below its nominal box, never a phone card', () => {
+    const d = layoutFor(1280, 720);
+    expect(d.cardMax.y1).toBeGreaterThan(d.card.y1);
+    expect(d.cardMax.y1).toBeLessThanOrEqual(720 - 152);
+    const p = layoutFor(390, 844);
+    expect(p.cardMax).toEqual(p.card);
+  });
+});
+
+describe('suitSpan', () => {
+  it('is twice the smaller room round the anchor', () => {
+    const l = layoutFor(1440, 900);
+    const above = l.anchor.y - 60;
+    const below = 900 - 96 - l.anchor.y;
+    expect(suitSpan(l, 900)).toBe(2 * Math.min(above, below));
+  });
+
+  it('stops under the card on a phone', () => {
+    const l = layoutFor(390, 844);
+    expect(suitSpan(l, 844)).toBe(2 * Math.min(l.anchor.y - l.card.y1 - 8, 844 - 96 - l.anchor.y));
   });
 });

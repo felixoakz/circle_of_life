@@ -83,3 +83,12 @@ describe('navTarget', () => {
     expect(navTarget('prev', unlisted, parent)).toBe(12);
   });
 });
+
+describe('navTarget: unnamed ancestors', () => {
+  it('steps over unnamed nodes on the way up', () => {
+    const n = node(30, [0, 1, 2], []);
+    const unnamed = n.lineage[2];
+    if (unnamed) unnamed.name = null;
+    expect(navTarget('parent', n, null)).toBe(1);
+  });
+});

@@ -37,9 +37,34 @@ describe('zoom scale', () => {
       const l = layoutFor(w, h);
       const b = stripBox(l, h);
       expect(b.y0).toBeGreaterThanOrEqual(l.compact ? l.card.y1 : 56);
-      // Scale plus the reset button stay above the breadcrumb band.
-      expect(b.y1 + 52).toBeLessThanOrEqual(h - 96);
+      // Scale, "−" and the reset button stay above the breadcrumb band.
+      expect(b.y1 + (l.compact ? 76 : 60)).toBeLessThanOrEqual(h - 96);
       expect(b.y1 - b.y0).toBeGreaterThanOrEqual(80);
+      // The "+" step above it stays under the header (desktop) or the card (phone).
+      expect(b.y0 - 26).toBeGreaterThanOrEqual(l.compact ? l.card.y1 : 44);
     }
+  });
+
+  it('spans two thirds of the height on desktop, centred where it fits', () => {
+    for (const [w, h] of [
+      [2000, 1030],
+      [1440, 900],
+      [1229, 900],
+    ] as const) {
+      const b = stripBox(layoutFor(w, h), h);
+      expect(b.y1 - b.y0).toBeCloseTo((2 * h) / 3, 6);
+      // Centred, or as near as the bottom HUD allows.
+      expect(Math.abs((b.y0 + b.y1) / 2 - h / 2)).toBeLessThanOrEqual(10);
+    }
+    // A short window: as much as fits between the header and the HUD.
+    const b = stripBox(layoutFor(1280, 720), 720);
+    expect(b.y1 - b.y0).toBeCloseTo(480, 6);
+  });
+
+  it('takes all the room under the card on a phone', () => {
+    const l = layoutFor(390, 844);
+    const b = stripBox(l, 844);
+    expect(b.y0).toBe(l.card.y1 + 48);
+    expect(b.y1).toBe(844 - 96 - 76);
   });
 });
