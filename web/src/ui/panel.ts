@@ -1,18 +1,20 @@
-// The selection card, core section (DESIGN.md §4.1–4.3, PLAN §7.10): a
-// fixed rectangle, top right on desktop and across the top on a phone, its
-// place set by the layout (layout.ts, `place`). There is always a selection,
-// so the card never closes; long content scrolls inside it. A leader joins it
-// to the selected node (callout.ts).
+// The selection card (DESIGN.md §4.1–4.3, PLAN §7.10): a fixed rectangle,
+// top right on desktop and across the top on a phone, its place set by the
+// layout (layout.ts, `place`). There is always a selection, so the card
+// never closes. Nothing in it scrolls: under its head it has tabs
+// (ui/tabs.ts), and each tab's content is fitted to the tab area (ui/fit.ts).
+// A leader joins the card to the selected node (callout.ts).
 //
-// Core content comes straight from /api/nodes: the name (names.ts runs),
-// rank and the clade it sits in, for an unnamed node "Unnamed clade, within
-// X" and the two taxa it is the common ancestor of; lineage (clickable),
-// counts with "relationships unresolved" for polytomies, the largest
-// children (clickable), and the OTT / GBIF / NCBI ids as links. The about
-// section (image, text, status, map; ui/about.ts) loads after the core from
-// /api/nodes/{ref}/about into `.panel-about`, and adds the authority and
-// common names to the head, a "Links" row to the facts and the per-source
-// credits to the footer. Unnamed (mrca) nodes have no about section.
+// The head is always there: the name (names.ts runs) with a copy button,
+// the common name, rank and the clade it sits in (and the authority once
+// /about is in), "You are here" for Homo sapiens; for an unnamed node
+// "Unnamed clade, within X" and the two taxa it is the common ancestor of.
+//
+// Tabs: Overview (image, extract, status; ui/about.ts), Range (GBIF map,
+// records, top countries) and Tree (lineage, counts, children, ids, links,
+// credits), the first two from /api/nodes/{ref}/about. A tab with nothing to
+// show is left out: an unnamed node has Tree only, most clades no Range.
+// The tab the visitor picks is kept for the next selection that has it.
 //
 // The card is an obstacle (ui/obstacles.ts): labels keep clear of it. It
 // is opaque, so the tree is not darkened behind it.
@@ -20,14 +22,17 @@
 import type { Box } from '../labelLayout';
 import { type NameRun, isPlaceholderName, nameRuns, nameSpans } from '../names';
 import type { About, ChildEntry, LineageEntry, NodeInfo } from '../types';
-import { aboutError, aboutLoading, aboutView } from './about';
+import { wait } from '../wait';
+import { aboutError, aboutLoading, aboutView, sentenceCase } from './about';
+import { clipBlocks, dropUntilFits, fitExtracts, overflows, unfit } from './fit';
 import { segments } from './hud';
 import type { Obstacles } from './obstacles';
 import { elementBox } from './obstacles';
+import { type TabId, Tabs, tabToShow } from './tabs';
 
 const nf = new Intl.NumberFormat('en');
-/** Children listed before "Show all". */
-const CHILDREN_SHOWN = 8;
+/** The Tree tab's lineage takes at most this many lines (the nearest ancestors). */
+const LINEAGE_LINES = 2;
 
 /**
  * Ranks at or below genus: never "the clade it is in" (the genus is part of
@@ -70,9 +75,13 @@ export function contextAncestor(node: NodeInfo): LineageEntry | null {
   return null;
 }
 
-/** "1 species · 0 direct descendants", "412 direct descendants · relationships unresolved". */
+/**
+ * "1 species · 0 direct descendants", "412 species · 412 direct descendants ·
+ * relationships unresolved"; a species with subspecies: "7 subspecies".
+ */
 export function countsLine(node: NodeInfo): string {
   const kids = node.children.total;
+  if (node.rank === 'species' && kids > 0) return `${nf.format(node.leafCount)} subspecies`;
   const parts = [
     `${nf.format(node.leafCount)} species`,
     `${nf.format(kids)} direct ${kids === 1 ? 'descendant' : 'descendants'}`,
@@ -133,11 +142,21 @@ export interface PanelHooks {
 
 /** If an image or map tile never answers, the panel stops counting as busy after this. */
 const SETTLE_TIMEOUT_MS = 20_000;
+/** A selection must stay this long before the card asks for its /about (wait.ts), ms. */
+export const ABOUT_SETTLE_MS = 500;
+/** After a Retry click, Retry buttons stay disabled this long, ms. */
+export const RETRY_HOLD_MS = 5000;
+/** Children listed at most at once in the Tree tab (fewer when they do not fit). */
+const CHILDREN_MAX = 8;
 
-/** The parts of the rendered panel the about section adds to. */
+/** Ranks with a range map worth a tab while /about loads (species and below; tips too). */
+function rangeLikely(n: NodeInfo): boolean {
+  return n.childCount === 0 || AT_OR_BELOW_GENUS.has(n.rank ?? '') && n.rank !== 'genus';
+}
+
+/** The parts of the rendered card the about section adds to. */
 interface Slots {
   head: HTMLElement;
-  about: HTMLElement;
   facts: HTMLElement;
   credit: HTMLElement;
 }
@@ -149,13 +168,21 @@ export class Panel {
   private readonly dataVersion: string;
   private readonly progress: HTMLElement;
   private readonly body: HTMLElement;
+  private readonly tabs = new Tabs();
+  /** The tab the visitor last picked: kept across selections when the next node has it. */
+  private preferred: TabId = 'overview';
+  /** Fits each tab's content to the tab area (ui/fit.ts), set as the tab is filled. */
+  private readonly fitters = new Map<TabId, () => void>();
   private shown: NodeInfo | null = null;
   private open = false;
   private pendingMrca = 0;
   /** About requests, images and map tiles still loading (screenshots wait for them). */
   private pendingAbout = 0;
   private aboutCtl: AbortController | null = null;
+  /** performance.now() of the last Retry click. */
+  private retryAt = -Infinity;
   private slots: Slots | null = null;
+  private compact = false;
 
   constructor(root: HTMLElement, obstacles: Obstacles, dataVersion: string, hooks: PanelHooks) {
     this.root = root;
@@ -167,22 +194,48 @@ export class Panel {
     this.progress.setAttribute('aria-hidden', 'true');
     this.body = el('div', { className: 'panel-body' });
     root.replaceChildren(this.progress, this.body);
+    this.tabs.onPick = (id) => (this.preferred = id);
+    this.tabs.onShow = (id) => this.fit(id);
     obstacles.set('panel', () => {
-      const box = this.open ? elementBox(this.root) : null;
+      const box = this.box();
       // Out to the top edge: no label squeezes into the header strip above the card.
       return box ? [{ box, keepClear: true, toEdge: true, dim: 0 }] : [];
     });
+    new ResizeObserver(() => {
+      this.obstacles.changed();
+      this.hooks.moved();
+    }).observe(this.root);
+    // A new tab area (another window size, a longer head): fit the shown tab again.
+    new ResizeObserver(() => {
+      const id = this.tabs.active();
+      if (id) this.fit(id);
+    }).observe(this.tabs.body);
   }
 
-  /** Puts the card at `box` (CSS px, from layout.ts); `compact` on a phone or portrait window. */
-  place(box: Box, compact: boolean): void {
+  /**
+   * Puts the card at `box`'s left, top and width (CSS px, from layout.ts),
+   * `height` tall: a fixed box, whose tabs fit their content to it.
+   * `compact` on a phone or portrait window.
+   */
+  place(box: Box, height: number, compact: boolean): void {
     const st = this.root.style;
     st.left = `${box.x0}px`;
     st.top = `${box.y0}px`;
     st.width = `${box.x1 - box.x0}px`;
-    st.height = `${box.y1 - box.y0}px`;
+    st.height = `${height}px`;
+    this.compact = compact;
     this.root.classList.toggle('compact', compact);
     this.obstacles.changed();
+  }
+
+  /** The card's box on screen, CSS px, or null before it first shows. */
+  box(): Box | null {
+    return this.open ? elementBox(this.root) : null;
+  }
+
+  /** The tab on show (tests, screenshots). */
+  activeTab(): TabId | null {
+    return this.tabs.active();
   }
 
   /** True while the card waits for data (the scene is not idle for screenshots). */
@@ -200,16 +253,21 @@ export class Panel {
    * keyboard focus to the title when focus was already in the card (a
    * keyboard user walking the lineage or children stays in the card).
    */
-  show(node: NodeInfo, focus: boolean): void {
+  show(node: NodeInfo, focus: boolean, fade = false): void {
     const hadFocus = this.root.contains(document.activeElement);
     this.shown = node;
-    this.render(node);
     this.reveal();
+    this.render(node);
+    if (fade && this.open) {
+      // Restart the 200 ms fade-in (styles.css .swap): a new node's content.
+      this.body.classList.remove('swap');
+      void this.body.offsetWidth;
+      this.body.classList.add('swap');
+    }
     if (focus && hadFocus) {
       // Keyboard and screen-reader users land on the title (DESIGN.md §8).
       this.root.querySelector<HTMLElement>('#panel-title')?.focus({ preventScroll: true });
     }
-    this.body.scrollTop = 0;
     this.obstacles.changed();
   }
 
@@ -238,7 +296,20 @@ export class Panel {
   private header(title: HTMLElement): HTMLElement {
     title.id = 'panel-title';
     title.tabIndex = -1;
-    return el('header', { className: 'panel-head' }, [title]);
+    return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title])]);
+  }
+
+  /** Fits tab `id`'s content to the tab area, if it is the one on show. */
+  private fit(id: TabId): void {
+    if (this.tabs.active() !== id) return;
+    this.fitters.get(id)?.();
+  }
+
+  /** Shows the tabs in `ids`: the visitor's tab if there, else the one on show if still there, else Overview. */
+  private setTabs(ids: TabId[]): void {
+    const current = this.tabs.active();
+    const keep = ids.includes(this.preferred) ? this.preferred : current && ids.includes(current) ? current : null;
+    this.tabs.set(ids, keep ?? tabToShow(ids, this.preferred));
   }
 
   private render(n: NodeInfo): void {
@@ -248,19 +319,28 @@ export class Panel {
     const title = el('h2', { className: 'panel-title' });
     if (named) title.append(...nameNodes(nameRuns(n.name ?? '', n.rank)));
     else title.textContent = 'Unnamed clade';
-    const copy = el('button', { className: 'text-button copy', title: 'Copy the name', label: 'Copy the name' }, ['⧉']);
-    copy.type = 'button';
-    copy.addEventListener('click', () => {
-      void navigator.clipboard?.writeText(n.name ?? n.nodeId).then(
-        () => (copy.title = 'Copied'),
-        () => (copy.title = 'Copy failed'),
-      );
-    });
-    if (named) title.append(' ', copy);
     const head = this.header(title);
+    if (named) {
+      // Beside the title, not inside it: the heading reads as the name alone.
+      const copy = el('button', { className: 'copy', title: 'Copy the name', label: 'Copy the name' }, ['⧉']);
+      copy.type = 'button';
+      copy.addEventListener('click', () => {
+        void navigator.clipboard?.writeText(n.name ?? n.nodeId).then(
+          () => (copy.title = 'Copied'),
+          () => (copy.title = 'Copy failed'),
+        );
+      });
+      head.querySelector('.panel-title-row')?.append(copy);
+    }
 
-    // "species · in Felidae", or for an unnamed node "within Felidae".
-    const ctx = el('p', { className: 'panel-context' });
+    // The lead: the common name, what most visitors know it by (GBIF's from
+    // tree.db at once; the about section's own replaces it once it loads).
+    const lead = el('p', { className: 'panel-lead' });
+    if (named && n.commonName) lead.textContent = sentenceCase(n.commonName);
+    head.append(lead);
+
+    // "species · in Felidae · Linnaeus, 1758", or for an unnamed node "within Felidae".
+    const ctx = el('p', { className: 'panel-context panel-meta' });
     const anc = named ? contextAncestor(n) : n.namedAncestor;
     const ancName = anc ? displayName(anc) : null;
     const parts: (Node | string)[] = [];
@@ -270,14 +350,8 @@ export class Panel {
       parts.push(named ? 'in ' : 'within ', ...nameNodes(nameRuns(ancName, anc.rank)));
     }
     ctx.append(...parts);
-    if (parts.length > 0) head.append(ctx);
+    head.append(ctx);
     if (this.hooks.home(n)) head.append(el('p', { className: 'panel-context panel-here', text: 'You are here' }));
-
-    // The GBIF common name from tree.db (P11) shows at once; the about
-    // section's own list replaces it once it loads, if it has one.
-    if (named && n.commonName) {
-      head.append(el('p', { className: 'panel-context common-fallback', text: `Common name: ${n.commonName}` }));
-    }
 
     // An mrca node is the common ancestor of the two taxa in its id.
     if (!named) {
@@ -286,27 +360,59 @@ export class Panel {
       void this.fillMrca(n, mrca);
     }
 
-    // Filled by loadAbout (image, text, status, map); hidden for unnamed nodes.
-    const about = el('section', { className: 'panel-about', label: 'About' });
-    about.dataset.slot = 'about';
-    about.hidden = true;
-
+    // Tree: lineage, counts, children, ids (and links, once /about is in), credits.
+    const tree = this.tabs.panel('tree');
     const facts = el('dl', { className: 'panel-facts' });
-    const row = (label: string, value: Node | null): void => {
-      if (!value) return;
-      facts.append(el('dt', { text: label }), el('dd', {}, [value]));
+    const row = (label: string, value: Node | null, className = ''): HTMLElement | null => {
+      if (!value) return null;
+      const r = el('div', { className: `fact ${className}`.trim() }, [el('dt', { text: label }), el('dd', {}, [value])]);
+      facts.append(r);
+      return r;
     };
-    row('Lineage', this.lineage(n));
-    row('Counts', el('span', { className: 'tabular', text: countsLine(n) }));
-    row(n.children.total === 1 ? 'Child' : 'Children', this.children(n));
-    row('IDs', this.ids(n));
-
+    const lineage = this.lineage(n);
+    row('Lineage', lineage?.node ?? null, 'fact-lineage');
+    row('Counts', el('span', { className: 'tabular', text: countsLine(n) }), 'fact-counts');
+    const kids = this.children(n);
+    row(n.children.total === 1 ? 'Child' : 'Children', kids?.node ?? null, 'fact-children');
+    row('IDs', this.ids(n), 'fact-ids');
     const credit = el('p', { className: 'panel-credit' });
-    this.slots = { head, about, facts, credit };
+    tree.replaceChildren(facts, credit);
+    this.slots = { head, facts, credit };
     this.fillCredit([]);
+    this.fitters.set('tree', () => {
+      unfit(tree);
+      lineage?.fit();
+      const over = (): boolean => overflows(tree);
+      // Children first (down to a few), then the credit line (the tabs
+      // credit their own sources), then children down to one, links, ids.
+      kids?.fit(over, 4);
+      dropUntilFits(tree, [credit]);
+      if (credit.hidden) kids?.fit(over, 1);
+      dropUntilFits(tree, [facts.querySelector('.fact-links'), facts.querySelector('.fact-ids')]);
+      clipBlocks(facts, tree);
+    });
 
-    this.body.replaceChildren(head, about, facts, credit);
-    if (named) void this.loadAbout(n, false);
+    // Overview and Range wait for /about; unnamed (mrca) nodes have neither.
+    const overview = this.tabs.panel('overview');
+    const range = this.tabs.panel('range');
+    overview.replaceChildren();
+    range.replaceChildren();
+    this.fitters.delete('overview');
+    this.fitters.delete('range');
+    this.body.replaceChildren(head, this.tabs.list, this.tabs.body);
+    if (!named) {
+      this.aboutCtl?.abort();
+      this.setTabs(['tree']);
+      return;
+    }
+    overview.append(aboutLoading());
+    const ids: TabId[] = ['overview', 'tree'];
+    if (rangeLikely(n)) {
+      range.append(aboutLoading('Fetching from GBIF…'));
+      ids.splice(1, 0, 'range');
+    }
+    this.setTabs(ids);
+    void this.loadAbout(n, false);
   }
 
   /** The footer: per-source credits, the tree, and the Data & credits dialog. */
@@ -325,16 +431,19 @@ export class Panel {
     credit.append(dialog);
   }
 
-  /** Fetches and shows the about section for `n` (DESIGN.md §7 loading, missing and error copy). */
+  /** Fetches and shows the about tabs for `n` (DESIGN.md §7 loading, missing and error copy, inside each tab). */
   private async loadAbout(n: NodeInfo, retry: boolean): Promise<void> {
     const slots = this.slots;
     if (!slots) return;
     this.aboutCtl?.abort();
     const ctl = new AbortController();
     this.aboutCtl = ctl;
-    slots.about.hidden = false;
-    slots.about.classList.add('loading');
-    slots.about.replaceChildren(aboutLoading());
+    const overview = this.tabs.panel('overview');
+    const range = this.tabs.panel('range');
+    if (retry) {
+      overview.replaceChildren(aboutLoading());
+      if (this.tabs.shown().includes('range')) range.replaceChildren(aboutLoading('Fetching from GBIF…'));
+    }
     // Busy until the request, the image and the map tiles have all
     // answered (or SETTLE_TIMEOUT_MS passed): screenshots wait for this.
     this.pendingAbout++;
@@ -353,42 +462,74 @@ export class Panel {
     };
     const timer = window.setTimeout(finish, SETTLE_TIMEOUT_MS);
     try {
+      // The loading line shows meanwhile; a newer selection aborts ctl and
+      // this one never asks. A Retry click asks at once.
+      if (!retry && !(await wait(ABOUT_SETTLE_MS, ctl.signal))) return;
       const doc = await this.hooks.about(n.nodeId, retry, ctl.signal);
       if (ctl.signal.aborted || this.shown !== n) return;
-      const width = slots.about.clientWidth || 346;
-      const view = aboutView(doc, n, width, {
-        retry: () => void this.loadAbout(n, true),
-        credits: () => this.hooks.credits(),
-        settled: settle,
-      });
+      const area = { width: this.tabs.body.clientWidth || 346, height: this.tabs.body.clientHeight || 180 };
+      const view = aboutView(
+        doc,
+        n,
+        area,
+        {
+          retry: () => this.retryAbout(n),
+          credits: () => this.hooks.credits(),
+          settled: settle,
+        },
+        6,
+        this.compact,
+      );
       if (view.map) open++;
-      slots.about.classList.remove('loading');
-      slots.about.replaceChildren(...view.section);
-      for (const old of slots.head.querySelectorAll('.about-head')) old.remove();
-      if (doc.commonNames.length > 0) for (const old of slots.head.querySelectorAll('.common-fallback')) old.remove();
-      for (const line of view.head) {
-        line.classList.add('about-head');
-        slots.head.append(line);
+      overview.replaceChildren(...view.overview);
+      range.replaceChildren(...(view.range ?? []));
+      this.holdRetry(this.tabs.body);
+      const lead = slots.head.querySelector('.panel-lead');
+      if (lead && view.common) lead.textContent = view.common;
+      const meta = slots.head.querySelector('.panel-meta');
+      for (const old of slots.head.querySelectorAll('.about-authority, .authority-sep')) old.remove();
+      if (meta && view.authority) {
+        if (meta.childNodes.length > 0) meta.append(el('span', { className: 'authority-sep', text: ' · ' }));
+        meta.append(view.authority);
       }
-      for (const old of slots.facts.querySelectorAll('.about-links-row')) old.remove();
+      for (const old of slots.facts.querySelectorAll('.fact-links')) old.remove();
       if (view.links) {
-        const dt = el('dt', { className: 'about-links-row', text: 'Links' });
-        const dd = el('dd', { className: 'about-links-row' }, [view.links]);
-        slots.facts.append(dt, dd);
+        const ids = slots.facts.querySelector('.fact-ids');
+        const r = el('div', { className: 'fact fact-links' }, [el('dt', { text: 'Links' }), el('dd', {}, [view.links])]);
+        if (ids) ids.before(r);
+        else slots.facts.append(r);
       }
       this.fillCredit(view.credits);
-      const img = slots.about.querySelector<HTMLImageElement>('.about-image');
+      this.fitters.set('overview', () => {
+        const col = overview.querySelector<HTMLElement>('.ov-text');
+        if (!col) return;
+        unfit(col);
+        fitExtracts(col, col, this.compact ? 4 : 6, 2);
+        dropUntilFits(col, [col.querySelector('.about-note')]);
+        if (overflows(col)) fitExtracts(col, col, 1, 1);
+        clipBlocks(col);
+      });
+      this.fitters.set('range', () => {
+        unfit(range);
+        const lines = range.querySelector<HTMLElement>('.about-where-text');
+        if (lines) clipBlocks(lines, range);
+        clipBlocks(range);
+      });
+      const img = overview.querySelector<HTMLImageElement>('.about-image');
       if (img && !img.complete) {
         open++;
         img.addEventListener('load', settle, { once: true });
         img.addEventListener('error', settle, { once: true });
+        img.addEventListener('load', () => this.fit('overview'), { once: true });
       }
+      this.setTabs(view.range ? ['overview', 'range', 'tree'] : ['overview', 'tree']);
       this.obstacles.changed();
     } catch (err) {
       if (ctl.signal.aborted || this.shown !== n) return;
       console.warn('about', err);
-      slots.about.classList.remove('loading');
-      slots.about.replaceChildren(aboutError(() => void this.loadAbout(n, true)));
+      overview.replaceChildren(aboutError(() => this.retryAbout(n)));
+      if (this.tabs.shown().includes('range')) range.replaceChildren(aboutError(() => this.retryAbout(n)));
+      this.holdRetry(this.tabs.body);
     } finally {
       // Replaced or closed: stop counting this one at once.
       if (ctl.signal.aborted) finish();
@@ -397,32 +538,74 @@ export class Panel {
     }
   }
 
+  /** A Retry click: refetch now, and hold every Retry button for RETRY_HOLD_MS. */
+  private retryAbout(n: NodeInfo): void {
+    this.retryAt = performance.now();
+    void this.loadAbout(n, true);
+  }
+
+  /** Disables the Retry buttons in `section` until RETRY_HOLD_MS after the last click, so they cannot hammer the server. */
+  private holdRetry(section: HTMLElement): void {
+    const left = this.retryAt + RETRY_HOLD_MS - performance.now();
+    if (left <= 0) return;
+    const buttons = [...section.querySelectorAll<HTMLButtonElement>('.about-notice button, .about-failed button')];
+    for (const b of buttons) b.disabled = true;
+    window.setTimeout(() => {
+      for (const b of buttons) b.disabled = false;
+    }, left);
+  }
+
   /** "16.1" from the data version, for the credit line and Open Tree links. */
   private synthVersion(): string {
     return /^otl([\d.]+)/.exec(this.dataVersion)?.[1] ?? '';
   }
 
-  /** Lineage, root first, as clickable names (placeholders and unnamed nodes skipped). */
-  private lineage(n: NodeInfo): HTMLElement | null {
+  /**
+   * Lineage, root first, as clickable names (placeholders and unnamed nodes
+   * skipped). `fit` keeps the nearest ones that fit LINEAGE_LINES lines,
+   * after a "…" whose title is the whole trail (the breadcrumb has it too).
+   */
+  private lineage(n: NodeInfo): { node: HTMLElement; fit: () => void } | null {
     const segs = segments(n).filter((s) => s.id !== n.id);
     if (segs.length === 0) return null;
     const ol = el('ol', { className: 'panel-lineage', label: 'Lineage' });
-    for (const s of segs) {
-      const b = el('button', { className: 'text-button', title: `Select ${s.name}` }, nameNodes(s.runs));
-      b.type = 'button';
-      b.addEventListener('click', () => this.hooks.select(s.id));
-      // A real space between items is where lines may break.
-      ol.append(el('li', {}, [b]), ' ');
-    }
-    return ol;
+    const fill = (keep: number): void => {
+      const shown = segs.slice(-keep);
+      ol.replaceChildren();
+      if (shown.length < segs.length) {
+        const more = el('li', { className: 'lineage-more', text: '…', title: segs.map((s) => s.name).join(' › ') });
+        ol.append(more, ' ');
+      }
+      for (const s of shown) {
+        const b = el('button', { className: 'text-button', title: `Select ${s.name}` }, nameNodes(s.runs));
+        b.type = 'button';
+        b.addEventListener('click', () => this.hooks.select(s.id));
+        // A real space between items is where lines may break.
+        ol.append(el('li', {}, [b]), ' ');
+      }
+    };
+    fill(segs.length);
+    const fit = (): void => {
+      fill(segs.length);
+      const line = parseFloat(getComputedStyle(ol).lineHeight) || 19;
+      for (let keep = segs.length; keep > 1 && ol.offsetHeight > line * LINEAGE_LINES + 2; keep--) fill(keep - 1);
+    };
+    return { node: ol, fit };
   }
 
-  /** The largest children, by species count, clickable. */
-  private children(n: NodeInfo): HTMLElement | null {
+  /**
+   * The largest children, by species count, clickable. `fit` shows as many
+   * as fit (at most CHILDREN_MAX), then "+N more" pages on through the rest.
+   */
+  private children(n: NodeInfo): { node: HTMLElement; fit: (over: () => boolean, least: number) => void } | null {
     const top = n.children.top;
     if (top.length === 0) return null;
     const wrap = el('div');
     const ul = el('ul', { className: 'panel-children' });
+    const more = el('button', { className: 'text-button more' });
+    more.type = 'button';
+    let per = Math.min(CHILDREN_MAX, top.length);
+    let from = 0;
     const item = (c: ChildEntry): HTMLLIElement => {
       const name = c.name && c.name !== '' ? nameNodes(nameRuns(c.name, c.rank)) : [el('span', { className: 'unnamed', text: 'Unnamed clade' })];
       const b = el('button', { className: 'child-row' }, [
@@ -434,31 +617,28 @@ export class Panel {
       b.addEventListener('click', () => this.hooks.select(c.id));
       return el('li', {}, [b]);
     };
-    for (const c of top.slice(0, CHILDREN_SHOWN)) ul.append(item(c));
-    wrap.append(ul);
-    const rest = top.slice(CHILDREN_SHOWN);
-    if (rest.length > 0) {
-      const more = el('button', {
-        className: 'text-button more',
-        text: `Show ${nf.format(rest.length)} more`,
-      });
-      more.type = 'button';
-      more.addEventListener('click', () => {
-        for (const c of rest) ul.append(item(c));
-        more.remove();
-        this.obstacles.changed();
-      });
-      wrap.append(more);
-    }
-    if (n.children.total > top.length) {
-      wrap.append(
-        el('p', {
-          className: 'panel-note',
-          text: `The ${nf.format(top.length)} largest of ${nf.format(n.children.total)}.`,
-        }),
-      );
-    }
-    return wrap;
+    const fill = (): void => {
+      ul.replaceChildren(...top.slice(from, from + per).map(item));
+      const left = n.children.total - (from + per);
+      more.hidden = top.length <= per;
+      more.textContent = from + per >= top.length ? 'Back to the largest' : `+${nf.format(left)} more`;
+    };
+    more.addEventListener('click', () => {
+      from = from + per >= top.length ? 0 : from + per;
+      fill();
+    });
+    wrap.append(ul, more);
+    fill();
+    const fit = (over: () => boolean, least: number): void => {
+      per = Math.min(CHILDREN_MAX, top.length);
+      from = 0;
+      fill();
+      while (over() && per > least) {
+        per--;
+        fill();
+      }
+    };
+    return { node: wrap, fit };
   }
 
   /** OTT, GBIF and NCBI ids in mono, each a link to its source (an mrca node links to Open Tree). */

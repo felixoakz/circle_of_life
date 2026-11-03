@@ -1,16 +1,21 @@
-// The panel's about section (DESIGN.md §4.2, §7; PLAN §6.3, §7.10): what
-// /api/nodes/{ref}/about found, laid out under the core facts.
+// The card's about tabs (DESIGN.md §4.2, §7; PLAN §6.3, §7.10): what
+// /api/nodes/{ref}/about found, as the Overview tab (image beside the
+// extract, status) and the Range tab (map sized to the tab, records,
+// countries), for ui/panel.ts to place.
 //
 // Order: image with its credit line; the Wikipedia extract (or the
-// generated sentence, then a labelled ancestor article); the IUCN status as
-// plain text; "Where it lives" (GBIF density map and top countries). The
-// authority and common names go into the panel head, the links into the
+// generated sentence, then a labelled ancestor article), cut to whole
+// sentences that fit the card's first screen; the IUCN status as plain
+// text; "Where it lives" (GBIF density map and top countries). The
+// authority and the common name go into the panel head, the links into the
 // facts list, and the per-source credits into the footer; the panel places
 // those parts (ui/panel.ts).
 //
-// Every missing part says so in DESIGN.md §7's words, and a source that
-// failed gets "Couldn't reach X. Retry" instead of pretending there is
-// nothing.
+// Every missing part says so in DESIGN.md §7's words, quietly at the end
+// ("No photo on Wikimedia Commons or iNaturalist."). A source that failed
+// gets "Couldn't reach X. Retry" in text-3 where its part would be (the
+// image, the text, the map) rather than pretending there is nothing; only
+// a whole failure (aboutError) is in --danger.
 
 import { nameRuns, nameSpans } from '../names';
 import type { About, NodeInfo } from '../types';
@@ -67,6 +72,40 @@ export function sourceList(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
+/** Characters per line of 15 px body text, roughly, per px of width. */
+const CHARS_PER_PX = 1 / 7.6;
+
+/** A first sentence up to this many times `maxChars` is kept whole (the CSS clamp is 6 lines for 4). */
+const LONG_FIRST = 1.5;
+
+/**
+ * The extract cut to whole sentences within `maxChars`, so the card's first
+ * screen ends on a full stop rather than an ellipsis mid-line. A first
+ * sentence longer than that is cut at a word and gets "…".
+ */
+export function leadText(text: string, maxChars: number): string {
+  const t = text.trim();
+  if (t.length <= maxChars) return t;
+  // Sentence ends: ". " followed by a capital (not "e.g. a" or "sp. nov").
+  const ends = [...t.matchAll(/[.!?](?=\s+[A-Z“"(])/g)].map((m) => (m.index ?? 0) + 1);
+  let cut = 0;
+  for (const e of ends) {
+    if (e > maxChars) break;
+    cut = e;
+  }
+  if (cut > 0) return t.slice(0, cut);
+  // A long first sentence still reads better whole, up to the clamp's room.
+  const first = ends[0];
+  if (first !== undefined && first <= maxChars * LONG_FIRST) return t.slice(0, first);
+  const words = t.slice(0, maxChars).replace(/\s+\S*$/, '');
+  return `${words.replace(/[.,;:]$/, '')}…`;
+}
+
+/** A common name in sentence case: "human" → "Human", "giant panda" → "Giant panda". */
+export function sentenceCase(name: string): string {
+  return name ? name.charAt(0).toLocaleUpperCase('en') + name.slice(1) : name;
+}
+
 /** The text of the generated sentence, its leading taxon name styled. */
 export function generatedNodes(text: string, name: string | null, rank: string | null): (Node | string)[] {
   if (!name || !text.startsWith(name)) return [text];
@@ -96,6 +135,17 @@ function aboutName(about: { name: string; rank: string | null }): Child[] {
   return [rank, ...nameSpans(nameRuns(about.name, about.rank))];
 }
 
+/** Sources whose failure leaves the image missing (Wikidata names the Commons file). */
+const IMAGE_SOURCES = new Set(['Wikidata', 'Wikimedia Commons', 'iNaturalist']);
+
+/** "Couldn't reach GBIF. Retry" in text-3, where the missing part would be. */
+function notice(sources: readonly string[], retry: () => void): HTMLElement {
+  const again = el('button', 'text-button', ['Retry']);
+  again.type = 'button';
+  again.addEventListener('click', retry);
+  return el('p', 'about-notice', [`Couldn’t reach ${sourceList(sources)}. `, again]);
+}
+
 export interface AboutHooks {
   /** Ask again, refetching a partial document. */
   retry: () => void;
@@ -105,12 +155,16 @@ export interface AboutHooks {
   settled: () => void;
 }
 
-/** The pieces of the about view, placed by the panel. */
+/** The pieces of the about view, placed by the panel's tabs (ui/panel.ts). */
 export interface AboutView {
-  /** Fills `.panel-about`. */
-  section: HTMLElement[];
-  /** Head lines under the context line: authority, common names. */
-  head: HTMLElement[];
+  /** The Overview tab: the image beside the text column (extract, source, status, notices). */
+  overview: HTMLElement[];
+  /** The Range tab (map, records, countries), or null when there is nothing to show. */
+  range: HTMLElement[] | null;
+  /** The authority for the head's meta line ("Linnaeus, 1758"), or null. */
+  authority: HTMLElement | null;
+  /** The best English common name, sentence case, for the head's lead line, or null. */
+  common: string | null;
   /** The "Links" facts row, or null. */
   links: HTMLElement | null;
   /** Footer credit parts, joined with " · ". */
@@ -119,37 +173,59 @@ export interface AboutView {
   map: boolean;
 }
 
-/** Builds the about view for `node` from its document. `mapWidth` is the content width, CSS px. */
-export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: AboutHooks): AboutView {
+/** Room under the map for the records, countries and credit lines, CSS px. */
+export const RANGE_TEXT_PX = 76;
+/** On a phone the lines go beside the map instead, which takes at most this share of the width. */
+export const RANGE_SIDE_SHARE = 0.56;
+
+/**
+ * The map's size for a tab area of `w` × `h` CSS px: as large as fits, 2:1
+ * (GBIF's map is equirectangular), leaving RANGE_TEXT_PX for the lines under
+ * it, or (`side`, a phone's short tab) RANGE_SIDE_SHARE of the width beside them.
+ */
+export function mapSize(w: number, h: number, side = false): { width: number; height: number } {
+  const height = side
+    ? Math.max(40, Math.floor(Math.min(h, (w * RANGE_SIDE_SHARE) / 2)))
+    : Math.max(60, Math.floor(Math.min(h - RANGE_TEXT_PX, w / 2)));
+  return { width: height * 2, height };
+}
+
+/**
+ * Builds the about view for `node` from its document. `area` is the tab
+ * area, CSS px (the map is sized to fit it); `lines` how many lines of
+ * extract to start from (the panel's fitter takes sentences off until the
+ * Overview tab fits).
+ */
+export function aboutView(
+  doc: About,
+  node: NodeInfo,
+  area: { width: number; height: number },
+  hooks: AboutHooks,
+  lines = 6,
+  compact = false,
+): AboutView {
   const section: HTMLElement[] = [];
-  const head: HTMLElement[] = [];
+  const text: HTMLElement[] = [];
+  let figure: HTMLElement | null = null;
   const credits: Child[][] = [];
   const failed = new Set(doc.failed);
+  const notes: HTMLElement[] = [];
 
-  // Head: the authority (roman, DESIGN.md §3) and common names.
-  const authority = doc.taxonomy?.authorship;
-  if (authority) {
-    const p = el('p', 'panel-context about-authority', [authority]);
-    if (doc.taxonomy?.publishedIn) p.title = doc.taxonomy.publishedIn;
-    head.push(p);
+  // Head: the authority (roman, DESIGN.md §3) and the best common name.
+  let authority: HTMLElement | null = null;
+  if (doc.taxonomy?.authorship) {
+    authority = el('span', 'about-authority', [doc.taxonomy.authorship]);
+    if (doc.taxonomy.publishedIn) authority.title = doc.taxonomy.publishedIn;
   }
-  if (doc.commonNames.length > 0) {
-    const label = doc.commonNames.length === 1 ? 'Common name' : 'Common names';
-    head.push(el('p', 'panel-context', [`${label}: ${doc.commonNames.join(', ')}`]));
-  }
-
-  // A source failed: say which, and offer to ask again (DESIGN.md §7).
-  if (doc.failed.length > 0) {
-    const again = el('button', 'text-button', ['Retry']);
-    again.type = 'button';
-    again.addEventListener('click', hooks.retry);
-    section.push(el('p', 'panel-error about-failed', [`Couldn’t reach ${sourceList(doc.failed)}. `, again]));
-  }
+  const first = doc.commonNames[0];
+  const common = first ? sentenceCase(first) : null;
 
   // Image and credit line.
   const img = doc.image;
+  const imageFailed = doc.failed.filter((f) => IMAGE_SOURCES.has(f));
   if (img) {
-    const figure = el('figure', 'about-figure');
+    figure = el('figure', 'about-figure');
+    const fig = figure;
     if (img.about) figure.append(el('p', 'about-label', ['Image of ', ...aboutName(img.about), ':']));
     // Commons renders SVG diagrams (Human.svg) as PNGs with transparent
     // backgrounds: dark line art that would vanish on black. They go on a
@@ -165,40 +241,59 @@ export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: A
       pic.height = img.height;
     }
     // A broken image link leaves only the credit; better nothing at all.
-    pic.addEventListener('error', () => figure.remove(), { once: true });
+    pic.addEventListener('error', () => fig.remove(), { once: true });
     // "Image", not "Photo": Commons files are often drawings or plates.
     const credit = el('figcaption', 'about-credit', ['Image: ']);
     if (img.credit) credit.append(link(img.pageUrl, img.credit), ' · ');
     credit.append(img.licenseUrl ? link(img.licenseUrl, img.license) : img.license, ' · ');
     credit.append(img.credit ? img.source : link(img.pageUrl, img.source));
     figure.append(pic, credit);
-    section.push(figure);
     credits.push([`Image: ${img.credit ? `${img.credit}, ` : ''}${img.license} via ${img.source}`]);
-  } else if (!failed.has('Wikidata') && !failed.has('Wikimedia Commons') && !failed.has('iNaturalist')) {
-    section.push(el('p', 'about-missing', ['No photo on Wikimedia Commons or iNaturalist.']));
+  } else if (imageFailed.length > 0) {
+    text.push(notice(imageFailed, hooks.retry));
+  } else {
+    notes.push(el('p', 'about-note', ['No photo on Wikimedia Commons or iNaturalist.']));
   }
 
   // Text: the article, or the generated sentence plus a borrowed article.
+  // Cut to whole sentences; the panel takes sentences off until it fits
+  // (data-full keeps the whole extract for that).
+  const textWidth = img ? area.width * 0.6 - 16 : area.width;
+  const perLine = textWidth * CHARS_PER_PX;
   const sum = doc.summary;
   if (sum && !sum.about) {
-    section.push(el('p', 'about-lead', [sum.text]));
+    const lead = el('p', 'about-lead', [leadText(sum.text, Math.max(120, Math.round(perLine * lines)))]);
+    lead.dataset.full = sum.text;
+    lead.dataset.perLine = String(perLine);
+    text.push(lead);
   } else {
-    section.push(el('p', 'about-lead', generatedNodes(doc.generated, node.name, node.rank)));
+    text.push(el('p', 'about-lead', generatedNodes(doc.generated, node.name, node.rank)));
   }
+  if (failed.has('Wikipedia')) text.push(notice(['Wikipedia'], hooks.retry));
   if (sum) {
     if (sum.about) {
-      section.push(el('p', 'about-label', ['No Wikipedia article. About ', ...aboutName(sum.about), ':']));
-      section.push(el('p', 'about-borrowed', [sum.text]));
+      text.push(el('p', 'about-label', ['No Wikipedia article. About ', ...aboutName(sum.about), ':']));
+      const borrowed = el('p', 'about-borrowed', [leadText(sum.text, Math.max(120, Math.round(perLine * 3)))]);
+      borrowed.dataset.full = sum.text;
+      borrowed.dataset.perLine = String(perLine * 1.15);
+      text.push(borrowed);
     }
-    section.push(
-      el('p', 'about-source', [
-        'From ',
-        link(sum.url, 'Wikipedia'),
-        ', ',
-        link('https://creativecommons.org/licenses/by-sa/4.0/', sum.license),
-        ' · ',
-        link(sum.url, 'Read on Wikipedia'),
-      ]),
+    // A phone's short tab gets the one-line form: the article and its licence.
+    text.push(
+      el(
+        'p',
+        'about-source',
+        compact
+          ? [link(sum.url, 'Read on Wikipedia'), ' · ', link('https://creativecommons.org/licenses/by-sa/4.0/', sum.license)]
+          : [
+              'From ',
+              link(sum.url, 'Wikipedia'),
+              ', ',
+              link('https://creativecommons.org/licenses/by-sa/4.0/', sum.license),
+              ' · ',
+              link(sum.url, 'Read on Wikipedia'),
+            ],
+      ),
     );
     credits.unshift([`Text: Wikipedia (${sum.license})`]);
   }
@@ -206,7 +301,7 @@ export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: A
   // Conservation status, plain text (no badge).
   if (doc.status) {
     const via = `IUCN via ${doc.status.source}`;
-    section.push(
+    text.push(
       el('p', 'about-status', [
         statusLabel(doc.status.code),
         el('span', 'about-status-source', [' · ', doc.links.iucn ? link(doc.links.iucn, via) : via]),
@@ -214,16 +309,17 @@ export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: A
     );
   }
 
-  // Where it lives: GBIF density map and the top countries.
+  // Where it lives (the Range tab): GBIF density map and the top countries.
   let map = false;
   const dist = doc.distribution;
+  if (!dist && failed.has('GBIF')) section.push(notice(['GBIF'], hooks.retry));
   if (dist) {
-    const where = el('div', 'about-where', [el('h3', 'about-heading', ['Where it lives'])]);
+    const where = el('div', compact ? 'about-where about-where-side' : 'about-where');
     if (dist.occurrences === 0) {
       where.append(el('p', 'about-missing', ['No occurrence records on GBIF.']));
     } else {
-      const w = Math.max(200, Math.round(mapWidth));
-      const box = occurrenceMap(dist.gbifKey, dist.bbox, w, Math.round(w / 2), hooks.settled);
+      const size = mapSize(area.width, area.height, compact);
+      const box = occurrenceMap(dist.gbifKey, dist.bbox, size.width, size.height, hooks.settled);
       box.setAttribute('role', 'img');
       box.setAttribute('aria-label', `Map of GBIF occurrence records of ${node.name ?? 'this taxon'}`);
       where.append(box);
@@ -231,9 +327,14 @@ export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: A
       const records = `${nf.format(dist.occurrences)} ${dist.occurrences === 1 ? 'record' : 'records'}`;
       const countries =
         dist.countryTotal > 0 ? ` from ${nf.format(dist.countryTotal)} ${dist.countryTotal === 1 ? 'country' : 'countries'}` : '';
-      where.append(el('p', 'about-records tabular', [`${records}${countries}`]));
-      where.append(el('p', 'about-countries tabular', [countriesLine(dist.countries)]));
-      where.append(
+      const lines = el('div', 'about-where-text');
+      lines.append(el('p', 'about-records tabular', [`${records}${countries}`]));
+      const line = countriesLine(dist.countries);
+      const top = el('p', 'about-countries tabular', [line]);
+      top.title = line;
+      lines.append(top);
+      where.append(lines);
+      lines.append(
         el('p', 'about-map-credit', [
           'Occurrences © ',
           link(`https://www.gbif.org/species/${dist.gbifKey}`, 'GBIF.org'),
@@ -247,6 +348,15 @@ export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: A
     section.push(where);
     credits.push(['Occurrences: GBIF.org']);
   }
+
+  // Any other source that failed, and what is simply missing, at the end.
+  const placed = new Set(['Wikipedia', 'GBIF', ...(img ? [] : imageFailed)]);
+  const rest = doc.failed.filter((f) => !placed.has(f));
+  if (rest.length > 0) text.push(notice(rest, hooks.retry));
+  text.push(...notes);
+  // Overview: the text column, and the image beside it (no image, the text takes the width).
+  const column = el('div', 'ov-text', text);
+  const overview = [el('div', figure ? 'ov' : 'ov ov-solo', figure ? [column, figure] : [column])];
 
   // Links out (the facts list's "Links" row).
   const out: [string, string | null][] = [
@@ -263,12 +373,20 @@ export function aboutView(doc: About, node: NodeInfo, mapWidth: number, hooks: A
     links.append(link(href, label));
   }
 
-  return { section, head, links: links.childNodes.length > 0 ? links : null, credits, map };
+  return {
+    overview,
+    range: section.length > 0 ? section : null,
+    authority,
+    common,
+    links: links.childNodes.length > 0 ? links : null,
+    credits,
+    map,
+  };
 }
 
-/** The loading line (DESIGN.md §7: truthful, no spinner). */
-export function aboutLoading(): HTMLElement {
-  return el('p', 'about-loading', ['Fetching from Wikipedia, GBIF…']);
+/** The loading line (DESIGN.md §7: truthful, no spinner), in the tab that waits. */
+export function aboutLoading(text = 'Fetching from Wikipedia, GBIF…'): HTMLElement {
+  return el('p', 'about-loading', [text]);
 }
 
 /** The whole request failed (server down, network gone). */

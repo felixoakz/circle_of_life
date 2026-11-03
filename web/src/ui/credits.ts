@@ -143,44 +143,82 @@ export class Credits {
   }
 }
 
+/** One row of the wordmark menu: its label (read each time the menu opens) and what it does. */
+export interface MenuItem {
+  label: () => string;
+  run: () => void;
+  /** A swatch colour (a CSS variable) before the label: the kingdom rows. */
+  swatch?: string;
+  /** Shown on narrow screens only (the kingdom key's place on a phone). */
+  compactOnly?: boolean;
+}
+
 /**
- * The wordmark becomes a menu button (DESIGN.md §4.1): a text-row menu,
- * for now with "Data & credits" (keyboard help and the auto-orient toggle
- * join it later).
+ * The wordmark becomes a menu button (DESIGN.md §4.1): a text-row menu.
+ * Data & credits first, then whatever the page adds (Keyboard, Auto-orient,
+ * Tour, and on a phone the kingdoms). ↑ and ↓ move between rows, Esc closes.
  */
-export function mountWordmarkMenu(wordmark: HTMLElement, credits: Credits): void {
+export function mountWordmarkMenu(wordmark: HTMLElement, credits: Credits, extra: readonly MenuItem[] = []): void {
   const label = wordmark.textContent ?? 'Circle of Life';
   const button = el('button', 'wordmark-button', [label]);
   button.type = 'button';
   button.setAttribute('aria-haspopup', 'menu');
   button.setAttribute('aria-expanded', 'false');
-  const item = el('button', 'menu-item', ['Data & credits']);
-  item.type = 'button';
-  item.setAttribute('role', 'menuitem');
-  const menu = el('div', 'wordmark-menu', [item]);
+  const all: MenuItem[] = [{ label: () => 'Data & credits', run: () => credits.open() }, ...extra];
+  const rows = all.map((it) => {
+    const row = el('button', it.compactOnly ? 'menu-item menu-compact' : 'menu-item');
+    row.type = 'button';
+    row.setAttribute('role', 'menuitem');
+    row.addEventListener('click', () => {
+      setOpen(false);
+      it.run();
+    });
+    return { it, row };
+  });
+  const menu = el('div', 'wordmark-menu', rows.map((r) => r.row));
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   wordmark.replaceChildren(button);
   wordmark.after(menu);
 
-  const setOpen = (open: boolean): void => {
+  const fill = (): void => {
+    for (const { it, row } of rows) {
+      const parts: Child[] = [];
+      if (it.swatch) {
+        const sw = el('span', 'swatch');
+        sw.style.background = `var(${it.swatch})`;
+        sw.setAttribute('aria-hidden', 'true');
+        parts.push(sw);
+      }
+      parts.push(it.label());
+      row.replaceChildren(...parts);
+    }
+  };
+  const visible = (): HTMLButtonElement[] => rows.map((r) => r.row).filter((r) => r.offsetParent !== null);
+  function setOpen(open: boolean): void {
+    if (open) fill();
     menu.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
-  };
+  }
   button.addEventListener('click', () => {
     setOpen(menu.hidden !== false);
-    if (!menu.hidden) item.focus();
-  });
-  item.addEventListener('click', () => {
-    setOpen(false);
-    credits.open();
+    if (!menu.hidden) visible()[0]?.focus();
   });
   menu.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.stopPropagation();
       setOpen(false);
       button.focus();
+      return;
     }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    // The menu's own arrows: the tree's (selection.ts) do not see them.
+    e.preventDefault();
+    e.stopPropagation();
+    const list = visible();
+    const i = list.findIndex((r) => r === document.activeElement);
+    const next = list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length];
+    next?.focus();
   });
   document.addEventListener('pointerdown', (e) => {
     if (!menu.hidden && e.target instanceof Node && !menu.contains(e.target) && !button.contains(e.target)) setOpen(false);

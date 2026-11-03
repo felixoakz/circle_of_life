@@ -25,6 +25,8 @@ import { type Obstacle, elementBox, textBox, union } from './obstacles';
 
 /** The progress line shows only for loads longer than this. */
 const PROGRESS_DELAY_MS = 250;
+/** The first view still loading after this long says why it is slow, ms. */
+const SLOW_LOAD_MS = 8000;
 /**
  * Kingdom key: swatch colours (DESIGN.md §2.2), in the order the groups
  * come clockwise round the default view, starting at Animals (upper left).
@@ -102,6 +104,7 @@ export class Hud {
   private readonly readout: HTMLElement;
   private readonly readoutCount: HTMLElement;
   private readonly readoutVersion: HTMLElement;
+  private readonly readoutStop: HTMLElement;
   private readonly progress: HTMLElement;
   private readonly store: NodeStore;
   private readonly version: string;
@@ -110,12 +113,21 @@ export class Hud {
   selected: () => NodeInfo | null = () => null;
   /** Selects a node and flies to it (set by main.ts from selection.ts). */
   select: (ref: number | string) => void = () => {};
+  /** Whether the idle tour is moving the selection (tour.ts), and how to stop it (main.ts). */
+  touring: () => boolean = () => false;
+  stopTour: () => void = () => {};
+  /**
+   * A first visit's one-line hint on how to drive the wheel, shown in the
+   * readout until the first input (main.ts sets it, and clears it).
+   */
+  hint: string | null = null;
 
   /** Node whose lineage is shown. */
   private shownId = -1;
   private readoutText = '';
   private loadStart = -1;
   private settledOnce = false;
+  private firstFrame = -1;
 
   constructor(scene: Scene, meta: Meta, store: NodeStore) {
     this.scene = scene;
@@ -128,7 +140,13 @@ export class Hud {
     // The version is dropped on narrow screens (styles.css), so the count stays on one line.
     this.readoutCount = el('span');
     this.readoutVersion = el('span', { className: 'readout-version', text: ` · ${this.version}` });
-    this.readout.replaceChildren(this.readoutCount, this.readoutVersion);
+    // While the tour runs: "Touring · 864,899 species in view · Stop".
+    const stop = el('button', { className: 'text-button readout-stop', text: 'Stop', title: 'Stop the tour' });
+    stop.type = 'button';
+    stop.addEventListener('click', () => this.stopTour());
+    this.readoutStop = el('span', { className: 'readout-tour' }, [' · ', stop]);
+    this.readoutStop.hidden = true;
+    this.readout.replaceChildren(this.readoutCount, this.readoutVersion, this.readoutStop);
     this.progress = el('div', { className: 'progress' });
     this.progress.setAttribute('aria-hidden', 'true');
     document.body.append(this.progress);
@@ -167,18 +185,32 @@ export class Hud {
     if (!view) return;
     const pending = scene.cache.pending();
     const wanted = view.keys.length;
+    if (this.firstFrame < 0) this.firstFrame = now;
     let text: string;
+    let touring = false;
+    let plain = false;
     if (!this.settledOnce && pending > 0) {
       // Truthful loading line until the first view is complete (DESIGN.md §7).
-      text = `Loading tree · ${nf.format(wanted - pending)} / ${nf.format(wanted)} tiles`;
+      const slow = now - this.firstFrame > SLOW_LOAD_MS ? ' · slow connection' : '';
+      text = `Loading tree · ${nf.format(wanted - pending)} / ${nf.format(wanted)} tiles${slow}`;
     } else {
       this.settledOnce = true;
       const n = tipsInView(scene.camera, this.meta.tipCount);
-      text = `${n === null ? '—' : nf.format(n)} species in view`;
+      const count = `${n === null ? '—' : nf.format(n)} species in view`;
+      touring = this.touring();
+      if (touring) text = `Touring · ${count}`;
+      else if (this.hint) text = this.hint;
+      else {
+        text = count;
+        plain = true;
+      }
     }
-    if (text !== this.readoutText) {
-      this.readoutText = text;
+    const key = `${text}|${touring}|${plain}`;
+    if (key !== this.readoutText) {
+      this.readoutText = key;
       this.readoutCount.textContent = text;
+      this.readoutVersion.hidden = !plain && !touring;
+      this.readoutStop.hidden = !touring;
       this.scene.obstacles.changed();
     }
     // The 1 px progress line, for loads that take a moment.
@@ -256,6 +288,11 @@ export class Hud {
       items.push(el('li', {}, [b]));
     }
     ul.replaceChildren(...items);
+  }
+
+  /** Selects a group's largest root clade and flies there (the key; the wordmark menu's kingdom rows on a phone). */
+  goToGroup(group: number): void {
+    void this.flyToGroup(group);
   }
 
   /** Selects a group's largest root clade (a group may have several, e.g. the protists). */

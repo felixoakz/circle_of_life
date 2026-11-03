@@ -46,7 +46,32 @@
   --space-1: 8px;
   --space-2: 16px;
   --edge: 16px;
-  --radius: 2px;
+
+  /*
+   * Glass (DESIGN.md §2.3): one smoked-glass material for everything that
+   * floats over the wheel. A dark neutral fill over a blurred, darkened and
+   * slightly saturated backdrop, a 1 px white hairline and a 1 px inner top
+   * highlight. The plain fills below are the no-blur fallback (@supports,
+   * prefers-reduced-transparency) at the end of this file.
+   */
+  --glass-fill: oklch(0.18 0 0 / 0.56);
+  --glass-fill-dense: oklch(0.16 0 0 / 0.7);
+  --glass-filter: blur(24px) saturate(1.6) brightness(0.7);
+  --glass-filter-small: blur(12px) saturate(1.6) brightness(0.7);
+  /* --text-3 on glass: a step lighter, so 11 px meta keeps 4.5:1 over blurred glow. */
+  --glass-text-3: oklch(0.65 0 0);
+  --glass-edge: oklch(1 0 0 / 0.11);
+  --glass-edge-strong: oklch(1 0 0 / 0.2);
+  --glass-highlight: inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+  --glass-hover: oklch(1 0 0 / 0.06);
+  --glass-active: oklch(1 0 0 / 0.1);
+  --glass-dim: oklch(0 0 0 / 0.45);
+
+  /* Radii: large for panels, medium for fields and menus, small inside them. */
+  --radius-l: 14px;
+  --radius-m: 10px;
+  --radius-s: 6px;
+  --radius-media: 8px;
 
   /* Motion (DESIGN.md §6) */
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
@@ -171,8 +196,59 @@ button {
   transition: opacity 200ms linear;
 }
 
-.intro .hud {
+/*
+ * During the intro (and the loading before it) only the breadcrumb and the
+ * kingdom key wait; the wordmark, the search trigger and the readout's
+ * truthful "Loading tree · 9 / 15 tiles" show from the first frame.
+ */
+.breadcrumb,
+.hud-controls {
+  transition: opacity 200ms linear;
+}
+
+.intro .breadcrumb,
+.intro .hud-controls {
   opacity: 0;
+}
+
+/* "Touring · … · Stop": the only control in the readout. */
+.readout .readout-stop {
+  padding: 1px 8px;
+  margin: -2px 0;
+  border: 1px solid var(--glass-edge-strong);
+  border-radius: var(--radius-m);
+  background: var(--glass-hover);
+  font-size: inherit;
+  color: var(--text-1);
+  pointer-events: auto;
+}
+
+.readout .readout-stop:hover {
+  background: var(--glass-active);
+}
+
+.readout-tour[hidden],
+.readout-version[hidden] {
+  display: none;
+}
+
+/* Nothing could start (main.ts): one line in the middle, and a way to try again. */
+.boot-error {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 2 * var(--edge));
+  font-size: var(--fs-15);
+  color: var(--text-2);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.boot-error .text-button {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Only the HUD's own controls take input; the gaps pass through to the canvas. */
@@ -183,6 +259,8 @@ button {
 .hud-top {
   top: var(--edge);
   align-items: flex-start;
+  /* Its menu opens over the card (which comes later in the page, for Tab order). */
+  z-index: 2;
 }
 
 .hud-bottom {
@@ -223,6 +301,8 @@ button {
 
 .breadcrumb .crumb {
   flex: none;
+  /* At least 24 px tall to hit (WCAG 2.5.8), without moving the text. */
+  min-height: 24px;
   padding: 0;
   border: 0;
   background: none;
@@ -255,6 +335,7 @@ button {
 
 .readout {
   min-height: calc(var(--fs-11) * var(--lh-body));
+  pointer-events: none;
   font-size: var(--fs-11);
   line-height: var(--lh-body);
   color: var(--text-3);
@@ -272,9 +353,9 @@ button {
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--bg);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-s);
+  background: none;
   color: var(--text-2);
   line-height: 0;
   cursor: pointer;
@@ -286,7 +367,7 @@ button {
 }
 
 .ctl:hover {
-  background: var(--surface-2);
+  background: var(--glass-hover);
   color: var(--text-1);
 }
 
@@ -299,6 +380,7 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: 24px;
   padding: 0;
   border: 0;
   background: none;
@@ -322,7 +404,7 @@ button {
  * Zoom strip (ui/zoomstrip.ts, DESIGN.md §4.1): a slim vertical scale on
  * the left edge, placed from TS (left, top, height). Ticks like the side of
  * a scroll wheel, a 2 px text-1 thumb, the reading beside it, the reset
- * button under it. Flat like the rest of the HUD.
+ * button under it. Flat like the rest of the HUD; only the reset button is glass.
  */
 .zoom-strip {
   position: fixed;
@@ -355,7 +437,12 @@ button {
   outline: none;
 }
 
+/* The ring goes round the thumb's reading, not the whole scale. */
 .zoom-track:focus-visible {
+  outline: none;
+}
+
+.zoom-track:focus-visible .zoom-readout {
   outline: 1px solid var(--focus);
   outline-offset: 2px;
 }
@@ -399,18 +486,64 @@ button {
   position: absolute;
   left: 22px;
   top: -8px;
+  padding: 0 2px;
   font-size: var(--fs-11);
   line-height: 16px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+/* The reading shows while the strip is in use: hovered, focused or dragged. */
+.zoom-strip:hover .zoom-readout,
+.zoom-strip.active .zoom-readout,
+.zoom-track:focus-visible .zoom-readout {
+  opacity: 1;
+}
+
+/* "+" above the scale, "−" below it: which end is which, and a fifth of it per click. */
+.zoom-step {
+  position: absolute;
+  left: -2px;
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font-size: var(--fs-11);
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.zoom-step:hover {
+  color: var(--text-1);
+}
+
+.zoom-in {
+  top: -22px;
+}
+
+/* Phone: the steps get room to tap. */
+.zoom-strip.compact .zoom-step {
+  width: 40px;
+  height: 24px;
+  left: 0;
+  line-height: 24px;
+}
+
+.zoom-strip.compact .zoom-in {
+  top: -26px;
 }
 
 .zoom-reset {
   position: absolute;
   left: -6px;
-  top: calc(100% + 16px);
+  /* top: set from TS, just under the "−" step (ui/zoomstrip.ts). */
 }
 
 /* Phone: a wider touch target, and the reset button stays 40 px. */
@@ -455,7 +588,7 @@ button {
 /*
  * The selection card: a fixed rectangle, its place and size set from
  * layout.ts (inline left/top/width/height), top right on desktop and across
- * the top on a phone. Opaque, hairline-bordered, square; long content
+ * the top on a phone. Glass (the Glass block below), 14 px corners; nothing
  * scrolls inside. It fades in once, with the first selection, and never
  * closes. A leader on the label canvas joins it to the selected node.
  */
@@ -463,8 +596,6 @@ button {
   position: fixed;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
   opacity: 0;
   transition: opacity 200ms var(--ease-out);
 }
@@ -477,16 +608,109 @@ button {
   opacity: 1;
 }
 
+/* A new node's content fades in (selection.ts, part-way through a flight). */
+.panel-body.swap {
+  animation: panel-swap 200ms var(--ease-out);
+}
+
+@keyframes panel-swap {
+  from {
+    opacity: 0;
+  }
+}
+
 .intro .panel {
   opacity: 0;
 }
 
+.panel {
+  overflow: hidden;
+}
+
+/* Nothing in the card scrolls: the head, the tab row, and the tab area that takes the rest. */
 .panel-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: var(--space-2);
+}
+
+.panel-head {
+  flex: none;
+}
+
+/*
+ * The tabs (ui/tabs.ts): a segmented control, as wide as its labels. A
+ * faint recessed track; the active tab a lighter plate with the glass
+ * highlight, the rest text-2 (DESIGN.md §4.2).
+ */
+.panel-tabs {
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  gap: 2px;
+  margin-top: 14px;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-m);
+  background: oklch(0 0 0 / 0.25);
+}
+
+.panel-tabs[hidden] {
+  display: none;
+}
+
+.panel-tab {
+  height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-13);
+  line-height: 28px;
+  cursor: pointer;
+  transition:
+    background-color 150ms linear,
+    color 150ms linear;
+}
+
+.panel-tab[hidden] {
+  display: none;
+}
+
+.panel-tab:hover {
+  color: var(--text-1);
+}
+
+.panel-tab[aria-selected='true'] {
+  color: var(--text-1);
+  background: var(--glass-active);
+  box-shadow: var(--glass-highlight);
+}
+
+.panel-tab:focus-visible {
+  outline-offset: 0;
+}
+
+/* The tab area: a fixed box; each pane fills it and clips (ui/fit.ts fits the content). */
+.panel-tabbody {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 12px;
+}
+
+.panel-pane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.panel-pane[hidden] {
+  display: none;
 }
 
 /* Truthful loading: a hairline under the top edge while the next node loads (DESIGN.md §7). */
@@ -502,9 +726,13 @@ button {
   opacity: 1;
 }
 
-.panel-head {
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--hairline);
+
+
+/* The title and, beside it, the copy button. */
+.panel-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 /* Higher ranks: sans 22/600; genus and below: serif italic 22/600 (DESIGN.md §3). */
@@ -528,6 +756,18 @@ button {
 
 .panel-title .taxon-italic {
   font-weight: 600;
+}
+
+/* The lead: the common name, 15 text-1 (13 on a phone). */
+.panel-lead {
+  margin-top: 6px;
+  font-size: var(--fs-15);
+  line-height: var(--lh-title);
+  color: var(--text-1);
+}
+
+.panel-lead:empty {
+  display: none;
 }
 
 .panel-context {
@@ -554,44 +794,47 @@ button {
   color: var(--text-1);
 }
 
-.panel-title .copy {
+/* A Retry held for a few seconds after a click (ui/panel.ts). */
+.text-button:disabled,
+.about-notice .text-button:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+/* Copy the name: a 24 px target beside the title, the glyph in text-3. */
+.panel .copy {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text-3);
   font-family: var(--font-sans);
-  font-style: normal;
   font-size: var(--fs-13);
-  font-weight: 400;
-  vertical-align: 0.35em;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+.panel .copy:hover {
+  color: var(--text-1);
 }
 
 /* ---- About section (ui/about.ts; DESIGN.md §4.2, §7) ---- */
 
-.panel-about {
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.panel-about[hidden] {
-  display: none;
-}
-
-/* Truthful loading: a hairline right under the head and what is being asked. */
-.panel-about.loading {
-  padding-top: 0;
-}
-
+/* Truthful loading, inside the tab that waits: what is being asked. */
 .about-loading {
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--text-3);
-  margin-top: -1px;
   color: var(--text-3);
 }
 
-.panel-about a,
+.panel-pane a,
 .panel-credit .credits-link {
   color: inherit;
   text-decoration: none;
 }
 
-.panel-about a:hover,
+.panel-pane a:hover,
 .panel-credit .credits-link:hover {
   text-decoration: underline;
 }
@@ -605,9 +848,10 @@ button {
   margin: 0 0 12px;
 }
 
-/* 3:2, cover, no radius (DESIGN.md §4.2). Black until it loads: no skeleton. */
+/* 3:2, cover, the media radius (DESIGN.md §4.2). Black until it loads: no skeleton. */
 .about-image {
   display: block;
+  border-radius: var(--radius-media);
   width: 100%;
   height: auto;
   aspect-ratio: 3 / 2;
@@ -636,6 +880,34 @@ button {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;
   overflow: hidden;
+}
+
+/* A source that failed, where its part would be: quiet, with Retry. */
+.about-notice {
+  margin-top: 12px;
+  font-size: var(--fs-13);
+  color: var(--text-3);
+}
+
+.about-notice:first-child {
+  margin: 0 0 8px;
+}
+
+.about-notice .text-button {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.about-where .about-notice {
+  margin-top: 0;
+}
+
+/* What is simply missing ("No photo on …"), last and small. */
+.about-note {
+  margin-top: 12px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
 }
 
 .about-label {
@@ -689,10 +961,42 @@ button {
   margin-bottom: 12px;
 }
 
+/* Range fills its tab. */
 .about-where {
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--hairline);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Range: the map, then one line each for records, countries and the credit. */
+.about-where .occmap {
+  margin: 0 auto;
+}
+
+.about-where:not(.about-where-side) .about-countries,
+.about-where:not(.about-where-side) .about-map-credit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Phone: a short tab, so the lines go beside the map (ui/about.ts mapSize). */
+.about-where-side {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.about-where-side .occmap {
+  margin: 0;
+}
+
+.about-where-side .about-records {
+  margin-top: 0;
+}
+
+.about-where-text {
+  min-width: 0;
 }
 
 .about-heading {
@@ -710,6 +1014,7 @@ button {
 .occmap {
   position: relative;
   overflow: hidden;
+  border-radius: var(--radius-media);
   max-width: 100%;
   background: var(--bg);
 }
@@ -748,14 +1053,27 @@ button {
   color: var(--text-3);
 }
 
+/* Tree: one row per fact (label, value), whole rows clipped when out of room (ui/fit.ts). */
 .panel-facts {
-  display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: 10px var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin: 0;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--hairline);
   font-size: var(--fs-13);
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.fact[hidden] {
+  display: none;
+}
+
+.panel-credit[hidden] {
+  display: none;
 }
 
 .panel-facts dt {
@@ -791,6 +1109,14 @@ button {
   display: inline;
 }
 
+.panel-lineage .lineage-more {
+  color: var(--text-3);
+}
+
+.panel-lineage + .more {
+  margin-top: 4px;
+}
+
 .panel-children {
   margin: 0 0 0 -6px;
 }
@@ -803,7 +1129,7 @@ button {
   gap: var(--space-1);
   padding: 3px 6px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-s);
   background: none;
   color: var(--text-1);
   text-align: left;
@@ -811,7 +1137,7 @@ button {
 }
 
 .child-row:hover {
-  background: var(--surface-2);
+  background: var(--glass-hover);
 }
 
 .child-name {
@@ -881,73 +1207,146 @@ button {
 }
 
 /*
- * Inside the card the image sits to the right of the text, so the head and
- * the summary share the first screenful of a short, wide box.
+ * Overview: the text column beside the image, both as tall as the tab. The
+ * image shrinks to the room left above its credit; the text column clips
+ * whole blocks (ui/fit.ts) after shortening the extract.
  */
-.panel-about {
-  display: flow-root;
+.ov {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40%;
+  gap: var(--space-2);
+  height: 100%;
+}
+
+.ov-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ov-text {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel .about-figure {
-  float: right;
-  width: 40%;
-  margin: 0 0 var(--space-1) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
 }
 
-.panel .about-where {
-  clear: both;
+.panel .about-image {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.panel .about-credit {
+  flex: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.panel .about-lead,
+.panel .about-borrowed {
+  display: block;
+  -webkit-line-clamp: unset;
 }
 
 /* Phone: a compact card, the same content a little tighter. */
-.panel.compact .panel-body {
-  padding: 12px;
-}
-
 .panel.compact .panel-title {
   font-size: 18px;
 }
 
-.panel.compact .about-figure {
-  width: 36%;
+.panel.compact .ov {
+  grid-template-columns: minmax(0, 1fr) 36%;
+  gap: 12px;
+}
+
+.panel.compact .panel-tabs,
+.panel.compact .panel-tabbody {
+  margin-top: 8px;
+}
+
+/* Phone: a 32 px row (26 px tabs in the track), each tab's hit area 40 px tall. */
+.panel.compact .panel-tab {
+  position: relative;
+  height: 26px;
+  padding: 0 12px;
+  line-height: 26px;
+}
+
+.panel.compact .panel-tab::after {
+  content: '';
+  position: absolute;
+  inset: -7px 0;
+}
+
+.panel.compact .panel-body {
+  padding: 10px 12px;
 }
 
 .panel.compact .panel-context,
+.panel.compact .panel-lead {
+  margin-top: 3px;
+  line-height: var(--lh-title);
+}
+
+.panel.compact .panel-context,
+.panel.compact .panel-lead,
 .panel.compact .about-lead {
   font-size: var(--fs-13);
 }
 
-.panel.compact .panel-context {
-  margin-top: 4px;
-}
-
 /* ---- Search (DESIGN.md §4.1 trigger, §4.4 palette) ---- */
 
-/* The trigger: an opaque field at the top right, text-3, with a "/" hint. */
+/*
+ * The search bar (DESIGN.md §4.1): 40 px, as wide as the card and right
+ * above it on desktop (ui/search.ts sets --search-w), the rest of the top
+ * row on a phone. Glass (the Glass block below), a magnifier, the "/" hint.
+ */
+.search-slot {
+  width: var(--search-w, auto);
+  margin-top: -4px;
+}
+
 .search-trigger {
   display: flex;
   align-items: center;
-  gap: 24px;
-  height: 28px;
-  padding: 0 6px 0 10px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-3);
-  font-size: var(--fs-13);
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 10px 0 12px;
+  color: var(--text-2);
+  font-size: var(--fs-15);
   line-height: 1;
-  cursor: pointer;
+  cursor: text;
 }
 
-.search-trigger:hover {
-  color: var(--text-2);
+.search-trigger:hover,
+.search-trigger:focus-visible {
+  color: var(--text-1);
+}
+
+.search-glass {
+  flex: none;
+}
+
+.search-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .search-key,
 .search-close-key {
   min-width: 16px;
   padding: 1px 4px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
+  border: 1px solid var(--glass-edge);
+  border-radius: 4px;
   color: var(--text-3);
   font-family: var(--font-sans);
   font-size: var(--fs-11);
@@ -959,6 +1358,7 @@ button {
 .search-layer {
   position: fixed;
   inset: 0;
+  z-index: 3;
 }
 
 .search-layer[hidden] {
@@ -992,9 +1392,6 @@ button {
   display: flex;
   flex-direction: column;
   max-height: calc(100dvh - 12vh - var(--edge));
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
   opacity: 0;
   transform: translate(-50%, -8px);
   transition:
@@ -1005,6 +1402,32 @@ button {
 .search-layer.open .search {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+/* Desktop: in place of the trigger, over the card (ui/search.ts place()). */
+.search.docked {
+  top: 12px;
+  left: var(--search-left);
+  width: var(--search-width);
+  max-height: calc(100dvh - 2 * var(--edge));
+  transform: translateY(-8px);
+}
+
+.search-layer.open .search.docked {
+  transform: none;
+}
+
+/* While the docked palette is open, the card's content steps back behind it (the palette blurs it away). */
+.searching .panel-body {
+  opacity: 0.35;
+  transition: opacity 150ms linear;
+}
+
+/* The empty palette's "Recent" and "Try". */
+.search-heading {
+  padding: 8px 10px 2px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
 }
 
 .search-field {
@@ -1075,7 +1498,7 @@ button {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px 0;
+  padding: 4px 6px 6px;
 }
 
 .search-list[hidden] {
@@ -1087,17 +1510,17 @@ button {
   align-items: baseline;
   gap: 10px;
   min-height: 34px;
-  padding: 7px 16px 7px 14px;
-  border-left: 2px solid transparent;
+  padding: 7px 10px;
+  border-radius: var(--radius-s);
   cursor: pointer;
   font-size: var(--fs-13);
   line-height: 20px;
 }
 
-/* The active row: surface-2 and a 2 px rule in text-1 (DESIGN.md §4.4). */
+/* The active row: a lighter inset plate with a hairline (DESIGN.md §4.4). */
 .search-row[aria-selected='true'] {
-  background: var(--surface-2);
-  border-left-color: var(--text-1);
+  background: var(--glass-active);
+  box-shadow: var(--glass-highlight);
 }
 
 .search-row .swatch {
@@ -1170,8 +1593,11 @@ button {
 
 /* Mobile: the palette near the top (the keyboard takes the bottom), two-line rows, 40 px targets. */
 @media (max-width: 719px) {
-  .search-trigger {
-    height: 40px;
+  /* The bar takes the rest of the top row, beside the wordmark. */
+  .search-slot {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-left: var(--space-2);
   }
 
   .search-key {
@@ -1225,6 +1651,15 @@ button {
     transform: translate(-50%, 0);
     transition: opacity 120ms linear;
   }
+
+  .search.docked,
+  .search-layer.open .search.docked {
+    transform: none;
+  }
+
+  .panel-body.swap {
+    animation-duration: 120ms;
+  }
 }
 
 /* Reduced motion: the snapshot laid over a cut, fading out (crossfade.ts). */
@@ -1239,10 +1674,7 @@ button {
   top: 0;
   left: 0;
   max-width: 280px;
-  padding: 6px 8px;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
+  padding: 6px 10px;
   pointer-events: none;
   font-size: var(--fs-13);
   line-height: var(--lh-title);
@@ -1313,11 +1745,8 @@ button {
   position: absolute;
   top: 24px;
   left: 0;
-  min-width: 160px;
-  padding: 4px 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--surface);
+  min-width: 180px;
+  padding: 4px;
 }
 
 .wordmark-menu[hidden] {
@@ -1325,7 +1754,10 @@ button {
 }
 
 .menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
   width: 100%;
   padding: 6px 12px;
   border: 0;
@@ -1337,27 +1769,58 @@ button {
 }
 
 .menu-item:hover {
-  background: var(--surface-2);
+  background: var(--glass-hover);
+}
+
+.menu-item .swatch {
+  width: 6px;
+  height: 6px;
+  flex: none;
+}
+
+/* The kingdom rows: the key's place on a phone only (DESIGN.md §4.3). */
+.menu-compact {
+  display: none;
+}
+
+@media (max-width: 719px) {
+  .menu-compact {
+    display: flex;
+  }
+
+  .menu-item {
+    min-height: 40px;
+  }
+}
+
+/* The Keyboard dialog (ui/keys.ts): keys left, what they do right. */
+.keys-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.keys-list dt {
+  color: var(--text-1);
+  white-space: pre;
+}
+
+.keys-list dd {
+  margin: 0;
+  color: var(--text-2);
 }
 
 .credits {
   width: min(560px, calc(100% - 32px));
   max-height: min(80vh, 720px);
   padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--surface);
   color: var(--text-1);
 }
 
 .credits[open] {
   display: flex;
   flex-direction: column;
-}
-
-/* A flat dim, no blur (DESIGN.md §9). */
-.credits::backdrop {
-  background: oklch(0 0 0 / 0.6);
 }
 
 .credits-head {
@@ -1403,6 +1866,132 @@ button {
   text-decoration-color: currentColor;
 }
 
+/* ---- Glass (DESIGN.md §2.3): the one material for what floats over the wheel ---- */
+
+/*
+ * Smoked glass: the wheel shows through blurred, darkened and a little
+ * more saturated, under a neutral fill. One layer deep: nothing glass sits
+ * on glass except the docked search palette over the card, and only while
+ * it is open. The blur is a compositor pass redone every frame the canvas
+ * changes, so only a few boxes have it, and none of the flat HUD text.
+ */
+.panel,
+.search-trigger,
+.search,
+.wordmark-menu,
+.credits,
+.tooltip,
+.zoom-reset {
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-fill);
+  box-shadow: var(--glass-highlight);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+
+/* On glass the least text is a step lighter (the backdrop is never pure black). */
+.panel,
+.search,
+.wordmark-menu,
+.credits,
+.tooltip {
+  --text-3: var(--glass-text-3);
+}
+
+/* Text-dense layers that open over anything: a denser fill. */
+.search,
+.wordmark-menu,
+.credits,
+.tooltip {
+  background: var(--glass-fill-dense);
+}
+
+/* Small boxes need less blur to read as glass. */
+.tooltip,
+.zoom-reset {
+  -webkit-backdrop-filter: var(--glass-filter-small);
+  backdrop-filter: var(--glass-filter-small);
+}
+
+.panel,
+.search,
+.credits {
+  border-radius: var(--radius-l);
+}
+
+.search-trigger,
+.wordmark-menu,
+.tooltip {
+  border-radius: var(--radius-m);
+}
+
+.zoom-reset {
+  border-radius: var(--radius-s);
+}
+
+.search-trigger {
+  transition:
+    border-color 150ms linear,
+    background-color 150ms linear,
+    color 150ms linear;
+}
+
+/* The way in newcomers must not miss: a brighter edge at rest, brighter still on hover. */
+.search-trigger {
+  border-color: var(--glass-edge-strong);
+}
+
+.search-trigger:hover,
+.search-trigger:focus-visible {
+  border-color: oklch(1 0 0 / 0.32);
+  background: var(--glass-fill-dense);
+}
+
+.zoom-reset:hover {
+  border-color: var(--glass-edge-strong);
+  background: var(--glass-fill-dense);
+}
+
+/* Menu rows: inset plates inside the menu's padding. */
+.wordmark-menu .menu-item {
+  border-radius: var(--radius-s);
+}
+
+/* Dialogs dim the page flatly: a full-screen blur would cost a pass over the whole window. */
+.credits::backdrop {
+  background: var(--glass-dim);
+}
+
+/*
+ * No blur (an old engine) or the visitor asks for less transparency: the
+ * same shapes, opaque. More contrast: brighter edges as well.
+ */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-fill: var(--surface);
+    --glass-fill-dense: var(--surface);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-fill: var(--surface);
+    --glass-fill-dense: var(--surface);
+    --glass-filter: none;
+    --glass-filter-small: none;
+    --glass-dim: oklch(0 0 0 / 0.75);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --glass-fill: var(--surface);
+    --glass-fill-dense: var(--surface);
+    --glass-edge: var(--text-3);
+    --glass-edge-strong: var(--text-2);
+  }
+}
+
 /* ---- No WebGL2 (DESIGN.md §7): a still of the wheel and one sentence ---- */
 
 .no-webgl .stage,
@@ -1434,6 +2023,7 @@ button {
 
 .fallback figcaption {
   max-width: 44ch;
+  text-wrap: balance;
   font-size: var(--fs-15);
   line-height: var(--lh-body);
   color: var(--text-2);

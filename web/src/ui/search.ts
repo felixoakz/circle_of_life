@@ -10,6 +10,18 @@
 // typed quickly still works. Choosing a result selects the node and flies
 // to it (selection.ts, flyto.ts).
 //
+// With nothing typed yet it lists "Recent" (this visit's own selections)
+// and "Try" (the tour's species, by common name), so an empty palette is a
+// way in. Results named like sequencing leftovers ("Rosaceae environmental
+// sample", "uncultured …") go to the end of the list (`isJunkName`).
+//
+// The trigger is a 40 px bar with a magnifier, "Search 2.3M species" and a
+// "/" hint: on desktop as wide as the card, right above it; on a phone it
+// fills the top row beside the wordmark.
+//
+// On desktop it opens in place of its trigger at the top right, over the
+// card (`place`); on a phone it spans the top.
+//
 // Rows: the kingdom swatch, the name in its proper style (names.ts) with
 // the matched letters at weight 600 (for a common-name match, "jaguar ·
 // Panthera onca", with a language tag when it is not English), then the
@@ -38,8 +50,57 @@ const CLOSE_MS = 180;
 /** The tree behind the open palette: 50% (DESIGN.md §4.4). */
 const DIM_SEARCH = 0.5;
 const CACHE_SIZE = 64;
+/** Recent selections kept for the empty palette. */
+const RECENT_MAX = 4;
+/** Rows in the empty palette, Recent and Try together. */
+const SUGGEST_MAX = 6;
+/** The docked palette's least width, CSS px. */
+const DOCK_MIN_W = 400;
 
 // ---- Pure helpers (search.test.ts) ----
+
+/** Names that are sequencing leftovers rather than taxa a visitor means. */
+export function isJunkName(name: string | null): boolean {
+  return name !== null && /environmental sample|metagenome|uncultured|unidentified/i.test(name);
+}
+
+/** Hits with real names first, leftovers last, each group in the server's order. */
+export function junkLast(hits: readonly SearchHit[]): SearchHit[] {
+  return [...hits.filter((h) => !isJunkName(h.name)), ...hits.filter((h) => isJunkName(h.name))];
+}
+
+/** A suggestion row (Recent, Try) in a search hit's shape: `id` −1 when only the OpenTree id is known. */
+export function suggestion(s: {
+  id?: number;
+  nodeId: string;
+  name: string;
+  rank: string | null;
+  group: number;
+  flags?: number;
+  common: string | null;
+  lineage?: string[];
+}): SearchHit {
+  return {
+    id: s.id ?? -1,
+    nodeId: s.nodeId,
+    name: s.name,
+    rank: s.rank,
+    group: s.group,
+    flags: s.flags ?? 0,
+    leafCount: 1,
+    childCount: 0,
+    level: 0,
+    angle: 0,
+    arcLo: 0,
+    arcHi: 0,
+    r: 1,
+    matched: s.common ?? s.name,
+    matchedKind: s.common ? 'vernacular' : 'scientific',
+    matchedLang: s.common ? 'en' : null,
+    commonName: s.common,
+    lineage: s.lineage ?? [],
+  };
+}
 
 /** Trims and collapses whitespace: the query as the API sees it (it lowercases too). */
 export function normaliseQuery(q: string): string {
@@ -228,6 +289,8 @@ export interface SearchOptions {
   tipCount: number;
   /** Something changed that the canvas should redraw (the dim). */
   redraw: () => void;
+  /** The empty palette's "Try" rows (the tour's species). */
+  tryList?: readonly SearchHit[];
 }
 
 /**
@@ -267,14 +330,25 @@ export class SearchPalette {
   /** Enter was pressed before the answer for the current query arrived. */
   private pendingEnter = false;
   private returnFocus: HTMLElement | null = null;
+  /** The rows on show (results, or the empty palette's suggestions), in option order. */
+  private rows: SearchHit[] = [];
+  private recent: SearchHit[] = [];
 
   constructor(opts: SearchOptions) {
     this.opts = opts;
 
+    const glass = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    glass.setAttribute('viewBox', '0 0 16 16');
+    glass.setAttribute('width', '16');
+    glass.setAttribute('height', '16');
+    glass.setAttribute('aria-hidden', 'true');
+    glass.classList.add('search-glass');
+    glass.innerHTML = '<circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1"/><path d="M10.4 10.4L14 14" stroke="currentColor" stroke-width="1" stroke-linecap="square"/>';
     this.trigger = el('button', 'search-trigger', [
       el('span', 'search-trigger-label', [`Search ${compactCount(opts.speciesCount)} species`]),
       el('kbd', 'search-key', ['/']),
     ]);
+    this.trigger.prepend(glass);
     this.trigger.type = 'button';
     this.trigger.setAttribute('aria-haspopup', 'dialog');
     this.trigger.setAttribute('aria-keyshortcuts', '/ Control+K Meta+K');
@@ -340,6 +414,32 @@ export class SearchPalette {
 
   isOpen(): boolean {
     return this.openState;
+  }
+
+  /** Remembers a selection the visitor made, for the empty palette's "Recent". */
+  remember(hit: SearchHit): void {
+    this.recent = [hit, ...this.recent.filter((h) => h.nodeId !== hit.nodeId)].slice(0, RECENT_MAX);
+  }
+
+  /**
+   * Desktop: dock the palette over the card's place at the top right (at
+   * least DOCK_MIN_W wide, growing left); null on a phone, where it spans the top.
+   */
+  place(card: { x0: number; x1: number } | null): void {
+    // The trigger: the card's width, right above it (desktop); the rest of the top row (phone, styles.css).
+    if (card) this.opts.slot.style.setProperty('--search-w', `${card.x1 - card.x0}px`);
+    else this.opts.slot.style.removeProperty('--search-w');
+    const d = this.dialog;
+    d.classList.toggle('docked', card !== null);
+    if (!card) {
+      d.style.removeProperty('--search-left');
+      d.style.removeProperty('--search-width');
+      return;
+    }
+    const w = Math.max(DOCK_MIN_W, card.x1 - card.x0);
+    const left = Math.max(16, card.x1 - w);
+    d.style.setProperty('--search-left', `${left}px`);
+    d.style.setProperty('--search-width', `${card.x1 - left}px`);
   }
 
   /** True while an answer is on its way (the scene is not idle yet). */
@@ -434,6 +534,8 @@ export class SearchPalette {
       this.show(this.query, cached);
       return;
     }
+    // Typing past the empty palette: its suggestions go at once, not when the answer comes.
+    if (this.status.kind === 'idle') this.render();
     this.timer = window.setTimeout(() => {
       this.timer = 0;
       void this.run(this.query);
@@ -450,8 +552,8 @@ export class SearchPalette {
       const hits = await fetchSearch(query, LIMIT, ctl.signal);
       if (ctl.signal.aborted) return;
       if (this.cache.size >= CACHE_SIZE) this.cache.clear();
-      this.cache.set(query.toLowerCase(), hits);
-      if (query === this.query) this.show(query, hits);
+      this.cache.set(query.toLowerCase(), junkLast(hits));
+      if (query === this.query) this.show(query, junkLast(hits));
     } catch (err) {
       if (ctl.signal.aborted) return;
       console.warn('search', err);
@@ -489,7 +591,8 @@ export class SearchPalette {
       this.close(true);
       return;
     }
-    const hits = this.status.kind === 'results' && this.status.query === this.query ? this.status.hits : null;
+    const shown = (this.status.kind === 'results' && this.status.query === this.query) || this.query.length < MIN_CHARS;
+    const hits = shown ? this.rows : null;
     if (action === 'choose') {
       if (hits && hits.length > 0) this.choose(Math.max(0, this.active));
       else if (this.query.length >= MIN_CHARS && this.status.kind !== 'error') {
@@ -508,8 +611,7 @@ export class SearchPalette {
   }
 
   private choose(index: number): void {
-    if (this.status.kind !== 'results') return;
-    const hit = this.status.hits[index];
+    const hit = this.rows[index];
     if (!hit) return;
     this.close(false);
     this.opts.choose(hit);
@@ -537,8 +639,27 @@ export class SearchPalette {
   private render(): void {
     const st = this.status;
     const current = st.kind !== 'idle' && st.query === this.query && this.query.length >= MIN_CHARS;
-    const hits = current && st.kind === 'results' ? st.hits : [];
-    this.list.replaceChildren(...hits.map((h, i) => this.row(h, i)));
+    const idle = this.query.length < MIN_CHARS;
+    let hits: SearchHit[] = current && st.kind === 'results' ? st.hits : [];
+    const items: HTMLLIElement[] = [];
+    if (idle) {
+      // The empty palette: what the visitor chose before, then a few to try.
+      const recent = this.recent;
+      const seen = new Set(recent.map((h) => h.nodeId));
+      const tries = (this.opts.tryList ?? []).filter((h) => !seen.has(h.nodeId)).slice(0, Math.max(0, SUGGEST_MAX - recent.length));
+      hits = [...recent, ...tries];
+      const heading = (text: string): HTMLLIElement => {
+        const li = el('li', 'search-heading', [text]);
+        li.setAttribute('role', 'presentation');
+        return li;
+      };
+      if (recent.length > 0) items.push(heading('Recent'), ...recent.map((h, i) => this.row(h, i)));
+      if (tries.length > 0) items.push(heading('Try'), ...tries.map((h, i) => this.row(h, recent.length + i)));
+    } else {
+      items.push(...hits.map((h, i) => this.row(h, i)));
+    }
+    this.rows = hits;
+    this.list.replaceChildren(...items);
     this.list.hidden = hits.length === 0;
     this.input.setAttribute('aria-expanded', String(hits.length > 0));
     this.setActive(hits.length > 0 ? Math.min(Math.max(this.active, 0), hits.length - 1) : -1);
@@ -621,7 +742,7 @@ export class SearchPalette {
   }
 
   private prefetchActive(): void {
-    const hit = this.status.kind === 'results' ? this.status.hits[this.active] : undefined;
+    const hit = this.rows[this.active];
     if (hit) this.opts.prefetch(hit);
   }
 }

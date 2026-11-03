@@ -5,7 +5,10 @@
 // in zoom, so every step along it, and every wheel notch, feels the same:
 //   t = (log2 scale − log2 min) / (log2 max − log2 min)      0 … 1
 //   % = ZOOM_FLOOR + (100 − ZOOM_FLOOR) · t
-// It replaces the − and + buttons; the reset button sits under it.
+// It replaces the − and + buttons; the reset button sits under it. A small
+// "+" above the scale and "−" below it step it by a fifth (and say which end
+// is which); the % reading shows only while the strip is hovered, focused
+// or dragged.
 //
 // Drag the thumb or anywhere on the strip to zoom about the anchor (like
 // the wheel); a click without dragging flies there; the mouse wheel over it
@@ -20,27 +23,41 @@
 import type { Box } from '../labelLayout';
 import type { Layout } from '../layout';
 import type { Scene } from '../scene';
-import { DIM_HUD } from '../style';
-import { elementBox } from './obstacles';
+import { elementBox, union } from './obstacles';
 
 /** The reading at minimum zoom, %: low but not zero (the wheel is there, whole). */
 export const ZOOM_FLOOR = 2;
 /** Keyboard steps, % of the scale. */
 const KEY_STEP = 5;
 const PAGE_STEP = 20;
-/** The strip's length: at most this, CSS px, and its share of the free height. */
-const MAX_LEN = 300;
-const COMPACT_MAX_LEN = 260;
+/** The strip's length on desktop: this share of the window's height (as much as fits on a phone). */
+const LEN_SHARE = 2 / 3;
+/** Never shorter than this, CSS px. */
+const MIN_LEN = 80;
 /** Wheel zoom over the strip, as on the canvas. */
 const WHEEL_RATE = 0.0015;
 /** A press that moves less than this (CSS px) is a click: fly there. */
 const CLICK_SLOP = 4;
-/** Room under the scale for the reset button, and above the bottom HUD (breadcrumb, readout), CSS px. */
-const RESET_ROOM = 52;
+/**
+ * Room under the scale for the "−" step and the reset button (28 px; 40 px
+ * on a phone), and above the bottom HUD (breadcrumb, readout), CSS px. The
+ * reset button's top is RESET_GAP under the scale.
+ */
+const RESET_ROOM = 60;
+const COMPACT_RESET_ROOM = 76;
+const RESET_GAP = 30;
+const COMPACT_RESET_GAP = 34;
 const BOTTOM_ROOM = 96;
-/** Tick spacing along the strip, CSS px, and a long tick every MAJOR_EVERY. */
-const TICK_PX = 6;
+/** Desktop: the scale's top at least this far down (under the header, the "+" above it). */
+const TOP_ROOM = 72;
+/** Tick spacing along the strip, CSS px, and a long tick every MAJOR_EVERY (calmer on the long scale). */
+const TICK_PX = 8;
 const MAJOR_EVERY = 5;
+/** A phone's strip, CSS px from the left edge, and from the card's bottom (the "+" sits above it). */
+const COMPACT_X = 20;
+const COMPACT_TOP = 48;
+/** The tree behind the strip darkens this much (lighter than the text's DIM_HUD: it is mostly ticks). */
+const DIM_STRIP = 0.6;
 
 /** Where `scale` sits on the scale, 0 (minimum zoom) to 1 (maximum), log scale. */
 export function zoomFraction(scale: number, min: number, max: number): number {
@@ -66,22 +83,26 @@ export function percentFraction(p: number): number {
 }
 
 /**
- * Where the scale goes for a layout (CSS px; the reset button sits
- * RESET_ROOM under it): the left edge, centred between the header and the
- * bottom HUD on desktop, from just under the card on a phone.
+ * Where the scale goes for a layout (CSS px; the "−" step and the reset
+ * button sit in the RESET_ROOM under it): the left edge. Desktop: two thirds
+ * of the window's height, centred on it, or as near the centre as the
+ * header and the bottom HUD allow. Phone: all the room between the card and
+ * the bottom HUD (two thirds of the height does not fit under the card).
  */
 export function stripBox(l: Layout, h: number): Box {
-  const x0 = 16;
+  // A phone's strip stays a little further in, clear of the system's edge swipe.
+  const x0 = l.compact ? COMPACT_X : 16;
   const x1 = x0 + 60;
-  const bottom = h - BOTTOM_ROOM - RESET_ROOM;
   if (l.compact) {
-    const top = l.card.y1 + 24;
-    const len = Math.max(80, Math.min(COMPACT_MAX_LEN, bottom - top));
+    // Room above it for the "+" step, under the card.
+    const top = l.card.y1 + COMPACT_TOP;
+    const bottom = h - BOTTOM_ROOM - COMPACT_RESET_ROOM;
+    const len = Math.max(MIN_LEN, Math.min(h * LEN_SHARE, bottom - top));
     return { x0, x1, y0: top, y1: top + len };
   }
-  const top = 72;
-  const len = Math.max(120, Math.min(MAX_LEN, (bottom - top) * 0.6));
-  const mid = Math.min(bottom - len / 2, Math.max(top + len / 2, h / 2));
+  const bottom = h - BOTTOM_ROOM - RESET_ROOM;
+  const len = Math.max(MIN_LEN, Math.min(h * LEN_SHARE, bottom - TOP_ROOM));
+  const mid = Math.min(bottom - len / 2, Math.max(TOP_ROOM + len / 2, h / 2));
   return { x0, x1, y0: mid - len / 2, y1: mid + len / 2 };
 }
 
@@ -128,11 +149,23 @@ export class ZoomStrip {
     resetButton.setAttribute('aria-label', 'Zoom all the way out');
     resetButton.innerHTML = RESET_ICON;
     resetButton.addEventListener('click', reset);
-    root.replaceChildren(this.track, resetButton);
+    // "+" above the scale, "−" below it: a fifth of the scale each.
+    const step = (label: string, sign: 1 | -1): HTMLButtonElement => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = sign > 0 ? 'zoom-step zoom-in' : 'zoom-step zoom-out';
+      b.textContent = label;
+      b.title = sign > 0 ? 'Zoom in' : 'Zoom out';
+      b.setAttribute('aria-label', b.title);
+      b.addEventListener('click', () => this.stepBy(sign * PAGE_STEP, true));
+      return b;
+    };
+    root.replaceChildren(step('+', 1), this.track, step('−', -1), resetButton);
     this.bind();
     scene.obstacles.set('zoom-strip', () => {
-      const b = elementBox(this.root);
-      return b ? [{ box: b, keepClear: true, toEdge: false, dim: DIM_HUD }] : [];
+      // The strip with the buttons above and below it.
+      const b = union(elementBox(this.root), ...[...this.root.children].map((c) => elementBox(c)));
+      return b ? [{ box: b, keepClear: true, toEdge: false, dim: DIM_STRIP }] : [];
     });
   }
 
@@ -144,8 +177,12 @@ export class ZoomStrip {
     st.left = `${b.x0}px`;
     st.top = `${b.y0}px`;
     // The box holds the reading beside the scale and the reset button under it (it is the HUD obstacle).
-    st.height = `${this.len + RESET_ROOM}px`;
+    st.height = `${this.len + (l.compact ? COMPACT_RESET_ROOM : RESET_ROOM)}px`;
     this.track.style.height = `${this.len}px`;
+    const out = this.root.querySelector<HTMLElement>('.zoom-out');
+    if (out) out.style.top = `${this.len + 6}px`;
+    const reset = this.root.querySelector<HTMLElement>('.zoom-reset');
+    if (reset) reset.style.top = `${this.len + (l.compact ? COMPACT_RESET_GAP : RESET_GAP)}px`;
     this.root.classList.toggle('compact', l.compact);
     this.drawTicks();
     this.shown = '';
@@ -166,7 +203,7 @@ export class ZoomStrip {
     this.readout.style.transform = `translateY(${y.toFixed(1)}px)`;
     this.readout.textContent = `${pct}%`;
     this.track.setAttribute('aria-valuenow', String(pct));
-    this.track.setAttribute('aria-valuetext', t <= 0 ? `${pct}%, the whole wheel` : t >= 1 ? '100%, closest' : `${pct}%`);
+    this.track.setAttribute('aria-valuetext', t <= 0 ? `${pct}%, minimum zoom` : t >= 1 ? '100%, closest' : `${pct}%`);
   }
 
   /** Ticks every TICK_PX, a longer one every MAJOR_EVERY, like the side of a scroll wheel. */
@@ -196,6 +233,13 @@ export class ZoomStrip {
     return 1 - Math.min(1, Math.max(0, (clientY - r.top) / Math.max(1, r.height)));
   }
 
+  /** Steps the reading by `pct` (the + and − buttons fly, keys cut). */
+  private stepBy(pct: number, fly: boolean): void {
+    const rig = this.scene.rig;
+    const now = zoomPercent(zoomFraction(rig.scale, rig.minScale(), rig.maxScale()));
+    this.zoomToFraction(percentFraction(now + pct), fly);
+  }
+
   /** Zooms to fraction `t` about the anchor, at once (drag, keys) or by a flight (click). */
   private zoomToFraction(t: number, fly: boolean): void {
     const scene = this.scene;
@@ -217,6 +261,7 @@ export class ZoomStrip {
       if (e.button !== 0) return;
       this.track.setPointerCapture(e.pointerId);
       press = { y: e.clientY, moved: false };
+      this.root.classList.add('active');
       e.preventDefault();
       this.track.focus({ preventScroll: true });
     });
@@ -229,6 +274,7 @@ export class ZoomStrip {
       if (!press) return;
       const p = press;
       press = null;
+      this.root.classList.remove('active');
       if (!p.moved && e.type === 'pointerup') this.zoomToFraction(this.fractionAt(e.clientY), true);
     };
     this.track.addEventListener('pointerup', end);

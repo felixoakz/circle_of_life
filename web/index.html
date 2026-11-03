@@ -10,6 +10,7 @@
       content="A zoomable radial tree of the 2.3 million species in the Open Tree of Life."
     />
     <title>Circle of Life</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
@@ -23,6 +24,10 @@
       <div id="search-slot" class="search-slot"></div>
     </header>
 
+    <!-- The selection card (P8 core, P10 about): ui/panel.ts, placed by layout.ts.
+         Right after the header, so Tab reaches it before the HUD's long breadcrumb. -->
+    <aside id="panel" class="panel" hidden></aside>
+
     <footer class="hud hud-bottom">
       <div class="hud-status">
         <nav class="breadcrumb" aria-label="Lineage of the selection"></nav>
@@ -35,9 +40,6 @@
 
     <!-- Zoom: a vertical scale on the left edge and the reset button (ui/zoomstrip.ts). -->
     <div id="zoom-strip" class="zoom-strip"></div>
-
-    <!-- The selection card (P8 core, P10 about): ui/panel.ts, placed by layout.ts. -->
-    <aside id="panel" class="panel" hidden></aside>
 
     <!-- Screen-reader announcements of selection changes (P8). -->
     <div id="announcer" class="visually-hidden" aria-live="polite"></div>
