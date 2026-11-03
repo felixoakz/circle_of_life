@@ -47,7 +47,7 @@ make build                 # web/dist + bin/species
 You do not need the full data for development: `make ingest-mini` builds `data/mini.db` from the test fixtures, and `make server-mini` serves it.
 
 Other tasks (`make help` lists them all):
-- `make smoke`: a Playwright smoke test (headless Chromium, no GPU needed). It builds, starts its own server on :3077 (`SMOKE_PORT`), then loads the app, searches "panthera onca", and expects the card to show it. It also checks the locked view's zoom, turn and selection, an old pan link, and the fallback page. `SMOKE_WEBGPU=1` requires WebGPU.
+- `make smoke`: a Playwright smoke test (headless Chromium, no GPU needed). It builds, starts its own server on :3077 (`SMOKE_PORT`) over a temporary copy of `data/` (`tree.db` linked, `cache.db` copied, removed afterwards; `SMOKE_DATA=<dir>` uses that dir instead), then loads the app, searches "panthera onca", and expects the card to show it. It also checks the locked view's zoom, turn and selection, an old pan link, and the fallback page. `SMOKE_WEBGPU=1` requires WebGPU.
 - `make shot`: visual-QA screenshots (`web/scripts/shot.ts`); `make shot-parity` compares WebGL and WebGPU pixel by pixel.
 - `make lint-design`: greps for banned design tokens.
 - `make docker`: builds the container image.

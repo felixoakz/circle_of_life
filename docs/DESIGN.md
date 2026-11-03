@@ -6,7 +6,7 @@ This document governs everything visual and binds every implementing agent. It i
 **A scientific instrument at night: a herbarium plate under a lightbox.** The tree is the specimen, and the interface is a calibrated readout around it.
 
 - There is no hero, no marketing copy and no landing page. The tree *is* the page, from the first frame.
-- All colour and all light come from the data, inside the canvas. The DOM chrome is achromatic, opaque, flat and quiet.
+- All colour and all light come from the data, inside the canvas. The DOM chrome is achromatic and quiet: what floats over the wheel (the card, search, menus, dialogs) is one smoked-glass material (§2.3) that lets the wheel's light through, blurred; HUD text stays flat.
 - One signature moment, the radial reveal on load. After that the motion is calm and purposeful.
 
 **Reference frames** (`docs/reference/1-5.png`)
@@ -24,8 +24,8 @@ Colours are defined in OKLCH and generated into `styles.css` and `palette.ts`. E
 | Token | OKLCH | Hex | Use |
 |---|---|---|---|
 | `--bg` | `oklch(0 0 0)` | `#000000` | page and canvas background: true black, never a tinted #0b0b0b |
-| `--surface` | `oklch(0.16 0 0)` | `#0d0d0d` | card, search palette (opaque) |
-| `--surface-2` | `oklch(0.20 0 0)` | `#161616` | hover row, pressed button |
+| `--surface` | `oklch(0.16 0 0)` | `#0d0d0d` | the opaque fallback for glass (§2.3) |
+| `--surface-2` | `oklch(0.20 0 0)` | `#161616` | reserved (hover rows are `--glass-hover` now) |
 | `--hairline` | `oklch(1 0 0 / 0.10)` | `#ffffff1a` | 1px borders and dividers |
 | `--hairline-solid` | `oklch(0.27 0 0)` | `#262626` | borders where alpha is impractical |
 | `--text-1` | `oklch(0.93 0.005 90)` | `#e9e8e4` | primary text, selected path |
@@ -58,6 +58,30 @@ Around the wheel (counter-clockwise from angle 0) the groups run Archaea, Bacter
 - **In the DOM, a kingdom hue appears only as** a 6×6 px square swatch or a 2px vertical rule. Never as text colour, background, border or button.
 - **In the canvas,** hues drive the rim, rim marks, the near-rim branch tint and the tip labels (hue mixed 50% toward `--text-1` for legibility).
 
+### 2.3 Glass (the floating surfaces)
+Everything that floats over the wheel is **smoked glass**: a dark neutral fill over the wheel blurred, darkened and slightly saturated, so a bright rim behind a card or menu shows as a soft, dim bloom of its kingdom hue and the text on top stays legible. Think macOS / visionOS materials at their most restrained: no colour of its own, no gradients, no glow, no drop shadow. The tokens live in `styles.css` (`:root`) and the material is applied in one block there ("Glass").
+
+| Token | Value | Use |
+|---|---|---|
+| `--glass-fill` | `oklch(0.18 0 0 / 0.56)` | card, search bar, zoom reset |
+| `--glass-fill-dense` | `oklch(0.16 0 0 / 0.70)` | text-dense layers that open over anything: search palette, wordmark menu, dialogs, tooltip; the search bar and reset on hover |
+| `--glass-filter` | `blur(24px) saturate(1.6) brightness(0.7)` | the backdrop of large surfaces |
+| `--glass-filter-small` | `blur(12px) saturate(1.6) brightness(0.7)` | the tooltip and the reset button |
+| `--glass-edge` | `oklch(1 0 0 / 0.11)` | the 1 px border of every glass surface |
+| `--glass-edge-strong` | `oklch(1 0 0 / 0.20)` | the search bar at rest (`/ 0.32` on hover), the reset button on hover, the tour's Stop |
+| `--glass-highlight` | `inset 0 1px 0 0 oklch(1 0 0 / 0.06)` | a 1 px inner top highlight: the only `box-shadow` allowed |
+| `--glass-hover` / `--glass-active` | `oklch(1 0 0 / 0.06)` / `/ 0.10` | hover rows and buttons / the active tab and search row |
+| `--glass-text-3` | `oklch(0.65 0 0)` | `--text-3` inside glass (set on each glass surface) |
+| `--glass-dim` | `oklch(0 0 0 / 0.45)` | a dialog's `::backdrop`: a flat dim, never a full-screen blur |
+| `--radius-l` / `-m` / `-s` / `-media` | 14 / 10 / 6 / 8 px | card, palette, dialogs / search bar, menu, tooltip, tab track / rows, buttons, reset / the photo and the Range map |
+
+**Rules**
+- **One layer deep.** Glass never sits on glass, except the docked search palette over the card while it is open. HUD text (wordmark, breadcrumb, readout, key, zoom strip ticks) gets no plate: the renderer darkens the tree behind it instead (§4.1).
+- **Few blurred boxes.** `backdrop-filter` re-blurs its area every frame the canvas changes (the wheel turns all the time), so it goes only on the card, the search bar, the palette, the menu, the dialogs, the tooltip and the reset button: at most three at once in practice. Blur radii stay at 24 px and 12 px.
+- **Legibility.** The fill and the backdrop's `brightness(0.7)` keep text over the brightest blurred rim at AA: `--text-1` and `--text-2` comfortably; `--text-3` is lifted to `--glass-text-3` on glass so 11 px meta stays at about 4.5:1 there too.
+- **Fallbacks.** Without `backdrop-filter` (`@supports not`), under `prefers-reduced-transparency: reduce` and under `prefers-contrast: more` the fills become opaque `--surface`; more contrast also brightens the edges to `--text-3` / `--text-2`. Shapes and radii stay.
+- **Edges and corners.** A 1 px `--glass-edge` border plus the inner top highlight; no gradient borders. Radii are concentric-ish: 14 px outside, 6–10 px for what sits inside, 8 px for media.
+
 ## 3. Typography
 | Role | Face | Sizes / weights | Notes |
 |---|---|---|---|
@@ -88,7 +112,7 @@ Around the wheel (counter-clockwise from angle 0) the groups run Archaea, Bacter
 ### 4.1 Desktop (landscape, ≥ 720 px)
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Circle of Life                                      [ Search 2.3M species / ]│
+│ Circle of Life                        [ ⌕  Search 2.3M species            / ]│
 │          . · ' ' ' · .                    ┌─────────────────────────────────┐│
 │     . '                ' .                │ Panthera onca                 ⧉ ││
 │   '                       '               │ species · in Felidae            ││
@@ -108,49 +132,58 @@ Around the wheel (counter-clockwise from angle 0) the groups run Archaea, Bacter
 
 **Placement**
 - **Margins** are 16 px at the edges, on an 8 px grid.
-- **Top-left: the wordmark** "Circle of Life", Hanken Grotesk 500 at 13 px in `--text-1`. Clicking it opens a text-row menu: "Data & credits", "Keyboard", "Auto-orient: on".
-- **Top-right: the search trigger.** An opaque `--surface` field with a hairline border and radius 2 px, at 13 px in `--text-3`, with a `/` key hint. It sits above the card.
-- **Right: the card**, a fixed rectangle from 62% of the width to the 16 px gutter, and from 56 px (under the search trigger) to 40% of the height; at least 340 × 240 px.
-  - `--surface` with a 1 px `--hairline` border, radius 0, no shadow. It fades in once (200 ms) with the first selection and never closes: there is always a selection, *Homo sapiens* to begin with, and no close button.
+- **Top-left: the wordmark** "Circle of Life", Hanken Grotesk 500 at 13 px in `--text-1`. Clicking it opens a glass menu (§2.3; dense fill, radius 10 px, rows as 6 px-radius plates on hover; ↑/↓ move, Esc closes): "Data & credits", "Keyboard" (a dialog listing §8's keys in two columns), "Auto-orient: on", "Tour: on" (not under reduced motion) and, below 720 px, the six kingdoms (6 px swatch + name), which are the key's place on a phone.
+- **Top-right: the search bar**, the way in that newcomers must not miss: exactly as wide as the card and aligned to its edges, 40 px tall, 8 px above it (12 px from the top). A glass field (§2.3) with a 1 px `--glass-edge-strong` border, radius 10 px: a 16 px magnifier, "Search 2.3M species" at 15 px in `--text-2`, and the `/` key hint (a 4 px-radius hairline keycap) at the right. Hover and focus brighten the border, densen the fill and turn the text `--text-1` (plus the focus ring).
+- **Right: the card**, from 62% of the width to the 16 px gutter, its top at 60 px (under the search bar). A fixed box, down to min(60% of the height, height − 152 px, top + 560 px). The composition (the anchor) is built round its nominal box, down to 40% of the height (at least 340 × 240 px); the leader and the labels follow the card's real box. **Nothing in it scrolls:** under its head are tabs, and each tab's content is fitted to the tab area (§4.2).
+  - Glass (§2.3): `--glass-fill`, a 1 px `--glass-edge` border, the inner top highlight, radius 14 px, no drop shadow. It fades in once (200 ms) with the first selection and never closes: there is always a selection, *Homo sapiens* to begin with, and no close button. The leader meets its straight left (or bottom) edge at least 24 px from a corner, clear of the rounding.
   - The same content as before (§4.2). Long content scrolls inside the card. The about image floats right at 40% of the card's width, so the head and summary share the first screenful.
-  - **The leader**: a 1 px `--text-1` hairline, like the "You are here" callout, from the selection up at 60° to an elbow, then horizontally into the card's left edge (24 px of square run). It is never hidden, and never crosses the card: a start below the card's left edge enters its bottom edge, one above the card its top edge. Text keeps clear of it. It is drawn on the label canvas, not by the renderer.
-    - It starts just outside the selection's ring. Once tip names show, it leaves from just past the selection's own name (for a clade, past the column of names), so it never cuts through the neighbours' names.
+  - **The leader**: a 1 px `--text-1` hairline, like the "You are here" callout, from the selection up at 60° to an elbow, then horizontally into the card's left edge (24 px of square run). It is never hidden, and never crosses the card: a start below the card's left edge enters its bottom edge, one above the card its top edge. It never costs a label: it runs under the names, cut by a 1.5 px gap round each glyph it crosses, and a clade bar's name slides off it where it can. It is drawn on the label canvas, not by the renderer.
+    - It starts just outside the selection's ring. Once tip names show, it leaves from just past the selection's own name (for a clade, and for a species whose subspecies are the tips, past the column of names). A tip's leader then runs straight on along its own row to 24 px past the end of the whole name column (never closer to the card than its square run), and only then rises, so it crosses no neighbour's name and none is abbreviated for it.
     - For a clade zoomed in past its node, the start slides along the clade's stem to the rim, where its tips are, as the node leaves the screen.
     - When the selection is off screen (turned or zoomed away, or behind the card), the leader starts where the ray from the anchor towards it leaves the screen (above the bottom HUD band), with a small open arrowhead (8 px) pointing that way; the arrowhead fades in over its first 24 px of distance. Every step is continuous, so the start glides while the wheel turns or flies.
 - **Bottom-left: the persistent HUD.**
   - Line 1 is the breadcrumb: the selection's lineage, at 13 px in `--text-2`. Segments are clickable (they select that clade), the current one is `--text-1`, and the separator is "›". Long trails are middle-truncated as "Eukaryota › … › Felidae".
-  - Line 2 is the readout, at 11 px in `--text-3` with tabular numbers: "6,495 species in view · OpenTree 16.1" (below 720 px just the count). The LOD level is debug information and lives in `?debug`.
-- **No plates.** HUD text and controls are flat DOM with no background. The renderer darkens the tree behind each HUD box (85%, 8 px padding, a 20 px soft edge), so the text reads over bright bars without boxes cutting the glow. The boxes come from one shared registry (`ui/obstacles.ts`) that the card and search use too.
-- **Left edge: the zoom strip.** A slim vertical scale, 16 px from the left edge, centred between the header and the bottom HUD (at most 300 px long), like the side of a scroll wheel: 1 px ticks every 6 px in `--hairline-solid`, every fifth one longer in `--text-3`; a 2 px `--text-1` thumb; the reading beside it at 11 px in `--text-2`, tabular. The top is 100% (maximum zoom), the bottom 2% (minimum zoom, the composition a plain visit opens on); in between it is logarithmic in zoom, so every step feels the same. Drag it to zoom about the anchor, click a point to fly there, scroll over it to zoom; it is a slider for the keyboard (↑/↓ 5%, Page Up/Down 20%, Home/End). It follows every other zoom live. The reset button (28 px, hairline, the ⟲ icon) sits under it and returns to minimum zoom, keeping the selection. It replaces the − and + buttons. Flat, no plate: the tree is darkened behind it like the rest of the HUD.
+  - Line 2 is the readout, at 11 px in `--text-3` with tabular numbers: "6,495 species in view · OpenTree 16.1" (below 720 px just the count). The LOD level is debug information and lives in `?debug`. In its place, in this order:
+    - while the first view loads: "Loading tree · 9 / 15 tiles", with " · slow connection" after 8 s;
+    - while the idle tour runs: "Touring · 6,495 species in view · Stop", "Stop" a small rounded button (`--text-1` on `--glass-hover`, a 1 px `--glass-edge-strong` border, radius 10 px, no blur) that switches the tour off (the wordmark menu switches it on again);
+    - on a first visit (once per session, not for `?shot`), until the first input: "Drag to turn · scroll or use the strip to zoom · click a branch" ("pinch … tap" on touch screens).
+  - Breadcrumb segments and key entries are at least 24 px tall to hit (WCAG 2.5.8), with no change to the text.
+- **No plates.** HUD text and its text controls are flat DOM with no background (the zoom reset is the one glass button, and the tour's Stop a small rounded button). The renderer darkens the tree behind each HUD box (85%, 8 px padding, a 20 px soft edge), so the text reads over bright bars without boxes cutting the glow. The boxes come from one shared registry (`ui/obstacles.ts`) that the card and search use too.
+- **Left edge: the zoom strip.** A slim vertical scale, 16 px from the left edge, two thirds of the window's height, centred on it (or as near as the header and the bottom HUD allow, with room for the "+" above and the "−" and reset button below), like the side of a scroll wheel: 1 px ticks every 8 px in `--hairline-solid`, every fifth one longer in `--text-3`; a 2 px `--text-1` thumb; the reading beside it at 11 px in `--text-2`, tabular, shown only while the strip is hovered, focused or dragged (150 ms fade; the focus ring goes round the reading, not the whole scale). A "+" above the top tick and a "−" below the bottom one (11 px `--text-3`, `--text-1` on hover) step it by 20% and say which end is which. The tree behind it darkens to 60% (lighter than the text's 85%: it is mostly ticks). The top is 100% (maximum zoom), the bottom 2% (minimum zoom, the composition a plain visit opens on); in between it is logarithmic in zoom, so every step feels the same. Drag it to zoom about the anchor, click a point to fly there, scroll over it to zoom; it is a slider for the keyboard (↑/↓ 5%, Page Up/Down 20%, Home/End). It follows every other zoom live. The reset button (28 px, glass with the small blur, radius 6 px, the ⟲ icon) sits under it and returns to minimum zoom, keeping the selection. Its value text reads "2%, minimum zoom" at the bottom. Flat, no plate: the tree is darkened behind it like the rest of the HUD.
 - **Bottom-right: the kingdom key:** a 6 px swatch plus the name at 11 px, in clockwise order round the default view (Animals, Fungi, Plants, Protists, Bacteria, Archaea). Clicking an entry selects that group and flies to it.
 - **While dragging,** the chrome drops to 40% opacity over 150 ms.
 
-### 4.2 Card content (top → bottom)
+### 4.2 Card content: a head and tabs
 ```
-Panthera onca                              ⧉ copy        ← serif italic 22/600 (higher ranks: sans 22/600)
-species · in Felidae                                     ← 13 text-2
-Linnaeus, 1758                                           ← 13 text-2 (authority roman)
-─────────────────────────────────────────────── hairline
-[ image, 3:2, cover, no radius ]                         ← floated right at 40% of the card (36% on a phone)
-Image: Jane Doe · CC BY-SA 4.0 · Wikimedia Commons       ← 11 text-3, links underlined on hover
-The jaguar is a large cat species … (Wikipedia)          ← 15 text-1, max 6 lines + "Read on Wikipedia"
-Near Threatened (NT) · IUCN via Wikidata                 ← 13 text-1, plain text, no badge
-─────────────────────────────────────────────── 
-Where it lives        [GBIF density map, dark, 380×190]
-                      Brazil 1,204 · Mexico 880 · …      ← 11 text-2 tabular
-─────────────────────────────────────────────── 
-Lineage  Eukaryota › Animals › Chordata › Mammalia › Carnivora › Felidae › Panthera
-Counts   1 species · 0 direct descendants
-         (or: "412 direct descendants · relationships unresolved")
-IDs      OTT 42324 · GBIF 5219426 · NCBI 9690             ← mono 11
-Links    GBIF · Wikidata · iNaturalist · Open Tree
-─────────────────────────────────────────────── 
-Text: Wikipedia (CC BY-SA 4.0) · Image: … · Data: GBIF.org, Open Tree of Life    ← 11 text-3
+Panthera onca ⧉                                          ← serif italic 22/600 (higher ranks: sans 22/600); ⧉ a 24 px button beside it, text-3
+Jaguar                                                   ← the common name, sentence case: 15 text-1 (13 on a phone); none, no line
+species · in Felidae · Linnaeus, 1758                    ← 13 text-2 (authority roman, once the about section loads)
+You are here                                             ← 13 text-2, Homo sapiens only
+( Overview | Range | Tree )                              ← segmented: 13 text-2; the active tab text-1 on a --glass-active plate
+Overview: the extract (15 text-1) and "From Wikipedia,  │ [ image, 3:2, cover ]   ← 40% of the width (36% on a phone),
+CC BY-SA 4.0 · Read on Wikipedia" (11 text-3), the      │ Image: … · licence     shrinking to the tab's height
+IUCN status (13 text-1), notices                        │
+Range:    [ GBIF density map, as large as fits, 2:1 ]
+          1,204 records from 32 countries · Brazil 1,204 · Mexico 880 · …   ← one line each, ellipsis; credit line
+Tree:     Lineage  … › Mammalia › Carnivora › Felidae   ← the nearest ancestors that fit 2 lines; "…" titled with the whole trail
+          Counts   1 species · 0 direct descendants ("412 … · relationships unresolved"; "6 subspecies")
+          Children Panthera onca 1 …  +23 more          ← as many as fit (at most 8); "+N more" pages on
+          Links    Wikipedia · GBIF · iNaturalist · Wikidata · Open Tree
+          IDs      OTT 42324 · GBIF 5219426 · NCBI 9690  ← mono 11
+          Text: Wikipedia (CC BY-SA 4.0) · Image: … · Tree: Open Tree of Life (CC0) · Data & credits   ← 11 text-3
 ```
+**Tabs** (ui/tabs.ts): a small segmented control, as wide as its labels, 14 px under the head: a recessed track (`oklch(0 0 0 / 0.25)`, 1 px `--hairline`, radius 10 px, 2 px padding) holding 28 px tabs (26 px on a phone, 40 px to hit) with 7 px radius; the active one is `--text-1` on a `--glass-active` plate with the glass highlight, the rest `--text-2`. No hairline rules round the row. The WAI-ARIA tabs pattern: `tablist`, `tab`s with `aria-controls` → `tabpanel`s, roving tabindex, ←/→ (wrapping), Home and End move and activate (they never walk the tree). A tab with nothing to show is left out: an unnamed clade has Tree only (and no tab row), most clades no Range. The tab the visitor picks is kept for the next selection that has it, else Overview; the tour never changes tabs. Loading ("Fetching from Wikipedia, GBIF…", "Fetching from GBIF…") and errors sit inside the tab they concern.
+
+**Fitting, never scrolling** (ui/fit.ts): Overview shortens the extract a sentence at a time (down to two lines' worth), then drops the "no photo" note, then cuts to one line; Range sizes the map to the area above its three lines (beside them on a phone); Tree keeps the lineage to two lines, shows as many children as fit, then drops the credit line, links and ids in that order. Whatever still does not fit is left out whole, never cut through a line. On a phone the source line is the one-line "Read on Wikipedia · CC BY-SA 4.0".
+
 **Content rules**
+- The photo and the Range map have 8 px corners (`--radius-media`); the copy button, child rows and Retry are text-size controls with 6 px-radius `--glass-hover` plates on hover where they have a box.
 - An ancestor fallback carries a plain label line: "About the genus *Panthera*" (13 px, `--text-2`) above the borrowed text or image.
 - An unnamed node is titled "Unnamed clade", with "within *Felidae*" underneath.
 - *Homo sapiens* carries a "You are here" line under its rank (13 px, `--text-2`); while it is the selection, its leader replaces the canvas callout.
+- The lead text is cut to whole sentences that fit the first screen beside the image (a long first sentence is kept whole up to half again that), so it ends on a full stop, not an ellipsis mid-line.
+- A source that failed says so where its part would be, in 13 px `--text-3` with "Retry" in `--text-2` (the image's place, under the text, under "Where it lives"). `--danger` is only for the whole about request failing. What is simply missing ("No photo on Wikimedia Commons or iNaturalist.") goes last, at 11 px `--text-3`.
+- A new selection's content fades in over 200 ms when it arrives part-way through a flight (§6).
 
 ### 4.3 Mobile (< 720 px, and any portrait window)
 ```
@@ -170,33 +203,37 @@ Text: Wikipedia (CC BY-SA 4.0) · Image: … · Data: GBIF.org, Open Tree of Lif
 │ 214 species in view      │
 └──────────────────────────┘
 ```
-- **The card spans the top**, under the header, full width less 12 px gutters, 30% of the height (200–300 px). It is compact: 12 px padding, an 18 px title, 13 px body text, the image floated right at 36%.
+- **The card spans the top**, under the header, full width less 12 px gutters, 30% of the height (200–300 px), a fixed box like the desktop one, with the same head and tabs. It is compact: 10/12 px padding, an 18 px title, 13 px body text with title line height in the head, a 32 px tab row whose tabs are 40 px to hit, the image at 36%, the Range map beside its lines.
+- **The search bar** takes the rest of the top row beside the wordmark (40 px tall, same style as desktop, no `/` hint): it is in line with the wordmark, so neither the card nor the wheel moves down for it, and it is the widest, most obvious thing at the top.
 - **The wheel sits below.** The anchor is 88 px under the card, at 60° from the wheel's centre; the centre sits low near the left edge (86% of the height) and the rim's right edge stops 20 px inside the screen, so the rim fills the space under the card and its focus area is just below it. At deep zoom the rim turns vertical at the anchor, as on desktop, and the anchor drifts left to 30% of the width, so names running right fit without abbreviation.
 - **The leader** runs up at 60° from the selection to an elbow 20 px under the card, then vertically into the card's bottom edge.
-- The kingdom key is reachable from the wordmark menu. Touch targets are at least 40 px. The bottom HUD (breadcrumb, readout) stays at the bottom.
-- **The zoom strip** runs down the left edge from 24 px under the card (at most 260 px), with a 40 px wide touch target and the 40 px reset button under it, clear of the bottom HUD. Touches on it zoom; the wheel's own drag and pinch work everywhere else.
+- The kingdom key is reachable from the wordmark menu (its kingdom rows). Touch targets are at least 40 px. The bottom HUD (breadcrumb, readout) stays at the bottom. The card never grows past its 30% box (the wheel's focus is right under it).
+- **The zoom strip** runs down the left edge, 20 px in (clear of the system's edge swipe), from 48 px under the card (room for the "+") down to the room the "−" and reset button need above the bottom HUD: all the space there is (about 36% of an 844 px phone; two thirds does not fit under the card), with a 40 px wide touch target, 40 × 24 px "+" and "−" steps and the 40 px reset button under it, clear of the bottom HUD. Touches on it zoom; the wheel's own drag and pinch work everywhere else.
 
 ### 4.4 Search palette
 ```
             ┌───────────────────────────────────────────────┐
             │ homo sap▌                                 esc │  ← 15 text-1, hairline bottom
             ├───────────────────────────────────────────────┤
-            │ ■ Homo sapiens          Mammalia › Primates   │  ← active row: --surface-2 + 2px left rule in --text-1
+            │ ■ Homo sapiens          Mammalia › Primates   │  ← active row: an inset --glass-active plate, radius 6 px
             │ ■ Homo sapiens idaltu   Mammalia › Primates   │
             │ ■ Homo                  genus · Hominidae     │
             └───────────────────────────────────────────────┘
 ```
 **Layout and style**
-- Width min(560 px, 100% − 32 px), positioned 12vh from the top.
-- `--surface`, hairline border, radius 2 px.
-- **No backdrop blur and no dimming gradient.** The canvas stays visible, dimmed to 50% by the renderer (a uniform, not CSS).
+- Desktop: in place of the search bar, over the card: from the card's left edge (at least 400 px wide, growing left) to the 16 px gutter, 12 px from the top (where the bar is). Phone: full width less the gutters, at the top.
+- Glass (§2.3) with the dense fill, radius 14 px. Docked over the card it blurs the card's (stepped-back) content away.
+- **No dimming gradient and no full-screen blur.** The canvas stays visible, dimmed to 50% by the renderer (a uniform, not CSS); only the palette's own box is blurred.
 
 **Rows**
 - Each row: a 6 px swatch, then the name in its correct style. The part that matched is weight 600; the rest is 400.
 - Then the muted lineage or matched common name (`--text-3`).
 - Common-name matches show as "jaguar · *Panthera onca*".
 
+- Names that are sequencing leftovers ("… environmental sample", "uncultured …", "… metagenome") go to the end of the results.
+
 **States**
+- Nothing typed: "Recent" (this visit's own selections, at most 4) then "Try" (the tour's species by common name, "Tiger · *Panthera tigris*"), 6 rows in all, under 11 px `--text-3` headings; ↑/↓ and Enter work on them as on results.
 - Empty: "No taxon matches “xyz”. Try a genus or a common name."
 - Error: "Search is unavailable right now." with a "Retry" link.
 
@@ -204,19 +241,19 @@ Text: Wikipedia (CC BY-SA 4.0) · Image: … · Data: GBIF.org, Open Tree of Lif
 | Element | Spec |
 |---|---|
 | Background | `#000` |
-| Interior branches | 1 device px hairlines, `--branch` α 0.35 (0.85 deep). Colour mixes toward the kingdom hue as r goes 0.55 → 1, squared so it concentrates near the rim. Within 120 px of the rim lines brighten (the luminous rim band) |
+| Interior branches | 1 device px hairlines, thickening to 1.75 CSS px (antialiased quads) as tips spread from 8 to 32 px apart, where each branch reads as its own line running into its name; arcs and the frontier extensions follow. Below one device px they stay native hairlines, so the overview and mid zoom are unchanged. `--branch` α 0.35 (0.85 deep). Colour mixes toward the kingdom hue as r goes 0.55 → 1, squared so it concentrates near the rim. Within 120 px of the rim lines brighten (the luminous rim band) |
 | Frontier extensions and fans | stand for unresolved subtrees: faint at their node, building up towards the rim and dimming far from the rim band on screen. Fans are drawn as hashed fine strands (never flat polygons); fans under 1.5 px wide are left to their extension line |
 | Arcs | same as branches |
 | Centre | empty disc of r0 = 0.08, no ring drawn beyond the root arc |
 | Rim ring | analytic glow: a crisp core (σ ≈ 1.2 px) plus a soft halo (decay ≈ 10 px outside, ≈ 55 px inside, at overview), kingdom LUT colour, additive. Fades out as tips resolve (λ 11.5 → 13) |
 | Rim spikes ("fur") | one per frontier clade, outward, length 3–14 px ∝ log2(tips), soft-edged, additive; plus the ring's own fine fur, outward strokes up to 9 px of hashed length per ~1.5 px column, so the rim is furry even where every clade is large |
-| Tip bars (as tips resolve) | the last ≤ 120 px of each tip's hairline, brightened in the kingdom colour: one device px wide like the hairline, no halo, soft inner end. They fade in with λ 12 → 13.5, keeping the rim's glow as the ring fades, and fade out again as tips spread 2 → 6 px apart, so at deep zoom each branch runs into its species name as one even line. *Homo sapiens* and its two subspecies share one white line on the label's row, and the home node gets a long white outward leader bar (0.7 × tip spacing wide, ≤ 28 px; 280 px long) past its label, fading in smoothly from its far end, with a rounded halo at its near end |
-| Hover path | 2 px, `--text-1` at 60% (an opaque grey of that brightness, so it reads over bright bars); the rest of the tree dims to 60%. It follows what is drawn: a frontier node's path runs on to the rim |
-| Selection | 2 px white path plus a 6 px (radius) hairline ring at the node; a tip's (and Homo sapiens') ring sits at the rim. Always present (*Homo sapiens* by default) |
-| Selection leader | 1 px `--text-1` hairline on the label canvas from the selection (past its name once names show) to the card (§4.1, §4.3): 60° up to an elbow, then square into the card. Never hidden; off screen it starts at the screen edge towards the selection with an 8 px open arrowhead. Labels keep clear of it |
-| "You are here" | hairline leader from the home tip outward plus the 11 px label "You are here", `--text-1`; hidden while *Homo sapiens* is the selection (the selection leader and the card say it) |
+| Tip bars (as tips resolve) | the last ≤ 120 px of each tip's hairline, brightened in the kingdom colour: as wide as its hairline (one device px, more once lines thicken), no halo, soft inner end. They fade in with λ 12 → 13.5, keeping the rim's glow as the ring fades, and fade out again as tips spread 2 → 6 px apart, so at deep zoom each branch runs into its species name as one even line. *Homo sapiens* and its two subspecies share one white line on the label's row, and the home node gets a short white outward bar past its label, drawn like a tip bar: as wide as the lines (one device px at least), 120 px long, no halo, fading in from its far end. It is not drawn while *Homo sapiens* is the selection (the selection leader and the card say "you are here" then) |
+| Hover path | 2 px (at least twice the line width as lines thicken), `--text-1` at 60% (an opaque grey of that brightness, so it reads over bright bars); the rest of the tree dims to 60%. It follows what is drawn: a frontier node's path runs on to the rim |
+| Selection | 2 px white path (at least twice the line width, so it stays the heaviest line) plus a 6 px (radius) hairline ring at the node; a tip's, *Homo sapiens'* and a species-with-subspecies' ring sits at the rim, the path running on to it. Always present (*Homo sapiens* by default). The selected clade's bar (and its name) is drawn in `--text-1`, whatever its size or lane, and the selection's tip names (a tip's own, a clade's) are `--text-1` instead of their kingdom hue, so a selected clade reads as "these" even as a dense band |
+| Selection leader | 1 px `--text-1` hairline on the label canvas from the selection (past its name once names show) to the card (§4.1, §4.3): 60° up to an elbow, then square into the card. Never hidden; off screen it starts at the screen edge towards the selection with an 8 px open arrowhead. Runs under the names, cut 1.5 px round each glyph it crosses; it never hides a label |
+| "You are here" | hairline leader from the home tip outward plus the 11 px label "You are here", `--text-1`; hidden while *Homo sapiens* is the selection (the selection leader and the card say it), and never placed over the wordmark, the card or the rest of the HUD |
 | Labels | see §3. Fade 150 ms, hysteresis 1.0× / 0.85× fit |
-| Clade bars | where a clade's own arc cannot hold its name, once the wheel is no longer whole on screen (group labels show until then): a 1 px `--text-3` hairline arc outside the rim over its tips, 5 px end ticks towards the rim, name in `--text-2` just beyond (Latin in serif italic). Nested clades stack outward in lanes. Bars stay inside the 16 px gutter and above the HUD band. At deep zoom they sit past the tip-label column, names at 13 px set horizontally beside the bar |
+| Clade bars | where a clade's own arc cannot hold its name, once the wheel is no longer whole on screen (group labels show until then): a 1 px `--text-3` hairline arc outside the rim over its tips, 5 px end ticks towards the rim, name in `--text-2` just beyond (Latin in serif italic). Nested clades stack outward in lanes. Bars stay inside the 16 px gutter and above the HUD band. At deep zoom they sit past the tip-label column, names at 13 px set horizontally beside the bar. A name along an arc never turns more than 100° from upright (within 10° of vertical it reads bottom to top), and a bar whose name has no room is not drawn |
 | Dense glow | saturating additive blending: dense areas converge on their kingdom hue and never wash to white |
 
 Glow exists **only** in the canvas. It comes from additive blending and soft-edged geometry; v1 has no post-processing bloom. It is strongest on the whole wheel and eases to 45% by mid zoom. **Glow never pulses or animates on its own.** All of these numbers live in `web/src/style.ts`.
@@ -233,7 +270,8 @@ Glow exists **only** in the canvas. It comes from additive blending and soft-edg
 | Chrome dim while dragging | 150 ms | linear |
 | Ambient turn (idle) | 20 CSS px/s at the anchor at every zoom, clockwise (about one turn in 4 min at minimum zoom); stops on any input, eases back in 3 s after the last one (0.8 s after a flight, card hover or search ends) over 2 s | friction, τ 400 ms |
 | Fling (release of a turning drag or a two-finger twist) | spins on at the release speed, decays into the ambient turn | friction, τ 400 ms |
-| Idle tour | after 10 s on a selection, the next species from a curated list (shuffled, no repeats until all are seen), a ≥ 2.4 s turn at the same zoom; any input stops it, it resumes after 30 s without input; pointer movement in the last 3 s, the pointer resting on the card, search, a flight or a hidden tab hold its countdown (a pointer resting on the wheel does not) | fly-to path |
+| Idle tour | 15 s after a plain visit, then after 12 s on each selection, the next species from a curated list (shuffled, no repeats until all are seen), a ≥ 2.4 s turn at the same zoom; any input stops it, it resumes after 36 s without input; pointer movement in the last 3 s, a touch in the last 30 s, the pointer resting on the card, focus in the card, scrolling it, a text selection, search, a dialog, a flight or a hidden tab hold its countdown (a pointer resting on the wheel does not). It runs on phones too. While it runs the readout says "Touring · … · Stop"; Stop and the wordmark menu's "Tour: on/off" switch it | fly-to path |
+| Card on a long flight | a selection whose flight lasts over 600 ms switches the card, the leader and the breadcrumb at 60% of the flight (the wheel mostly there), its content fading in over 200 ms; the leader stays on, following the old selection until then | `cubic-bezier(0.2, 0, 0, 1)` |
 | Wheel zoom | immediate, anchored at the anchor (not the cursor) | — |
 | −, + and double-click zoom | 220 ms, about the anchor | ease-out cubic |
 
@@ -241,12 +279,12 @@ Glow exists **only** in the canvas. It comes from additive blending and soft-edg
 
 **`?still`** (implied by `?shot`): no ambient turn, no fling and no tour, so screenshots and tests are deterministic; `?tour=<seconds>` turns the tour on by itself with that dwell. A hidden tab pauses everything.
 
-**Opening:** a plain visit always opens on *Homo sapiens* at minimum zoom (nothing is restored from storage), and the tour starts from it. A deep link (`?n=`) opens on its node and the tour waits 30 s before moving on.
+**Opening:** a plain visit always opens on *Homo sapiens* at minimum zoom (nothing is restored from storage), and the tour starts from it after 15 s. A deep link (`?n=`) opens on its node and the tour waits 36 s before moving on.
 
 ## 7. States and copy
 **Loading**
 - Shows the coarse tree first: level 0–3 tiles render as they arrive.
-- A 1 px hairline progress bar at the top, with a truthful label in the readout: "Loading tree · 9 / 15 tiles".
+- A 1 px hairline progress bar at the top, with a truthful label in the readout: "Loading tree · 9 / 15 tiles" (" · slow connection" after 8 s). The wordmark, the search trigger and the readout show from the first frame; only the breadcrumb, the key, the zoom strip and the card wait for the intro.
 - No spinners, no shimmer and no skeletons.
 
 **Panel about-section loading:** a hairline progress line under the title and the text "Fetching from Wikipedia, GBIF…". Core data shows immediately.
@@ -257,6 +295,7 @@ Glow exists **only** in the canvas. It comes from additive blending and soft-edg
 - "No occurrence records on GBIF."
 
 **Errors:**
+- Nothing could load (the API is down at start): one centred 15 px `--text-2` line, "Couldn’t load the tree. Reload".
 - "Couldn’t reach Wikidata. Retry"
 - "Tile failed to load. Retrying…", retried automatically 3× with backoff.
 
@@ -269,26 +308,27 @@ Glow exists **only** in the canvas. It comes from additive blending and soft-edg
 ## 8. Interaction checklist
 - **Hover:** highlights the root→node path, dims the rest and shows a tooltip.
   - Tooltip content: the name in its correct style, then "species · 1" or "family · 3,214 species" in `--text-2`.
-  - Tooltip style: `--surface`, hairline border, radius 2 px, 8 px offset.
+  - Tooltip style: glass (§2.3), dense fill, small blur, radius 10 px, 8 px offset.
 - **Click or tap** selects the node: the card shows it, the URL gets `?n=ott…`, and the wheel turns so the node lands on the anchor, at the same zoom. There is no empty state; nothing deselects.
-- **Left alone**, the wheel turns slowly and, after 10 s, the idle tour moves the selection to another species every 10 s (§6). Any input stops the tour for 30 s; a released drag flings the wheel.
+- **Left alone**, the wheel turns slowly and, after 15 s, the idle tour moves the selection to another species every 12 s (§6), saying so in the readout with a Stop button. Any input stops the tour for 36 s; a released drag flings the wheel.
 - **Drag** turns the wheel about its centre (never pans). **Wheel**, **pinch**, `+`/`-` and the buttons zoom about the anchor; **two fingers twisting** turn the wheel.
 - **Search, lineage, breadcrumb, kingdom key and the arrow keys** select and fly: turn the node onto the anchor and zoom to suit it.
 - **Keys:**
   - `/` or `⌘K` search
   - `Esc` closes the topmost layer (search, dialog, menu); it never clears the selection
-  - `↑`/`Backspace` parent, `↓` largest child, `←`/`→` siblings
+  - `↑`/`Backspace` parent (the nearest named one: unnamed clades are stepped over), `↓` largest child, `←`/`→` siblings
   - `H` "You are here"
   - `R` auto-orient
   - `+`/`-` zoom; on the zoom strip, `↑`/`↓`, `Page Up`/`Page Down`, `Home`/`End`
-- **Focus:** a visible 1 px `--focus` ring with 2 px offset on every interactive element. No `outline: none` without a replacement.
+- **Focus:** a visible 1 px `--focus` ring with 2 px offset on every interactive element. No `outline: none` without a replacement. Tab goes wordmark, search, the card, then the breadcrumb, the key and the zoom strip.
+- **Announcements** (the live region) say the selection in words: "Homo sapiens, species, 2 subspecies. You are here.", "Felidae, family, 91 species."
 - **Deep links** restore the selection (`n`, default *Homo sapiens*) and the view (`v=a,z`: rotation and zoom). Old links with a pan (`v=a,r,z,rot`) still open, without the pan.
 
 ## 9. Banned tells (ship-gate: all must be absent)
 - [ ] gradients in the DOM (`linear-gradient`, `radial-gradient`, `conic-gradient`) and gradient text
-- [ ] glassmorphism, `backdrop-filter`, blur
-- [ ] glow, `box-shadow` or `text-shadow` on any UI or text
-- [ ] radius > 4 px; rounded-2xl cards; drop shadows
+- [ ] blur or glass beyond the one material of §2.3: `backdrop-filter` only as `var(--glass-filter…)`, no `filter: blur`, no frosted full-screen backdrops, no tinted or coloured glass
+- [ ] glow, drop shadows or `text-shadow` on any UI or text (`box-shadow` only as `var(--glass-highlight)`)
+- [ ] radius > 16 px; radii outside the §2.3 scale; drop shadows
 - [ ] emoji, ✨, decorative icons (at most 5 text-size glyphs: ›, ⧉, −, +, ⟲)
 - [ ] pill badges, eyebrow kickers, small-caps or tracked-uppercase rank labels
 - [ ] hero stats or big-number vanity tiles
@@ -317,4 +357,4 @@ Glow exists **only** in the canvas. It comes from additive blending and soft-edg
    - **Per state** it opens `?shot&…`, awaits `window.__renderIdle === true`, and saves `screens/<state>@<w>x<h>.png`.
    - **States:** `overview`, `animals`, `mammals`, `deep-homo`, `panel-homo`, `search-open`, `mobile-overview`, `mobile-card`, `reduced`, and the locked-view set `locked-…` (minimum, mid and maximum zoom at 2000×1030, a clade, 1440×900, 1280×800, 390×844 at minimum and deep zoom).
 3. **Review rounds** after P6, P7 and P12. A separate reviewer agent compares the screens against `docs/reference/1-5.png` and §9, then lists concrete deltas such as "rim halo too weak at overview; tip labels too saturated; breadcrumb collides with key at 1280 px". The implementer fixes them. 2–3 rounds at most.
-4. **Optional:** `make lint-design` greps for banned CSS and font tokens (PLAN §10.2).
+4. **Optional:** `make lint-design` greps for banned CSS and font tokens (PLAN §10.2): gradients, `text-shadow`, the banned faces, `filter: blur`, radii over 16 px, and any `backdrop-filter` or `box-shadow` other than the glass tokens.

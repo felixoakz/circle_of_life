@@ -394,9 +394,10 @@ Routes are `http.ServeMux` patterns (`GET /api/nodes/{ref}`, read with `r.PathVa
 - Headers: `Cache-Control: public, max-age=86400`.
 - This endpoint may take a few seconds on a miss. The panel shows the core data first.
 
-**`/*`** serves `web/dist` with `http.ServeContent` (never `http.FileServer`: no directory listings, no `/index.html` redirect) and an `index.html` fallback for deep links.
+**`/*`** serves `web/dist` with `http.ServeContent` (never `http.FileServer`: no directory listings, no `/index.html` redirect) and an `index.html` fallback for deep links: only for paths without a file extension, so a missing `/favicon.ico` or `/robots.txt` is a real 404 (browsers remember a 404, but keep asking for an icon that answers with HTML).
 - `/assets/` (hashed names) gets `immutable` cache headers on success.
-- Everything else, `index.html` included, gets `no-cache`.
+- `index.html` gets `no-cache`; other files at the root (`favicon.svg`, `fallback.webp`) `public, max-age=86400`.
+- `web/public/favicon.svg` is the tab icon (a thin ring with one rim tick, dark on light tab bars and light on dark ones), linked from `index.html`.
 - Content types are fixed in `static.go` for `.js .css .woff .woff2 .webp .svg .json`, because Go's own table depends on the system's `/etc/mime.types`. `.woff` is `application/font-woff`, which the gzip rules compress; woff2 and images go out as they are.
 - `GET /api` and `GET /api/…` that match no route are a JSON 404, never `index.html` (a bare `/api` gets its own pattern, or ServeMux would redirect it to `/api/`).
 
@@ -464,6 +465,11 @@ Routes are `http.ServeMux` patterns (`GET /api/nodes/{ref}`, read with `r.PathVa
   - Wikimedia (Wikidata, Wikipedia, Commons): 4
   - iNat: 1, plus a minimum 1 s gap (`INatGap`), kept by holding a `sync.Mutex` across the wait
 - **Retries:** honour `429`/`503` `Retry-After` by failing fast (`complete=0`) instead of sleeping in the request path.
+- **The Wikimedia gate** (`internal/enrich/gate.go`), passed by every Wikidata, Wikipedia and Commons request before its semaphore slot:
+  - a token bucket, 4 requests/s with bursts of 8 (`WikimediaRate`, `WikimediaBurst`); a request that would wait over 3 s for its token (`MaxThrottleWait`) is not sent and fails as rate limited;
+  - after a `429` or `503` from any of them the gate shuts for the `Retry-After` (seconds or an HTTP date; 60 s without one, `DefaultCooldown`; at most 10 min, `MaxCooldown`). Until then every Wikimedia request fails at once without being sent; GBIF and iNat go on. Every such failure wraps `enrich.ErrRateLimited` and sets the document's `rateLimited`.
+- **One fetch per node at a time** (`internal/server/flight.go`): concurrent requests for the same uncached node, and a background refresh, share one fetch. The fetch runs detached from the request (`context.WithoutCancel` plus a 30 s `FetchTimeout`), so a reader who clicks on mid-fetch still leaves a stored document behind.
+- **The client waits for a selection to settle** 500 ms before it asks for `/about` (`web/src/wait.ts`, `ABOUT_SETTLE_MS` in `ui/panel.ts`), so arrow-key walks and quick clicks cost nothing upstream; a Retry click asks at once and then holds every Retry button for 5 s.
 - **No bulk pre-ingest.** A `species warm --top N` subcommand is a possible later addition and is out of scope.
 - **Tests run without the network.** Each upstream base URL lives in an `Endpoints` struct in `internal/config`. Tests point it at `internal/enrich/enrichtest`, an `httptest` mock that answers every service from the JSON fixtures in `tests/fixtures/enrich/` (`config.EndpointsUnder(base)` puts each service under its own path prefix), or test the parse functions on the fixtures directly.
 
@@ -476,7 +482,7 @@ Routes are `http.ServeMux` patterns (`GET /api/nodes/{ref}`, read with `r.PathVa
  "distribution":{"occurrences":1234,"countries":[["BR",120],["US",80]],"gbifKey":2436436},
  "generated":"Homo sapiens Linnaeus, 1758 is a species in the family Hominidae, with 1,234 GBIF occurrence records from 54 countries.",
  "links":{"gbif":"…","wikidata":"…","inat":"…","opentree":"https://tree.opentreeoflife.org/opentree/argus/opentree16.1@ott770315"},
- "fetchedAt":1761600000}
+ "fetchedAt":1761600000,"rateLimited":false}
 ```
 - **`about`:** set when the text or image comes from an ancestor, for example `{"nodeId":"ott…","name":"Panthera","rank":"genus"}`.
 - **`generated`:** always present, and shown only when there is no summary.
@@ -494,8 +500,8 @@ Routes are `http.ServeMux` patterns (`GET /api/nodes/{ref}`, read with `r.PathVa
 
 ### 6.4 As built in P10
 - **Files:** `internal/enrich/{enrich,doc,html,wikidata,wikipedia,gbif,inat}.go`, `internal/server/about.go`, `internal/db/{cache.go,cache.sql}`, `Endpoints` and `UserAgent()` in `internal/config`; `web/src/ui/{about,occmap,credits}.ts` (+ tests), panel/selection/main wiring. Fixtures in `tests/fixtures/enrich/` were captured live on 2026-10-28 (Wikidata entity files trimmed to the properties we read).
-- **Document** (§6.3) adds `nodeId`, `commonNames`, `summary.title/description`, `image.height`, `distribution.countryTotal/bbox`, `links.wikipedia/wikipediaPt/iucn`, `failed`, `complete`. `failed` lists sources that failed; the panel shows "Couldn’t reach X. Retry", and `?retry=1` refetches a cached *partial* document only.
-- **Cache:** 30 d complete / 1 d partial; stale rows are served and refreshed in a background goroutine (one per node, detached from the request with `context.WithoutCancel`). Partial responses are `Cache-Control: no-store`. A client that disconnects mid-fetch cancels the request context; that partial document is not stored. mrca nodes get a minimal, uncached document and the panel shows no about section for them.
+- **Document** (§6.3) adds `nodeId`, `commonNames`, `summary.title/description`, `image.height`, `distribution.countryTotal/bbox`, `links.wikipedia/wikipediaPt/iucn`, `failed`, `complete`, `rateLimited` (a source failed with a rate limit). `failed` lists sources that failed; the panel shows "Couldn’t reach X. Retry", and `?retry=1` refetches a cached *partial* document only.
+- **Cache:** 30 d complete / 1 d partial / 10 min partial and `rateLimited` (`TTLRateLimited`); stale rows are served and refreshed in the background through the same one-fetch-per-node flights, except while the Wikimedia gate is shut. Partial responses are `Cache-Control: no-store`. A client that disconnects mid-fetch no longer cancels the fetch (§6.2); only a fetch cut off by `FetchTimeout` is not stored. mrca nodes get a minimal, uncached document and the panel shows no about section for them.
 - **Timeouts:** 4 s per call, except GBIF's faceted occurrence search at 10 s (`SlowTimeout`): cold queries took 5–20 s in testing, then < 1 s once GBIF cached them.
 - **Wikipedia titles** go into URLs as one path segment, escaped by the WHATWG path-segment rules plus `/` and `%` (`escapePathSegment`): controls, space, `"#<>?\`{}/%` and non-ASCII are percent-encoded, `()!*'` stay (Go's `url.PathEscape` would encode them).
 - **Generated sentence** uses GBIF's `rank` and `family` when the synth lineage lacks them (Hominidae, Staphylinidae, Latimeriidae are not nodes in synth 16.1).
@@ -583,15 +589,16 @@ This section is written in WebGL2 terms, the first renderer; the WebGPU renderer
 1. **Branches** (`LINES`, 2 vertices per instance, `gl_VertexID` picks the end). The segment runs from `parent_r` to `r`, or to 1.0 for frontier nodes.
    - **Colour:** `mix(branchGrey, lut(θ), smoothstep(0.55, 1.0, r))`. This matches the grey-interior, coloured-near-rim look of 4.png.
    - **Alpha:** about 0.35 × the fade. Hairlines are 1 device pixel.
+   - **Width:** once the line width (`style.ts` `LINE_DEEP_PX` × smoothstep over `LINE_WIDTH_SPACING`, 8 → 32 px between tips) is over a device px, branches and arcs are drawn as antialiased quads instead (`TRIANGLES`, 12 vertices per branch instance and `6K` per arc; WebGPU uses a second `triangle-list` pipeline for each, `pipelineKey`). At or under a device px they stay native lines, so the overview and mid zoom are unchanged.
 2. **Arcs** (`LINES`, `2K` vertices per instance; `instanceCount = internal_count`).
    - The shader clamps the arc to the visible angular window passed as uniforms, then subdivides it.
    - `K = 128` for tile levels ≤ 3 and `K = 16` otherwise. The chord sag is then under 0.2 px at overview and negligible at deep zoom.
 3. **Rim ring** (fullscreen triangle). An analytic glow around r = 1: `lut(θ) · (core·exp(−(δ/σ1)²) + halo·exp(−δ/σ2))`, where δ is the pixel distance to the rim. It fades out as tips become resolvable (λ > 12).
 4. **Rim marks** (instanced quads, `TRIANGLE_STRIP` 4 vertices) for frontier nodes and tips. The fragment shader gives soft edges, `exp` across the width, so each mark has a crisp core and a halo without any blur pass.
    - **Clade spike:** outward from r = 1. Length is `clamp(3 + 2·log2(leaf_count), 3, 14)` px, width is the node's angular span in px (at least 1 px), and alpha falls off outward.
-   - **Tip bar** (λ ≥ 12): inward from r = 1, the last `min(terminal length, 120 px)` of the tip's own hairline brightened in `lut(θ)`. It is 1 device px wide like the hairline, with no halo and a soft inner end. It fades in with λ 12 → 13.5 (keeping the rim's glow as the ring fades) and fades out again as tips spread from 2 to 6 px apart, so at deep zoom each branch runs into its species name as one even line.
-     - The home tip (Homo sapiens) is white. It also gets a long outward bar past its label, as in 1.png (0.7 × tip spacing wide, at most 28 px).
-5. **Path overlay.** A small dynamic quad buffer (2 px). It draws the hover path (root → node, text-1 at 60%) and the selection path (white), from lineage geometry. A thin ring marks the selected node.
+   - **Tip bar** (λ ≥ 12): inward from r = 1, the last `min(terminal length, 120 px)` of the tip's own hairline brightened in `lut(θ)`. It is as wide as the hairline (1 device px, more once lines thicken), with no halo and a soft inner end. It fades in with λ 12 → 13.5 (keeping the rim's glow as the ring fades) and fades out again as tips spread from 2 to 6 px apart, so at deep zoom each branch runs into its species name as one even line.
+     - The home tip (Homo sapiens) is white. It also gets a short outward bar past its label (120 px, as wide as the lines, no halo), not drawn while it is the selection.
+5. **Path overlay.** A small dynamic quad buffer (2 px, at least `PATH_LINE_RATIO` × the line width). It draws the hover path (root → node, text-1 at 60%) and the selection path (white), from lineage geometry. A thin ring marks the selected node.
 
 **Fades:** alpha × `smoothstep(level, level+0.6, λ)`. Frontier extension and spikes fade out as `child_level` fades in.
 
@@ -624,7 +631,7 @@ The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** 
   The two eases differ on purpose: the turn only makes sense once the rim is straight on screen, while the slide is spread out so it is never felt as a jump. The rim point at `theta` stays on the (moving) anchor, so zoom stays anchored: what is under the anchor stays under it while the anchor glides left. Because `theta` is fixed while zooming, the view turns about the anchor and the selection never moves; there is no tween to coordinate with flights. `R` (or the menu) eases `turn` between 1 and 0 over 400 ms (the drift stays); reduced motion cuts.
 - **Reset** flies to minimum zoom with the selection on the anchor.
 - **The wheel's own motion** (`spin.ts`): one angular velocity `v` eases to a target with friction, `v ← T + (v − T)·e^(−dt/τ)`, τ = 400 ms, and the wheel turns by its exact integral each frame (dt capped at 250 ms). The target is the ambient rate, 20 CSS px/s at the anchor at every zoom (`−20·dpr/1000/scale` rad/ms, clockwise; about one turn in 4 min at minimum zoom), eased in with a 2 s smoothstep 3 s after the last input (0.8 s after a block ends), and 0 while blocked: a flight, a drag, the pointer over the card, search open, an input focused, a hidden tab, the intro. A released drag or twist sets `v` to its release velocity (a fling), which decays into the target. The selection rides along and the leader follows it. Measured on the dev machine: label layout + paint ≈ 1 ms per frame and no tile fetches while it turns at minimum zoom.
-- **Idle tour** (`tour.ts`): after 10 s on a selection the next species from a curated list of 22 (tiger, blue whale, pedunculate oak, fly agaric, common octopus, *Bacillus subtilis*, honey bee, giant panda, giant sequoia, monarch, great white shark, emperor penguin, African elephant, ginkgo, sunflower, baker's yeast, morel, *Plasmodium falciparum*, *Halobacterium salinarum*, *Physarum polycephalum*, koala, giant squid; OTT ids checked against otl16.1; *E. coli* has no species node in the synthesis) is selected with motion `tour`: a fly-to path at the same zoom, at least 2.4 s. Shuffled, no repeats until all are seen, starting from Homo sapiens. Tour steps replace the URL (no history) and are not announced. Any input (pointer down, wheel, key, anywhere) stops it; it resumes after 3 dwells (30 s) without input. Pointer movement in the last 3 s (`POINTER_HOLD_MS`), the pointer resting on the card, search, a flight, a loading selection or a hidden tab hold the countdown; a pointer resting on the wheel does not, so a visitor who leaves the mouse on the tree still gets the tour. It runs on timers, not frames, so a still scene stays idle between steps. A deep link starts it stopped.
+- **Idle tour** (`tour.ts`): 15 s after a plain visit (`FIRST_MS`), then after 12 s on each selection (`DWELL_MS`), the next species from a curated list of 22 (tiger, blue whale, pedunculate oak, fly agaric, common octopus, *Bacillus subtilis*, honey bee, giant panda, giant sequoia, monarch, great white shark, emperor penguin, African elephant, ginkgo, sunflower, baker's yeast, morel, *Plasmodium falciparum*, *Halobacterium salinarum*, *Physarum polycephalum*, koala, giant squid; OTT ids checked against otl16.1; *E. coli* has no species node in the synthesis) is selected with motion `tour`: a fly-to path at the same zoom, at least 2.4 s. Shuffled, no repeats until all are seen, starting from Homo sapiens. Tour steps replace the URL (no history) and are not announced. Any input (pointer down, wheel, key, anywhere) stops it; it resumes after 3 dwells (36 s) without input. Pointer movement in the last 3 s (`POINTER_HOLD_MS`), a touch in the last 30 s (`TOUCH_HOLD_MS`), the pointer resting on the card, focus in the card, scrolling it, a text selection, search, a dialog, a flight, a loading selection or a hidden tab hold the countdown; a pointer resting on the wheel does not, so a visitor who leaves the mouse on the tree still gets the tour. It runs on phones too. While it runs the readout says "Touring · … · Stop" (`touring()`); Stop and the wordmark menu's "Tour: on/off" switch it (`setEnabled`). The list carries a common name and a group per species, which the search palette's "Try" rows use. It runs on timers, not frames, so a still scene stays idle between steps. A deep link starts it stopped.
 - **Off** under reduced motion; `?still` (implied by `?shot`) turns off the ambient turn, fling and tour, `?tour=<s>` sets the dwell and turns the tour on alone (tests, screenshots).
 - The precision test (`?debug=precision`) sets the camera directly and moves it by exact pixels, bypassing the rig.
 
@@ -656,7 +663,7 @@ The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** 
 **As built in P7** (`labels.ts`, `labelLayout.ts`, constants in `style.ts`):
 - In this tree, a named clade's arc usually sits only a few px outside its parent's arc (dozens of nested mrca levels), and near the rim no arcs are on screen at all. So a clade is labelled on its own arc only where the stem can hold the text. Otherwise it gets a **clade bar outside the rim**: a hairline arc over its tips with end ticks, and the name beyond it, as in printed phylogenies. Bars go to clades with ≥ 90% of their extent on screen that take ≤ 60% of the visible rim. At deep zoom the bars sit beyond the tip-label column and bracket genera. Bars fade in over λ 4.2–4.8 as the group labels fade out.
 - A clade's tip extent is not `[arc_lo, arc_hi]`, which spans its children's midpoints. Since tile format v2 it comes straight from the tile: the angles of tips `first_tip` and `first_tip + leaf_count − 1` (§3.7). (P7 followed first and last children through the loaded tiles, which stopped short for clades like *Pan*.)
-- Culling is greedy by priority (leaf count; tips 1e9; home and group labels on top). Already-shown labels count double, and hysteresis is fit ≥ 1 to show, < 0.85 to hide. Placement alternatives slide a clade name along its bar to clear the "You are here" hairline, which is a soft obstacle. The HUD's text rectangles and the home leader bar are hard obstacles.
+- Culling is greedy by priority (leaf count; tips 1e9; home and group labels on top). Already-shown labels count double, and hysteresis is fit ≥ 1 to show, < 0.85 to hide. Placement alternatives slide a clade name along its bar to clear a hairline (the selection leader, "You are here"), which is a soft obstacle: preferred, never a reason to drop a label. Hairlines are drawn under the names and cut round the glyphs they cross (`HAIRLINE_KNOCK_PX`, destination-out on the label canvas). The HUD's text rectangles and the home leader bar are hard obstacles.
 - Genus italics come from tiles, which carry no rank: a name is italic when it is the first word of a binomial seen in a tip name.
 - The home leader bar starts `HOME_LEADER_PAD_PX` past the measured "Homo sapiens" label (`FrameParams.leaderGap`). Its obstacle hides the two subspecies labels, so the white label stands alone as in 1.png.
 - The breadcrumb finds the node under the reticle in the loaded tiles (`reticle.ts`, ≤ 4 Hz) and fetches its lineage from `/api/nodes/{id}`, debounced 120 ms, with the previous request aborted and answers cached. Ancestors' tiles are usually not loaded, so the lineage cannot come from tiles. Segments fly with `flyto.ts`: an eased log-zoom tween that P9 replaces through `Flight.interpolate`. "Species in view" intersects the rim circle with the screen analytically (`inview.ts`).
@@ -720,35 +727,37 @@ The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** 
 ### 7.10 HUD, search, panel (layout in DESIGN.md)
 **HUD**
 - Top-left: the wordmark.
-- Top-right: a search trigger showing "Search 2.3M species" and a `/` hint.
+- Top-right: the search bar (40 px, a magnifier, "Search 2.3M species", a `/` hint): as wide as the card and right above it on desktop (`SearchPalette.place` sets `--search-w`), the rest of the top row beside the wordmark on a phone.
 - **Bottom-left:** a persistent readout and breadcrumb.
   - The breadcrumb is the selection's lineage (there is always one), so the canvas, the card and the HUD never name different nodes. Segments are clickable: they select that clade and fly to it.
-  - The readout is "12,402 species in view · OpenTree 16.1" (the level is in `?debug` only). The count is exact and cheap, because tips are evenly spaced: count = visible rim angle / slot. It shows "—" when the rim is not on screen.
-- Left edge: the zoom strip (`ui/zoomstrip.ts`), a `role="slider"` with `aria-valuenow`/`aria-valuetext`. `t = (log2 scale − log2 min) / (log2 max − log2 min)`, reading `% = 2 + 98·t` (2% at minimum zoom, the opening view; 100% at 48 px between tips). Drag sets the zoom about the anchor directly, a click flies there (a pure zoom on the fly-to path), the mouse wheel over it zooms like the canvas, keys step 5% / 20% / Home / End. It reads the rig every frame, so wheel, pinch, flights and the tour move it too. It is an input like any other (stops the tour and the ambient turn), and an obstacle (labels clear, tree darkened). The reset button sits under it (minimum zoom, selection kept). It replaces the − and + buttons.
-- Bottom-right: the kingdom key (swatch + name; clicking one selects the group's largest root clade and flies there).
+  - The readout is "12,402 species in view · OpenTree 16.1" (the level is in `?debug` only). The count is exact and cheap, because tips are evenly spaced: count = visible rim angle / slot. It shows "—" when the rim is not on screen. While loading it says "Loading tree · 9 / 15 tiles" (" · slow connection" after 8 s; the wordmark and readout are visible during the intro); while the idle tour runs, "Touring · … · Stop" (Stop switches the tour off); on a first visit (sessionStorage `col-hinted`), until the first input, the one-line interaction hint (DESIGN.md §4.1).
+- Left edge: the zoom strip (`ui/zoomstrip.ts`): two thirds of the window's height on desktop, centred where it fits; on a phone all the room between the card and the bottom HUD. A `role="slider"` with `aria-valuenow`/`aria-valuetext`, a "+" and "−" step (20%) above and below it, its % reading shown only while hovered, focused or dragged. `t = (log2 scale − log2 min) / (log2 max − log2 min)`, reading `% = 2 + 98·t` (2% at minimum zoom, the opening view; 100% at 48 px between tips). Drag sets the zoom about the anchor directly, a click flies there (a pure zoom on the fly-to path), the mouse wheel over it zooms like the canvas, keys step 5% / 20% / Home / End. It reads the rig every frame, so wheel, pinch, flights and the tour move it too. It is an input like any other (stops the tour and the ambient turn), and an obstacle (labels clear, tree darkened). The reset button sits under it (minimum zoom, selection kept). It replaces the − and + buttons.
+- Bottom-right: the kingdom key (swatch + name; clicking one selects the group's largest root clade and flies there). Below 720 px it lives in the wordmark menu, which also has Keyboard (`ui/keys.ts`), Auto-orient and Tour toggles (`ui/credits.ts` `mountWordmarkMenu`).
 - The chrome fades to 40% while dragging.
 
 **Search palette (`⌘K`, `Ctrl+K` or `/`)**
-- A centred modal list with no backdrop blur.
+- A modal list on the glass material (DESIGN.md §2.3; only its own box is blurred): on desktop docked over the card at the top right (`place`), on a phone across the top. With nothing typed it lists Recent (the visit's own selections) and Try (the tour's species); results named like sequencing leftovers ("environmental sample", "uncultured", "metagenome") sort last (`junkLast`).
 - Each row: kingdom swatch, the name in the correct style, then the muted lineage and the matched common name if any.
 - Debounced at 120 ms, and stale requests are aborted.
 - `↑`/`↓` move, `Enter` selects and flies, `Esc` closes.
 - Empty state: "No taxon matches “x”. Try a genus or a common name."
 
 **Card** (`ui/panel.ts`; DESIGN.md §4)
-- There is always a selection (Homo sapiens to begin with), so the card is always there and has no close button. Desktop: a fixed rectangle at the top right (from `layout.ts`). Phone or portrait: across the top, compact. Long content scrolls inside it.
+- There is always a selection (Homo sapiens to begin with), so the card is always there and has no close button. Desktop: at the top right (from `layout.ts`), a fixed box down to `cardMax` (min(60% h, h − 152, top + 560); `cardHeight`); the composition uses the nominal 40% box, the leader the real one (`Panel.box`). Phone or portrait: across the top, compact, its nominal box. Nothing scrolls: a head, then tabs (`ui/tabs.ts`: Overview, Range, Tree, the ARIA tabs pattern; the picked tab kept across selections that have it), each tab's content fitted to the tab area (`ui/fit.ts`). A selection arriving by a flight longer than 600 ms switches the card, leader and breadcrumb at 60% of it, with a 200 ms fade-in (`selection.ts` `pending`).
 - A hairline leader (`callout.ts`, drawn on the label canvas) runs from the selection up at 60° to an elbow, then square into the card: horizontally into its left edge on desktop, vertically into its bottom edge on a phone (a start below a desktop card enters its bottom edge, one above it its top edge, so it never crosses the card). It is never hidden:
   - `leaderStart`: the selection's stem is the screen segment from its ring to the rim at its angle. The start is the stem's first point from the node inside the free area (screen less 12 px margins, the bottom 56 px HUD band and the card); as a clade's node goes off screen it slides along the stem to the rim over 240 px. With the whole stem outside, the start is where the ray from the anchor towards the stem's nearest point leaves the free area, with an arrowhead fading in over 24 px. All steps are continuous in the view.
-  - `afterName`: once names show, the start moves outward past the selection's name (`Labels.nameRun`) or, for a clade at the rim, past the name column (`Labels.columnRun`), faded in with the names. The selected tip's name gets top priority.
+  - `afterName`: once names show, the start moves outward past the selection's name (`Labels.nameRun`) or, for a clade at the rim (and a species whose subspecies are the tips, `atRim`), past the name column (`Labels.columnRun`), faded in with the names. The selected tip's name gets top priority.
+  - `columnLead`: a tip's leader then runs on along its own row to 24 px past the name column before its 60° rise, so it crosses no neighbour's name.
   - Text keeps clear of it (its boxes are soft obstacles for clade text and hard ones for tip names).
-- **Core section,** immediate from `/api/nodes`:
-  - the name, with a copy button
-  - rank
-  - lineage (clickable)
-  - "N species" and "N direct descendants"
+- **Head and Tree tab,** immediate from `/api/nodes`:
+  - the name, with a 24 px copy button beside it
+  - the common name as the lead line (sentence case)
+  - rank, context clade and (from the about section) the authority on one line
+  - lineage (clickable; the nearest ancestors that fit two lines)
+  - "N species" and "N direct descendants"; for a species with subspecies "N subspecies"
   - for a polytomy, "relationships unresolved"
   - ids in mono: OTT, GBIF, NCBI
-- **About section,** loaded from `/about`:
+- **Overview and Range tabs,** loaded from `/about` (the authority and links join the head and Tree):
   - image with credit
   - Wikipedia extract or the generated sentence
   - authorship
@@ -774,12 +783,13 @@ The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** 
   - `/` or `⌘K` opens search
   - `Esc` closes the topmost layer (search, dialog, menu); it never clears the selection
   - `+`/`-` zoom about the anchor; the zoom strip takes `↑`/`↓`, `Page Up`/`Page Down`, `Home`/`End` while focused
-  - `↑` or `Backspace` selects the parent, `↓` the largest child, `←`/`→` siblings (each flies there)
-  - `H` is "You are here"
+  - `↑` or `Backspace` selects the nearest named ancestor, `↓` the largest child, `←`/`→` siblings (each flies there)
+  - `H` is "You are here" (flies back to Homo sapiens)
   - `R` toggles auto-orient
 - **Accessibility:**
   - The canvas has `role="img"` with a live `aria-label`.
-  - Selection is announced through an `aria-live="polite"` region.
+  - Selection is announced through an `aria-live="polite"` region, in words ("Felidae, family, 91 species.").
+  - DOM order puts the card right after the header, so Tab reaches it before the breadcrumb.
   - Search is a WAI-ARIA combobox.
   - The card is an `<aside>` with real headings.
   - Focus rings are visible (DESIGN.md).
@@ -1033,7 +1043,7 @@ There is no docker-compose for development, because SQLite needs no service.
   - the locked view (`pnpm -C web shot locked`, a name prefix picks every `locked-…` state): minimum, mid and maximum zoom at 2000×1030, a clade selected, 1440×900 and 1280×800, 390×844 at minimum and deep zoom and with a clade, an old pan link, a search, a clade turned off screen and near maximum zoom, mid zoom on E. coli, and `locked-zoomstep-1..5` (the slide as you zoom in)
 - **Renderers and diffs:** `SHOT_RENDERER=webgl|webgpu|both` writes into `screens/<renderer>/`; `both` or `SHOT_COMPARE=<dir>` writes heatmaps and `report.json` into `screens/diff/` and exits 1 over the thresholds (`docs/plan-webgpu.md` §5). `SHOT_QUERY='&…'` adds URL parameters, `SHOT_OUT=<dir>` moves the output.
 - **Review:** after P6, P7 and P12, a separate reviewer agent compares the screens against `docs/reference/*.png` and the DESIGN.md banned-tells checklist. It writes its findings into the phase review, with 2–3 rounds at most.
-- **Lint:** `make lint-design` greps `web/src/**/*.{css,ts}` for banned tokens (`backdrop-filter`, `box-shadow`, `text-shadow`, `linear-`/`radial-`/`conic-gradient`, `border-radius:` > 4px, `Inter`, `Geist`, `JetBrains`, `Space Grotesk`, `Roboto`).
+- **Lint:** `make lint-design` greps `web/src/**/*.{css,ts}` for banned tokens (`text-shadow`, `linear-`/`radial-`/`conic-gradient`, `filter: blur`, `border-radius:` > 16px, `Inter`, `Geist`, `JetBrains`, `Space Grotesk`, `Roboto`, and any `backdrop-filter` or `box-shadow` other than the glass tokens of DESIGN.md §2.3).
 
 ### 10.3 Tests (light but real)
 - **Go** (`go test ./...`, all offline):
@@ -1052,7 +1062,7 @@ There is no docker-compose for development, because SQLite needs no service.
   - flyto
   - palette conversion against known OKLCH→hex values from DESIGN.md
   - the frame plan, renderer selection, WGSL static checks and uniform packing (§7.13)
-- **Playwright smoke test** (`make smoke`, not in `make check`): load → the card on Homo sapiens → search "panthera onca" → Enter → card title "Panthera onca" and `n=ott42322` in the URL, then the same on `?nowebgl`; plus the locked view's interactions (wheel zoom keeps the anchor's world point, a drag turns without zooming, Esc keeps the selection, reset, a click selects at the same zoom), an old `v=a,r,z,rot` link, and the motion run (`?tour=1.5`: a plain visit opens Homo sapiens at minimum zoom, the tour hops without adding history, a key stops it, a fling decays). Runs other than the motion one use `?reduced`, which stops the wheel's own motion so the scene can go idle. `SMOKE_WEBGPU=1` requires WebGPU; `SMOKE_PORT`, `SMOKE_DATA` and `SMOKE_DB` move its server.
+- **Playwright smoke test** (`make smoke`, not in `make check`): load → the card on Homo sapiens → search "panthera onca" → Enter → card title "Panthera onca" and `n=ott42322` in the URL, then the same on `?nowebgl`; plus the locked view's interactions (wheel zoom keeps the anchor's world point, a drag turns without zooming, Esc keeps the selection, reset, a click selects at the same zoom), an old `v=a,r,z,rot` link, and the motion run (`?tour=1.5`: a plain visit opens Homo sapiens at minimum zoom, the tour hops without adding history, a key stops it, a fling decays). Runs other than the motion one use `?reduced`, which stops the wheel's own motion so the scene can go idle. `SMOKE_WEBGPU=1` requires WebGPU; `SMOKE_PORT`, `SMOKE_DATA` and `SMOKE_DB` move its server. By default its data dir is a temporary scratch copy (`data/tree.db` linked in, `data/cache.db` copied, removed afterwards), so smoke runs never write `data/cache.db`.
 
 ---
 
