@@ -5,7 +5,8 @@
 // Routes: /healthz; the read API under /api (meta.go, tiles.go, search.go,
 // nodes.go, about.go) with a JSON 404 for unknown /api/… paths; hashed
 // frontend assets under /assets (cached forever); everything else is
-// web/dist with an index.html fallback (never cached), so deep links like
+// web/dist with an index.html fallback for extensionless paths (never
+// cached; other root files a day, missing files a 404), so deep links like
 // /?n=ott770315 load the app (static.go). Every response passes through
 // gzip (gzip.go) and the request log (logging.go).
 //
@@ -56,6 +57,9 @@ type State struct {
 	// Enricher holds the HTTP client and per-host limits for enrichment;
 	// nil when enrichment is off.
 	Enricher *enrich.Enricher
+	// fetches runs one /about fetch per node at a time (flight.go); set
+	// with Enricher.
+	fetches *flights
 }
 
 // Open opens tree.db and reads its meta; it fails, naming the path, if the
@@ -106,6 +110,7 @@ func (s *State) WithEnrichment(cache *sql.DB, e *enrich.Enricher) *State {
 	copied := *s
 	copied.Cache = cache
 	copied.Enricher = e
+	copied.fetches = newFlights(FetchTimeout)
 	return &copied
 }
 

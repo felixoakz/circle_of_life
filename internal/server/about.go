@@ -4,9 +4,11 @@
 //   - Unnamed (mrca) nodes get a minimal document at once: never enriched,
 //     never cached.
 //   - A cached document is served as is. Past its time to live it is still
-//     served, and refreshed in the background (stale-while-revalidate).
+//     served, and refreshed in the background (stale-while-revalidate),
+//     except while Wikimedia has asked us to wait.
 //   - On a miss the enricher fetches everything (a few seconds at most), and
-//     the document is stored before it is returned.
+//     the document is stored before it is returned. One fetch per node runs
+//     at a time, detached from the request (flight.go).
 //   - ?retry=1 refetches a cached partial document; a complete one is served
 //     from cache anyway, so the parameter cannot hammer the upstreams.
 //
@@ -14,8 +16,7 @@
 // off: named nodes get a 503, unnamed ones still their minimal document.
 //
 // Concepts introduced here:
-// - a detached goroutine that outlives the request
-// - `context.WithoutCancel` for that goroutine's work
+// - (none beyond the package's; the detached fetch is in flight.go)
 
 package server
 
@@ -70,7 +71,8 @@ func (s *State) about(w http.ResponseWriter, r *http.Request) error {
 		var doc enrich.About
 		// A row that no longer parses (an older document shape) is a miss.
 		if json.Unmarshal([]byte(row.Body), &doc) == nil {
-			if row.Freshness(now) == db.Stale {
+			// During a Wikimedia cooldown a refresh would only fail again.
+			if row.Freshness(now, doc.RateLimited) == db.Stale && s.Enricher.WikimediaCooldown() == 0 {
 				s.refreshInBackground(ctx, detail, name)
 			}
 			slog.Info("about: from cache", "node", detail.NodeID, "complete", row.Complete)
@@ -82,7 +84,9 @@ func (s *State) about(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	doc, err := s.fetchAndStore(ctx, taxon)
+	doc, err := s.fetches.do(ctx, detail.NodeID, func(fetchCtx context.Context) (enrich.About, error) {
+		return s.fetchAndStore(fetchCtx, taxon)
+	})
 	if err != nil {
 		return err
 	}
@@ -101,12 +105,12 @@ func writeAbout(w http.ResponseWriter, doc enrich.About) error {
 	return writeJSON(w, http.StatusOK, doc)
 }
 
-// fetchAndStore fetches the document and stores it in cache.db.
+// fetchAndStore fetches the document and stores it in cache.db. ctx is a
+// flight's detached context (flight.go), not a request's.
 func (s *State) fetchAndStore(ctx context.Context, taxon enrich.Taxon) (enrich.About, error) {
 	doc := s.Enricher.About(ctx, taxon, db.Now())
-	// A client that went away cancels ctx, which makes every unfinished
-	// source "fail". That partial document says nothing about the sources,
-	// so it is not stored.
+	// Past FetchTimeout every unfinished source "fails". That partial
+	// document says nothing about the sources, so it is not stored.
 	if err := ctx.Err(); err != nil {
 		return enrich.About{}, err
 	}
@@ -124,31 +128,26 @@ func (s *State) fetchAndStore(ctx context.Context, taxon enrich.Taxon) (enrich.A
 }
 
 // refreshInBackground starts a refresh that outlives this request, unless
-// one already runs for this node.
+// a fetch already runs for this node (then that one is the refresh).
 func (s *State) refreshInBackground(ctx context.Context, detail db.NodeDetail, name string) {
 	nodeID := detail.NodeID
-	if !s.Enricher.BeginRefresh(nodeID) {
-		return
-	}
 	// The request's context is cancelled as soon as its response is sent.
-	// WithoutCancel keeps its values but never ends, so the refresh is not
-	// cut short when this request finishes.
-	bg := context.WithoutCancel(ctx)
-	// LEARN: `go f()` runs f in a new goroutine and returns at once; the
-	// request answers with the stale document while the refresh goes on.
-	// The closure captures s, detail, name and nodeID, which stay alive as
-	// long as the goroutine needs them. Nothing waits for it: EndRefresh,
-	// deferred so it runs however the function ends, is its only trace.
-	go func() {
-		defer s.Enricher.EndRefresh(nodeID)
+	// The flight's context keeps its values but not that cancellation
+	// (context.WithoutCancel), so the refresh is not cut short when this
+	// request finishes. Nothing waits for it: the request answers with the
+	// stale document at once, and the log is the refresh's only trace.
+	s.fetches.start(ctx, nodeID, func(bg context.Context) (enrich.About, error) {
 		taxon, err := s.taxonFor(bg, detail, name)
-		if err == nil {
-			_, err = s.fetchAndStore(bg, taxon)
+		if err != nil {
+			slog.Warn("about: background refresh failed", "node", nodeID, "error", err)
+			return enrich.About{}, err
 		}
+		doc, err := s.fetchAndStore(bg, taxon)
 		if err != nil {
 			slog.Warn("about: background refresh failed", "node", nodeID, "error", err)
 		}
-	}()
+		return doc, err
+	})
 }
 
 // taxonFor is what the enricher needs about a named node: its ids, and its

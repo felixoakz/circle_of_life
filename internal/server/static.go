@@ -1,6 +1,9 @@
 // The built frontend (web/dist): /assets/… files cached forever (on 2xx),
-// everything else no-cache, with index.html for any path that is not a
-// file, because the frontend is a single page app. Files are served with
+// other files (favicon.svg, fallback.webp) for a day, and index.html
+// no-cache. A path with no file extension that is not a file gets
+// index.html, because the frontend is a single page app; a missing path
+// with an extension (/favicon.ico, /robots.txt) is a plain 404, which
+// browsers remember instead of asking again. Files are served with
 // http.ServeContent, never http.FileServer (no directory listings, no
 // /index.html redirect), with explicit content types for .js .css .woff
 // .woff2 .webp .svg .json.
@@ -45,14 +48,19 @@ func assets(staticDir string) http.HandlerFunc {
 	}
 }
 
+// rootFileCache is the Cache-Control of files outside /assets other than
+// index.html. Their names carry no hash, so not forever; a day is plenty
+// for an icon.
+const rootFileCache = "public, max-age=86400"
+
 // appShell serves any other file in staticDir, and index.html for every
-// path that is not one, all with Cache-Control: no-cache (index.html names
-// the current hashed assets, so it must be revalidated).
+// extensionless path that is not one. index.html is sent with
+// Cache-Control: no-cache (it names the current hashed assets, so it must
+// be revalidated), other files with rootFileCache.
 func appShell(staticDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache")
 		file, ok := openFile(staticDir, r.URL.Path)
-		if !ok {
+		if !ok && path.Ext(r.URL.Path) == "" {
 			file, ok = openFile(staticDir, "/index.html")
 		}
 		if !ok {
@@ -60,6 +68,11 @@ func appShell(staticDir string) http.HandlerFunc {
 			return
 		}
 		defer file.Close()
+		if filepath.Base(file.Name()) == "index.html" {
+			w.Header().Set("Cache-Control", "no-cache")
+		} else {
+			w.Header().Set("Cache-Control", rootFileCache)
+		}
 		serveFile(w, r, file)
 	}
 }

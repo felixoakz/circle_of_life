@@ -14,7 +14,9 @@
 //     the structured data, which is always present.
 //
 // A source that fails or times out leaves its part empty and is listed in
-// Failed; the document is then incomplete and cached for a day only.
+// Failed; the document is then incomplete and cached for a day only (ten
+// minutes when a source was rate limited). Wikimedia requests pass a
+// shared gate (gate.go): a token bucket, and a cooldown after a 429 or 503.
 // Nothing here returns an error to the client.
 //
 // Concepts introduced here:
@@ -26,6 +28,7 @@ package enrich
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -119,6 +122,9 @@ func (t Taxon) Fallbacks() []Ancestor {
 type Report struct {
 	mu     sync.Mutex
 	failed []string
+	// rateLimited: at least one failure was a "too many requests"
+	// (ErrRateLimited).
+	rateLimited bool
 }
 
 // Fail logs why and records source as failed (once).
@@ -134,6 +140,22 @@ func (r *Report) Fail(source, why string) {
 	if !slices.Contains(r.failed, source) {
 		r.failed = append(r.failed, source)
 	}
+}
+
+// failRateLimited is Fail for a failure that wraps ErrRateLimited.
+func (r *Report) failRateLimited(source, why string) {
+	r.Fail(source, why)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rateLimited = true
+}
+
+// RateLimited reports whether any source failed because it was rate
+// limited.
+func (r *Report) RateLimited() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rateLimited
 }
 
 // HasFailed reports whether source has failed.
@@ -157,7 +179,8 @@ func (r *Report) Failed() []string {
 type Host uint8
 
 const (
-	// HostWikimedia is shared by Wikidata, Wikipedia and Commons (4 at once).
+	// HostWikimedia is shared by Wikidata, Wikipedia and Commons: 4 at
+	// once, and through the Wikimedia gate (gate.go).
 	HostWikimedia Host = iota
 	// HostGBIF allows 8 at once.
 	HostGBIF
@@ -173,16 +196,23 @@ type Settings struct {
 	// SlowTimeout is for the few calls known to be slow.
 	SlowTimeout time.Duration
 	INatGap     time.Duration
+	// WikimediaRate is the Wikimedia token bucket's rate per second, with
+	// bursts of WikimediaBurst (gate.go); 0 turns the bucket off. The
+	// cooldown after a 429 or 503 is always on.
+	WikimediaRate  float64
+	WikimediaBurst int
 }
 
 // LiveSettings are the real services with the standard limits.
 func LiveSettings(userAgent string) Settings {
 	return Settings{
-		Endpoints:   config.LiveEndpoints(),
-		UserAgent:   userAgent,
-		Timeout:     Timeout,
-		SlowTimeout: SlowTimeout,
-		INatGap:     INatGap,
+		Endpoints:      config.LiveEndpoints(),
+		UserAgent:      userAgent,
+		Timeout:        Timeout,
+		SlowTimeout:    SlowTimeout,
+		INatGap:        INatGap,
+		WikimediaRate:  WikimediaRate,
+		WikimediaBurst: WikimediaBurst,
 	}
 }
 
@@ -206,10 +236,8 @@ type Enricher struct {
 	inatLast time.Time
 	inatGap  time.Duration
 
-	// refreshing holds node ids being refreshed in the background, so one
-	// stale document triggers one refresh, not one per request.
-	refreshMu  sync.Mutex
-	refreshing map[string]bool
+	// wikimediaGate paces Wikimedia requests and shuts after a 429 or 503.
+	wikimediaGate *gate
 }
 
 // New builds an Enricher.
@@ -227,18 +255,19 @@ func New(s Settings) *Enricher {
 		// Sending takes a slot and blocks while all N are taken; receiving
 		// gives one back. The values carry nothing, so the element type is
 		// struct{}, which takes no memory.
-		wikimedia:  make(chan struct{}, 4),
-		gbif:       make(chan struct{}, 8),
-		inat:       make(chan struct{}, 1),
-		inatGap:    s.INatGap,
-		refreshing: make(map[string]bool),
+		wikimedia:     make(chan struct{}, 4),
+		gbif:          make(chan struct{}, 8),
+		inat:          make(chan struct{}, 1),
+		inatGap:       s.INatGap,
+		wikimediaGate: newGate(s.WikimediaRate, s.WikimediaBurst),
 	}
 }
 
 // getText GETs rawURL with query and returns the body. A 404 is a definite
 // "nothing there" (false, no failure). Anything else that is not a
 // success, including 429/503 and timeouts, is recorded in report under
-// source and also gives false: fail fast, never sleep in the request path.
+// source and also gives false: fail fast, never sleep in the request path
+// (beyond the Wikimedia gate's short wait for a token).
 func (e *Enricher) getText(ctx context.Context, report *Report, host Host, source, rawURL string, query url.Values) ([]byte, bool) {
 	body, found, err := e.tryGetText(ctx, host, rawURL, query, e.timeout)
 	return record(report, source, rawURL, body, found, err)
@@ -254,7 +283,12 @@ func (e *Enricher) getTextSlow(ctx context.Context, report *Report, host Host, s
 // any failure recorded in report.
 func record(report *Report, source, rawURL string, body []byte, found bool, err error) ([]byte, bool) {
 	if err != nil {
-		report.Fail(source, fmt.Sprintf("%s: %v", rawURL, err))
+		why := fmt.Sprintf("%s: %v", rawURL, err)
+		if errors.Is(err, ErrRateLimited) {
+			report.failRateLimited(source, why)
+		} else {
+			report.Fail(source, why)
+		}
 		return nil, false
 	}
 	return body, found
@@ -274,6 +308,13 @@ func (e *Enricher) limit(host Host) chan struct{} {
 
 // tryGetText does the request under host's limit; found is false for a 404.
 func (e *Enricher) tryGetText(ctx context.Context, host Host, rawURL string, query url.Values, timeout time.Duration) (body []byte, found bool, err error) {
+	// The gate first, so a request waiting for a token holds no slot.
+	if host == HostWikimedia {
+		if err := e.wikimediaGate.admit(ctx); err != nil {
+			return nil, false, err
+		}
+	}
+
 	// Take a slot, or give up if the caller does first. The slot is held
 	// until this function returns, so it covers the whole request.
 	sem := e.limit(host)
@@ -324,6 +365,14 @@ func (e *Enricher) tryGetText(ctx context.Context, host Host, rawURL string, que
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, false, nil
 	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		// Wikimedia's "slow down" applies to every Wikimedia request
+		// from now on, not only this one.
+		if host == HostWikimedia {
+			e.wikimediaGate.block(Cooldown(resp.Header.Get("Retry-After"), time.Now()))
+		}
+		return nil, false, fmt.Errorf("HTTP %s: %w", resp.Status, ErrRateLimited)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, false, fmt.Errorf("HTTP %s", resp.Status)
 	}
@@ -332,25 +381,6 @@ func (e *Enricher) tryGetText(ctx context.Context, host Host, rawURL string, que
 		return nil, false, err
 	}
 	return body, true, nil
-}
-
-// BeginRefresh marks nodeID as being refreshed; false if a refresh already
-// runs.
-func (e *Enricher) BeginRefresh(nodeID string) bool {
-	e.refreshMu.Lock()
-	defer e.refreshMu.Unlock()
-	if e.refreshing[nodeID] {
-		return false
-	}
-	e.refreshing[nodeID] = true
-	return true
-}
-
-// EndRefresh clears the mark BeginRefresh set.
-func (e *Enricher) EndRefresh(nodeID string) {
-	e.refreshMu.Lock()
-	defer e.refreshMu.Unlock()
-	delete(e.refreshing, nodeID)
 }
 
 // About fetches everything about taxon and assembles the document. now is
@@ -533,6 +563,7 @@ func (e *Enricher) About(ctx context.Context, taxon Taxon, now int64) About {
 		Failed:       failed,
 		Complete:     len(failed) == 0,
 		FetchedAt:    now,
+		RateLimited:  report.RateLimited(),
 	}
 }
 

@@ -41,6 +41,10 @@ type About struct {
 	Failed    []string `json:"failed"`
 	Complete  bool     `json:"complete"`
 	FetchedAt int64    `json:"fetchedAt"`
+	// RateLimited: a source failed because it was rate limited (HTTP 429
+	// or 503, or the Wikimedia gate), so the cache keeps this document for
+	// minutes rather than a day.
+	RateLimited bool `json:"rateLimited"`
 }
 
 // Taxonomy is the authorship and publication of the name, from GBIF.

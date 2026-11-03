@@ -32,15 +32,36 @@ type Mock struct {
 	// Delay ("" for none).
 	SlowPrefix string
 	Delay      time.Duration
+	// FailPrefix: requests whose path starts with it answer FailStatus
+	// (a 429, say), with a Retry-After header of RetryAfter unless that
+	// is "" ("" FailPrefix: none).
+	FailPrefix string
+	FailStatus int
+	RetryAfter string
 
 	hits   atomic.Int64
 	mu     sync.Mutex
 	agents []string
+	paths  []string
 }
 
 // Hits is how many requests the mock has answered.
 func (m *Mock) Hits() int {
 	return int(m.hits.Load())
+}
+
+// HitsUnder is how many requests so far had a path starting with prefix
+// ("/wikidata", "/gbif").
+func (m *Mock) HitsUnder(prefix string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, path := range m.paths {
+		if strings.HasPrefix(path, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 // Agents are the User-Agent headers of every request so far.
@@ -59,19 +80,28 @@ func (m *Mock) Agents() []string {
 // anywhere an http.Handler is expected (httptest.NewServer, http.Server)
 // without ever saying "implements".
 
-// ServeHTTP counts the request, records its User-Agent, waits if the path
-// starts with SlowPrefix, then answers from the fixtures.
+// ServeHTTP counts the request, records its path and User-Agent, fails it
+// if the path starts with FailPrefix, waits if it starts with SlowPrefix,
+// then answers from the fixtures.
 func (m *Mock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.hits.Add(1)
-	if agents := r.Header.Values("User-Agent"); len(agents) > 0 {
-		m.mu.Lock()
-		m.agents = append(m.agents, agents[0])
-		m.mu.Unlock()
-	}
-
 	// The path as sent, still percent-encoded, so tests see exactly what
 	// the enricher put on the wire ("Homo_sapiens", "On%C3%A7a…").
 	path := r.URL.EscapedPath()
+	m.mu.Lock()
+	m.paths = append(m.paths, path)
+	if agents := r.Header.Values("User-Agent"); len(agents) > 0 {
+		m.agents = append(m.agents, agents[0])
+	}
+	m.mu.Unlock()
+
+	if m.FailPrefix != "" && strings.HasPrefix(path, m.FailPrefix) {
+		if m.RetryAfter != "" {
+			w.Header().Set("Retry-After", m.RetryAfter)
+		}
+		w.WriteHeader(m.FailStatus)
+		return
+	}
 	if m.SlowPrefix != "" && strings.HasPrefix(path, m.SlowPrefix) {
 		// Give up early if the client already has (it timed out), so the
 		// server can close without waiting out the whole delay.

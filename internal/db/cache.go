@@ -26,10 +26,13 @@ import (
 var CacheSchema string
 
 // A complete document is fresh for 30 days (PLAN §6.1); a partial one (some
-// source failed) only for a day, so it is retried soon.
+// source failed) only for a day, so it is retried soon; one that is
+// partial because a source rate limited us for ten minutes, by when the
+// limit has most likely passed.
 const (
-	TTLComplete int64 = 30 * 24 * 3600
-	TTLPartial  int64 = 24 * 3600
+	TTLComplete    int64 = 30 * 24 * 3600
+	TTLPartial     int64 = 24 * 3600
+	TTLRateLimited int64 = 10 * 60
 )
 
 // Cached is one row of the about table.
@@ -48,11 +51,14 @@ const (
 	Stale
 )
 
-// Freshness classifies the row at time now (unix seconds).
-func (c Cached) Freshness(now int64) Freshness {
+// Freshness classifies the row at time now (unix seconds). rateLimited is
+// the document's own flag (it lives in the JSON body, not in a column).
+func (c Cached) Freshness(now int64, rateLimited bool) Freshness {
 	ttl := TTLPartial
 	if c.Complete {
 		ttl = TTLComplete
+	} else if rateLimited {
+		ttl = TTLRateLimited
 	}
 	if now-c.FetchedAt < ttl {
 		return Fresh
