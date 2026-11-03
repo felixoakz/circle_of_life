@@ -145,14 +145,11 @@ function chooseSearch(q: string): (page: Page) => Promise<void> {
   };
 }
 
-/** Scrolls the panel body to a fraction of its scroll height. */
-function scrollPanel(fraction: number): (page: Page) => Promise<void> {
+/** Shows one of the card's tabs (nothing in the card scrolls; DESIGN.md §4.2). */
+function showTab(tab: 'overview' | 'range' | 'tree'): (page: Page) => Promise<void> {
   return async (page) => {
-    await page.evaluate((f) => {
-      const body = document.querySelector('.panel-body');
-      if (body) body.scrollTop = f * (body.scrollHeight - body.clientHeight);
-    }, fraction);
-    await page.waitForTimeout(200);
+    await page.click(`#panel-tab-${tab}`);
+    await page.waitForTimeout(300);
   };
 }
 
@@ -363,11 +360,11 @@ const STATES: State[] = [
   // P10: the about section (needs the live APIs or a warm cache.db), the credits dialog.
   { name: 'panel-homo-about', width: 1440, height: 900, query: () => '&n=ott770315' },
   { name: 'panel-onca', width: 1440, height: 900, query: () => '&n=ott42322' },
-  { name: 'panel-onca-lower', width: 1440, height: 900, query: () => '&n=ott42322', act: scrollPanel(1) },
+  { name: 'panel-onca-lower', width: 1440, height: 900, query: () => '&n=ott42322', act: showTab('tree') },
   { name: 'panel-coelacanth', width: 1440, height: 900, query: () => '&n=ott773491' },
-  { name: 'panel-coelacanth-lower', width: 1440, height: 900, query: () => '&n=ott773491', act: scrollPanel(1) },
+  { name: 'panel-coelacanth-lower', width: 1440, height: 900, query: () => '&n=ott773491', act: showTab('tree') },
   { name: 'panel-beetle', width: 1440, height: 900, query: () => '&n=ott3349025' },
-  { name: 'panel-beetle-lower', width: 1440, height: 900, query: () => '&n=ott3349025', act: scrollPanel(1) },
+  { name: 'panel-beetle-lower', width: 1440, height: 900, query: () => '&n=ott3349025', act: showTab('tree') },
   { name: 'mobile-card-onca', width: 390, height: 844, dpr: 2, query: () => '&n=ott42322' },
   { name: 'credits', width: 1440, height: 900, query: () => '', act: openCredits },
   { name: 'mobile-credits', width: 390, height: 844, dpr: 2, query: () => '', act: openCredits },

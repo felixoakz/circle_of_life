@@ -13,6 +13,15 @@
 //                       about the anchor, a drag turns the wheel and never
 //                       zooms, Esc keeps the selection, a click selects and
 //                       turns the node onto the anchor, an old pan link parses
+//   card and chrome     the card's head (common name lead, no copy glyph in
+//                       the heading), the wordmark menu's Keyboard dialog,
+//                       the empty search palette's Try rows, the announcer
+//   boot failure        /api/meta failing shows "Couldn’t load the tree. Reload"
+//   card tabs           the tabs pattern (roles, roving tabindex, ←/→/Home/End
+//                       without walking the tree), the picked tab kept for the
+//                       next selection, no tab that scrolls for a few rich
+//                       species and a clade at 2000×1030, 1440×900, 1280×720
+//                       and 390×844, and the search bar's size and place
 //   motion              without reduced motion (?tour=1.5: 1.5 s dwell): a
 //                       plain visit opens Homo sapiens, the idle tour hops
 //                       to another species without adding history (with the
@@ -278,7 +287,8 @@ async function interactionChecks(page: Page): Promise<void> {
   const unzoomed = await pose(page);
   await page.mouse.move(track.x + track.width / 2, track.y + track.height - 2);
   await page.mouse.down();
-  for (let i = 1; i <= 5; i++) await page.mouse.move(track.x + track.width / 2, track.y + track.height - 2 - i * 25);
+  // Up 60% of the scale, whatever its length (two thirds of the window).
+  for (let i = 1; i <= 5; i++) await page.mouse.move(track.x + track.width / 2, track.y + track.height - 2 - i * 0.12 * track.height);
   await page.mouse.up();
   await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
   const zoomed = await pose(page);
@@ -319,6 +329,180 @@ async function interactionChecks(page: Page): Promise<void> {
     return { sel, theta: scene?.rig.theta ?? 0 };
   });
   console.log(`     click: selected ${turned.sel.trim()} (${new URL(page.url()).search})`);
+}
+
+/** The card's head, the wordmark menu, the empty palette and the live region (DESIGN.md §4.1, §4.2, §4.4, §8). */
+async function chromeChecks(page: Page): Promise<void> {
+  await cardShows(page, 'Homo sapiens');
+  assert.equal((await page.locator('#panel-title').textContent())?.trim(), 'Homo sapiens', 'the heading is the name alone');
+  await page.waitForFunction(() => document.querySelector('.panel-lead')?.textContent === 'Human', null, { timeout: TIMEOUT });
+  assert.match((await page.locator('#announcer').textContent()) ?? '', /^Homo sapiens, species, \d+ subspecies\. You are here\.$/);
+  // Tab reaches the card before the breadcrumb.
+  const order = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('button, [tabindex="0"]')];
+    const card = all.findIndex((e) => e.closest('#panel'));
+    const crumb = all.findIndex((e) => e.classList.contains('crumb'));
+    return { card, crumb };
+  });
+  assert.ok(order.card >= 0 && order.card < order.crumb, 'the card comes before the breadcrumb in Tab order');
+
+  // The wordmark menu: Keyboard opens a dialog, Esc closes it.
+  await page.click('.wordmark-button');
+  const labels = await page.locator('.menu-item').allTextContents();
+  for (const want of ['Data & credits', 'Keyboard', 'Auto-orient: on']) assert.ok(labels.includes(want), `menu has ${want}`);
+  await page.locator('.menu-item', { hasText: 'Keyboard' }).click();
+  await page.waitForSelector('dialog.keys[open]');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('dialog.keys[open]'));
+
+  // The empty palette offers species to try.
+  await page.keyboard.press('/');
+  await page.waitForSelector('.search-layer.open');
+  await page.waitForSelector('.search-heading');
+  const heads = await page.locator('.search-heading').allTextContents();
+  assert.ok(heads.includes('Try'), `the empty palette shows Try (${heads.join(', ')})`);
+  assert.ok((await page.locator('.search-row').count()) >= 3, 'with a few rows');
+  await page.keyboard.press('Escape');
+  await cardShows(page, 'Homo sapiens');
+}
+
+/** The API down at start: one line, and a way to try again (DESIGN.md §7). */
+async function bootFailureCheck(browser: Browser): Promise<void> {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  try {
+    await page.route('**/api/meta', (r) => r.fulfill({ status: 500, body: 'down' }));
+    await page.goto(`${BASE}/`);
+    await page.waitForSelector('.boot-error', { timeout: TIMEOUT });
+    assert.match((await page.locator('.boot-error').textContent()) ?? '', /Couldn’t load the tree\. Reload/);
+    console.log('ok   boot failure: says so, offers Reload');
+  } finally {
+    await page.close();
+  }
+}
+
+/** The first search hit's OpenTree id for a scientific name. */
+async function ottOf(name: string): Promise<string> {
+  const hits = (await (await fetch(`${BASE}/api/search?q=${encodeURIComponent(name)}`)).json()) as { nodeId: string; name: string }[];
+  const hit = hits.find((h) => h.name === name) ?? hits[0];
+  if (!hit) throw new Error(`no node named ${name}`);
+  return hit.nodeId;
+}
+
+/** Waits until the card is idle (its /about, image and map answered) and the scene too. */
+async function settled(page: Page): Promise<void> {
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+}
+
+/** The card's tabs (DESIGN.md §4.2): ARIA, keys, persistence, nothing scrolls; and the search bar (§4.1). */
+async function cardTabChecks(browser: Browser): Promise<void> {
+  const t0 = Date.now();
+  const species = ['Apis mellifera', 'Homo sapiens', 'Panthera leo', 'Felidae'];
+  const ids = await Promise.all(species.map(ottOf));
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(`${BASE}/?reduced&n=${ids[0]}`);
+    await cardShows(page, 'Apis mellifera');
+    await settled(page);
+    // The tabs pattern: one tablist, tabs controlling tabpanels, one tab in the Tab order.
+    const aria = await page.evaluate(() => {
+      const tabs = [...document.querySelectorAll<HTMLElement>('[role="tablist"] [role="tab"]:not([hidden])')];
+      return {
+        lists: document.querySelectorAll('#panel [role="tablist"]').length,
+        names: tabs.map((t) => t.textContent),
+        roving: tabs.filter((t) => t.tabIndex === 0).length,
+        panels: tabs.every((t) => document.getElementById(t.getAttribute('aria-controls') ?? '')?.getAttribute('role') === 'tabpanel'),
+        selected: tabs.filter((t) => t.getAttribute('aria-selected') === 'true').map((t) => t.textContent),
+      };
+    });
+    assert.equal(aria.lists, 1, 'one tablist');
+    assert.deepEqual(aria.names, ['Overview', 'Range', 'Tree'], 'a species with a range has three tabs');
+    assert.equal(aria.roving, 1, 'one tab in the Tab order');
+    assert.ok(aria.panels, 'each tab controls a tabpanel');
+    assert.deepEqual(aria.selected, ['Overview'], 'Overview first');
+    // Keys move between tabs (and do not walk the tree).
+    const before = await page.evaluate(() => location.search);
+    await page.focus('[role="tab"][aria-selected="true"]');
+    const at = async (): Promise<string | null> =>
+      page.evaluate(() => (document.activeElement?.getAttribute('aria-selected') === 'true' ? document.activeElement.textContent : null));
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await at(), 'Range', '→ moves to and selects the next tab');
+    await page.keyboard.press('End');
+    assert.equal(await at(), 'Tree', 'End: the last tab');
+    await page.keyboard.press('Home');
+    assert.equal(await at(), 'Overview', 'Home: the first tab');
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await at(), 'Tree', '← wraps round');
+    assert.equal(await page.evaluate(() => location.search), before, 'tab keys leave the selection alone');
+    // The picked tab is kept for the next selection that has it.
+    await page.click('#panel-tab-range');
+    await page.keyboard.press('/');
+    await page.waitForSelector('.search-layer.open');
+    await page.keyboard.type('panthera leo', { delay: 10 });
+    await page.waitForFunction(() => document.querySelector('.search-row')?.textContent?.includes('Panthera leo'), null, { timeout: TIMEOUT });
+    await page.keyboard.press('Enter');
+    await cardShows(page, 'Panthera leo');
+    await settled(page);
+    assert.equal(await page.getAttribute('[role="tab"][aria-selected="true"]', 'id'), 'panel-tab-range', 'Range kept for the next species');
+
+    // The search bar: 40 px, as wide as the card, right above it.
+    const bar = await page.evaluate(() => {
+      const t = document.querySelector('.search-trigger')?.getBoundingClientRect();
+      const c = document.querySelector('#panel')?.getBoundingClientRect();
+      return t && c ? { h: t.height, w: t.width, cw: c.width, gap: c.top - t.bottom, left: t.left - c.left } : null;
+    });
+    assert.ok(bar && bar.h >= 38, `the search bar is tall enough (${bar?.h})`);
+    assert.ok(bar && Math.abs(bar.w - bar.cw) <= 1 && Math.abs(bar.left) <= 1, 'as wide as the card, aligned with it');
+    assert.ok(bar && bar.gap >= 4 && bar.gap <= 16, `right above the card (gap ${bar?.gap})`);
+  } finally {
+    await page.close();
+  }
+
+  // No tab scrolls, at the four sizes.
+  for (const [w, h] of [
+    [2000, 1030],
+    [1440, 900],
+    [1280, 720],
+    [390, 844],
+  ] as const) {
+    const p = await browser.newPage({ viewport: { width: w, height: h } });
+    try {
+      for (const [i, id] of ids.entries()) {
+        await p.goto(`${BASE}/?reduced&n=${id}`);
+        await cardShows(p, species[i] ?? '');
+        await settled(p);
+        const tabs = await p.$$eval('[role="tab"]:not([hidden])', (els) => els.map((e) => e.id));
+        if (tabs.length === 0) tabs.push('');
+        for (const tab of tabs) {
+          if (tab) await p.click(`#${tab}`);
+          const over = await p.evaluate(() => {
+            const out: string[] = [];
+            const check = (e: Element | null, what: string): void => {
+              if (e instanceof HTMLElement && e.scrollHeight > e.clientHeight + 1) out.push(`${what} ${e.scrollHeight}>${e.clientHeight}`);
+            };
+            check(document.querySelector('.panel-body'), 'card');
+            const pane = document.querySelector('[role="tabpanel"]:not([hidden])');
+            check(pane, 'tab');
+            check(pane?.querySelector('.ov-text') ?? null, 'overview text');
+            return out;
+          });
+          assert.deepEqual(over, [], `${species[i]} ${tab || 'card'} at ${w}×${h} fits without scrolling`);
+        }
+      }
+      if (w < 720) {
+        // Phone: the search bar fills the top row beside the wordmark.
+        const row = await p.evaluate(() => {
+          const t = document.querySelector('.search-trigger')?.getBoundingClientRect();
+          const m = document.querySelector('.wordmark')?.getBoundingClientRect();
+          const c = document.querySelector('#panel')?.getBoundingClientRect();
+          return t && m && c ? { h: t.height, after: t.left - m.right, right: innerWidth - t.right, above: c.top - t.bottom } : null;
+        });
+        assert.ok(row && row.h >= 38 && row.after >= 8 && row.right <= 20 && row.above >= 4, `phone search bar ${JSON.stringify(row)}`);
+      }
+    } finally {
+      await p.close();
+    }
+  }
+  console.log(`ok   card tabs and search bar (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 }
 
 /** Opens `query`, waits for idle, searches, then runs `check` (which returns 'skip' when it could not run). */
@@ -375,6 +559,9 @@ async function main(): Promise<void> {
       await lossChecks(page);
     });
     await run(browser, 'interactions: zoom, turn, select', '?reduced&debug', interactionChecks, false);
+    await run(browser, 'card head, menu, empty palette, live region', '?reduced', chromeChecks, false);
+    await bootFailureCheck(browser);
+    await cardTabChecks(browser);
     await run(
       browser,
       'old pan link → selection and zoom, pan ignored',
