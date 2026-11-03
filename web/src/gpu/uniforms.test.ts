@@ -57,6 +57,7 @@ function params(over: Partial<FrameParams> = {}): FrameParams {
     homeAngle: 0xdeadbeef,
     leaderGap: 0,
     leaderLen: 0,
+    homeLeader: 1,
     dims: [],
     highlight: NO_HIGHLIGHT,
     ...over,

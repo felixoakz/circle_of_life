@@ -22,6 +22,7 @@ import {
   type RingCmd,
   fanSpans,
   fansWiderThan,
+  lineHalfWidth,
   parsePasses,
   planFrame,
 } from './plan';
@@ -57,6 +58,7 @@ function params(over: Partial<FrameParams> = {}): FrameParams {
     homeAngle: 0,
     leaderGap: 0,
     leaderLen: 0,
+    homeLeader: 1,
     dims: [],
     highlight: NO_HIGHLIGHT,
     ...over,
@@ -260,10 +262,16 @@ describe('planFrame: rim marks', () => {
       fade: 1,
       px: 2,
       spike: [S.SPIKE_ALPHA * look.glow, S.SPIKE_MAX_W_PX * 2],
-      tipBar: [look.tipBar, S.TIP_BAR_MAX_LEN_PX * 2],
-      leader: [look.leader, 30 * 2, 200 * 2, look.leaderWidth * 2],
-      leaderHalo: [S.LEADER_HALO, look.leaderHalo * 2],
+      tipBar: [look.tipBar, S.TIP_BAR_MAX_LEN_PX * 2, Math.max(0.5, look.lineWidth), 0],
+      leader: [look.leader, 30 * 2, 200 * 2, Math.max(S.HOME_LEADER_WIDTH_DEVICE_PX, look.lineWidth * 2)],
+      leaderHalo: [0, 1],
     });
+  });
+
+  it('leaves the home bar out while Homo sapiens is the selection', () => {
+    const p = params({ lambda: 13, lambdaExt: 13, dpr: 2, tipSpacing: 12, leaderGap: 30, leaderLen: 200, homeLeader: 0 });
+    const [m] = ofPass(planFrame([tile(8, 7, 0)], NO_FANS, p, SIZE).cmds, 'marks') as [MarksCmd];
+    expect(m?.leader[0]).toBe(0);
   });
 
   it('fades the leader out as the screen edge squeezes it: (len − 24) / 40, clamped (l. 371–372)', () => {
@@ -458,5 +466,40 @@ describe('parsePasses', () => {
     expect(parsePasses(new URLSearchParams(''))).toBeNull();
     expect(parsePasses(new URLSearchParams('passes='))).toBeNull();
     expect(parsePasses(new URLSearchParams('passes=bogus'))).toBeNull();
+  });
+});
+
+describe('planFrame: line width', () => {
+  const lines = (tipSpacing: number, dpr: number): { b: BranchesCmd; a: ArcsCmd } => {
+    const p = params({ lambda: 16, lambdaExt: 16, dpr, tipSpacing });
+    const cmds = planFrame([tile(9, 7, 3)], NO_FANS, p, SIZE).cmds;
+    const [b] = ofPass(cmds, 'branches') as [BranchesCmd];
+    const [a] = ofPass(cmds, 'arcs') as [ArcsCmd];
+    return { b, a };
+  };
+
+  it('keeps native hairlines while lines are at most a device px (overview, mid zoom)', () => {
+    for (const [spacing, dpr] of [
+      [0.01, 1],
+      [6, 2],
+      [8, 1],
+    ] as const) {
+      const { b, a } = lines(spacing, dpr);
+      expect(b.halfW).toBe(0);
+      expect(b.vertexCount).toBe(4);
+      expect(a.vertexCount).toBe(2 * a.k);
+    }
+  });
+
+  it('draws quads LINE_DEEP_PX wide once tips are far apart', () => {
+    const { b, a } = lines(48, 2);
+    expect(b.halfW).toBeCloseTo(S.LINE_DEEP_PX, 9); // half of 1.75 CSS px at DPR 2
+    expect(b.vertexCount).toBe(12);
+    expect(a.vertexCount).toBe(6 * a.k);
+  });
+
+  it('gives no half width (native lines) at or under a device px', () => {
+    expect(lineHalfWidth(0.4, 2)).toBe(0);
+    expect(lineHalfWidth(1.75, 2)).toBeCloseTo(1.75, 9);
   });
 });

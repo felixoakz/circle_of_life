@@ -27,7 +27,12 @@ function concatenated(module: string): string {
 
 describe('pipeline table', () => {
   it('covers every pass of the frame plan once (lines share a module)', () => {
-    expect(PIPELINES.map((p) => p.pass).sort()).toEqual([...PASSES].sort());
+    expect(PIPELINES.filter((p) => !p.wide).map((p) => p.pass).sort()).toEqual([...PASSES].sort());
+    // Branches and arcs also have a quad variant for lines wider than a device px.
+    expect(PIPELINES.filter((p) => p.wide).map((p) => `${p.pass}:${p.topology}`).sort()).toEqual([
+      'arcs:triangle-list',
+      'branches:triangle-list',
+    ]);
   });
 
   it('bakes the blend the plan gives each pass', () => {
