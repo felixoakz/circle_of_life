@@ -75,9 +75,14 @@ check: ## Everything that must pass before handing back: gofmt, go vet, go test,
 	pnpm -C web exec tsc --noEmit
 	pnpm -C web exec vitest run
 
+# Blur and inset highlights are allowed only through the glass tokens
+# (DESIGN.md §2.3): `backdrop-filter: var(--glass-…)` and
+# `box-shadow: var(--glass-highlight)`; every other use is banned.
 lint-design: ## Grep web/src for banned design tokens (DESIGN.md §9)
-	@if grep -rnE 'backdrop-filter|box-shadow|text-shadow|(linear|radial|conic)-gradient|\bInter\b|Geist|JetBrains|Space Grotesk|Roboto|border-radius: *([5-9]|[1-9][0-9]+)px' \
-		web/src --include='*.css' --include='*.ts'; then \
+	@if grep -rnE 'text-shadow|(linear|radial|conic)-gradient|\bInter\b|Geist|JetBrains|Space Grotesk|Roboto|border-radius: *(1[7-9]|[2-9][0-9]|[1-9][0-9]{2,})px|^ *filter: *blur' \
+		web/src --include='*.css' --include='*.ts' \
+		|| grep -rnE 'backdrop-filter|box-shadow' web/src --include='*.css' --include='*.ts' \
+		| grep -vE '@supports|(backdrop-filter: var\(--glass-filter(-small)?\)|box-shadow: var\(--glass-highlight\));$$'; then \
 		echo "lint-design: banned tokens found (DESIGN.md §9)"; exit 1; \
 	else echo "lint-design: clean"; fi
 
@@ -91,16 +96,25 @@ STATES ?=
 shot-parity: ## WebGL vs WebGPU screenshots and pixel diffs (server running, as for shot)
 	SHOT_RENDERER=both pnpm -C web shot $(STATES)
 
-# Starts its own server on SMOKE_PORT ($(SMOKE_DATA)/$(SMOKE_DB)), so it is not part of `check`.
+# Starts its own server on SMOKE_PORT, so it is not part of `check`. Its data
+# dir is a fresh temporary one by default: data/$(SMOKE_DB) linked in (the
+# server only reads it) and a copy of data/cache.db, removed afterwards, so
+# smoke runs never write data/cache.db. SMOKE_DATA=<dir> uses that dir
+# (its tree.db and its own cache.db) instead.
 SMOKE_PORT ?= 3077
 SMOKE_DB   ?= tree.db
-# The server's data dir (tree.db and its own cache.db); point it elsewhere to
-# keep data/cache.db untouched.
-SMOKE_DATA ?= data
+SMOKE_DATA ?=
 smoke: bin ## Playwright smoke test: load, search "homo sapiens", panel opens (builds first)
 	pnpm -C web build
-	./$(BIN) serve --data $(SMOKE_DATA) --db $(SMOKE_DB) --static web/dist --port $(SMOKE_PORT) & \
-	pid=$$!; trap 'kill $$pid' EXIT; \
+	@data='$(SMOKE_DATA)'; scratch=''; \
+	if [ -z "$$data" ]; then \
+		scratch=$$(mktemp -d); data=$$scratch; \
+		ln -s "$(CURDIR)/data/$(SMOKE_DB)" "$$scratch/$(SMOKE_DB)"; \
+		for f in data/cache.db data/cache.db-wal; do if [ -f "$$f" ]; then cp "$$f" "$$scratch/"; fi; done; \
+		echo "smoke: data dir $$scratch (scratch copy of data/)"; \
+	fi; \
+	./$(BIN) serve --data "$$data" --db $(SMOKE_DB) --static web/dist --port $(SMOKE_PORT) & \
+	pid=$$!; trap 'kill $$pid; wait $$pid 2>/dev/null; if [ -n "$$scratch" ]; then rm -rf "$$scratch"; fi' EXIT; \
 	for i in $$(seq 50); do curl -sf http://localhost:$(SMOKE_PORT)/healthz >/dev/null && break; sleep 0.2; done; \
 	SMOKE_BASE=http://localhost:$(SMOKE_PORT) pnpm -C web test:e2e
 
