@@ -7,6 +7,8 @@ import {
   arcTextDirection,
   cull,
   fits,
+  greekKnocks,
+  greekWords,
   outsideBox,
   radialText,
   rotatedBox,
@@ -191,5 +193,42 @@ describe('placement helpers', () => {
     // A bar on the upper right, just under 30° (Chiroptera at mid zoom): down the slope, not up and backwards.
     const phi = (28 * Math.PI) / 180;
     expect(arcTextDirection(phi).rot(phi)).toBeCloseTo(Math.PI / 2 - phi);
+  });
+});
+
+describe('greekWords', () => {
+  it('gives one stroke per word, the spaces as gaps', () => {
+    // 10 characters over 100 px: 10 px each.
+    expect(greekWords('Aster vest', 100)).toEqual([
+      [0, 50],
+      [60, 40],
+    ]);
+  });
+
+  it('keeps a single word whole and ignores doubled or edge spaces', () => {
+    expect(greekWords('Homo', 40)).toEqual([[0, 40]]);
+    expect(greekWords(' a  b ', 60)).toEqual([
+      [10, 10],
+      [40, 10],
+    ]);
+    expect(greekWords('', 10)).toEqual([]);
+  });
+});
+
+describe('greekKnocks', () => {
+  it('keeps every greeked row a hairline crosses, flagged to cut the line round it', () => {
+    // A column of 40 rows 3 px apart, crossed by a 60° diagonal leader (as
+    // in the zoomed-out owner report: a 100 px gap round the leader).
+    const rows: Box[] = Array.from({ length: 40 }, (_, i) => ({ x0: 670, y0: 300 + 3 * i, x1: 740, y1: 302.5 + 3 * i }));
+    const path = [
+      { x: 650, y: 420 },
+      { x: 720, y: 300 },
+    ];
+    const hairlines = new CollisionGrid();
+    for (const b of leaderBoxes(path, 2)) hairlines.add(b);
+    const knocks = greekKnocks(rows, hairlines);
+    expect(knocks).toHaveLength(rows.length);
+    expect(knocks.some((k) => k)).toBe(true);
+    expect(knocks.some((k) => !k)).toBe(true);
   });
 });

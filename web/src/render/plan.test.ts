@@ -493,9 +493,20 @@ describe('planFrame: line width', () => {
 
   it('draws quads LINE_DEEP_PX wide once tips are far apart', () => {
     const { b, a } = lines(48, 2);
-    expect(b.halfW).toBeCloseTo(S.LINE_DEEP_PX, 9); // half of 1.75 CSS px at DPR 2
+    expect(b.halfW).toBeCloseTo(S.LINE_DEEP_PX, 9); // half of LINE_DEEP_PX CSS px at DPR 2
     expect(b.vertexCount).toBe(12);
     expect(a.vertexCount).toBe(6 * a.k);
+  });
+
+  it('draws them LINE_DEEP_PX wide at DPR 1 too', () => {
+    expect(lines(48, 1).b.halfW).toBeCloseTo(S.LINE_DEEP_PX / 2, 9);
+  });
+
+  it('keeps the selection heavier than thick lines, capped at PATH_MAX_PX', () => {
+    const p = params({ lambda: 18.8, lambdaExt: 18.8, dpr: 2, tipSpacing: 48, highlight: { ...NO_HIGHLIGHT, paths: [path(2, 1)] } });
+    const [cmd] = ofPass(planFrame([], NO_FANS, p, SIZE).cmds, 'path') as [PathCmd];
+    expect(cmd.halfW).toBeCloseTo(0.5 * S.PATH_MAX_PX * 2, 9);
+    expect(cmd.halfW).toBeGreaterThan(lines(48, 2).b.halfW);
   });
 
   it('gives no half width (native lines) at or under a device px', () => {
