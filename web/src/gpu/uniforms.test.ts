@@ -9,6 +9,7 @@ import * as S from '../style';
 import type { GroupRun } from '../types';
 import { structLayout } from './layout';
 import {
+  BACKDROP_FIELDS,
   DRAW_SLOT_BYTES,
   DrawSlots,
   FRAME_FIELDS,
@@ -209,6 +210,42 @@ describe('DrawSlots', () => {
 });
 
 describe('packDraw', () => {
+  it('packs the backdrop: vectors first, then the scalars, as f32', () => {
+    const buf = new ArrayBuffer(DRAW_SLOT_BYTES);
+    const at = structLayout(BACKDROP_FIELDS).offsets;
+    packDraw(
+      {
+        pass: 'backdrop',
+        blend: 'saturating',
+        vertexCount: 3,
+        instanceCount: 1,
+        firstInstance: 0,
+        strength: 0.5,
+        camRPx: 18_000_000,
+        rimOff: -12.25,
+        grid: [0.12, 1, 96, 128],
+        ringFade: 0.75,
+        fade: [24, 160],
+        wash: [0.16, 900, 320, 0.5],
+        corona: [1, 64],
+        cells: [32, 17],
+      },
+      buf,
+      0,
+    );
+    const f = new Float32Array(buf);
+    const vec = (name: string, n: number): number[] => [...f.subarray((at[name] ?? 0) / 4, (at[name] ?? 0) / 4 + n)];
+    expect(vec('grid', 4)).toEqual([0.12, 1, 96, 128].map(Math.fround));
+    expect(vec('wash', 4)).toEqual([0.16, 900, 320, 0.5].map(Math.fround));
+    expect(vec('fade', 2)).toEqual([24, 160]);
+    expect(vec('corona', 2)).toEqual([1, 64]);
+    expect(vec('cells', 2)).toEqual([32, 17]);
+    expect(f[(at.strength ?? 0) / 4]).toBe(0.5);
+    expect(f[(at.camRPx ?? 0) / 4]).toBe(18_000_000);
+    expect(f[(at.rimOff ?? 0) / 4]).toBe(-12.25);
+    expect(f[(at.ringFade ?? 0) / 4]).toBe(0.75);
+  });
+
   it('every per-draw struct fits one slot', () => {
     for (const [name, fields] of Object.entries(DRAW_STRUCTS)) {
       expect(structLayout(fields).size, name).toBeLessThanOrEqual(DRAW_SLOT_BYTES);

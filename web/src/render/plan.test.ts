@@ -9,6 +9,7 @@ import * as S from '../style';
 import { FAN_WORDS } from '../tiles/fans';
 import {
   type ArcsCmd,
+  type BackdropCmd,
   type BranchesCmd,
   type DimCmd,
   type DrawCmd,
@@ -25,6 +26,7 @@ import {
   lineHalfWidth,
   parsePasses,
   planFrame,
+  ringLevel,
 } from './plan';
 import { type FrameParams, type GpuTile, type Highlight, NO_HIGHLIGHT, type PathDraw } from './types';
 
@@ -117,7 +119,7 @@ describe('planFrame: fans', () => {
     expect(wide).toMatchObject({ k: 16, vertexCount: 96, firstInstance: 0, instanceCount: 2 });
     expect(narrow).toMatchObject({ k: 2, vertexCount: 12, firstInstance: 2, instanceCount: 2 });
     expect(stats.instances).toBe(4);
-    expect(stats.drawCalls).toBe(2 + 1 /* rim */);
+    expect(stats.drawCalls).toBe(2 + 1 /* rim */ + 1 /* backdrop */);
   });
 
   it('carries the fan uniforms (l. 293–296)', () => {
@@ -140,24 +142,24 @@ describe('planFrame: fans', () => {
     expect(fans).toHaveLength(1);
     expect(fans[0]).toMatchObject({ k: 2, firstInstance: 0, instanceCount: 4 });
     expect(stats.instances).toBe(4);
-    expect(stats.drawCalls).toBe(2 + 1);
+    expect(stats.drawCalls).toBe(2 + 1 + 1 /* backdrop */);
   });
 
   it('empty fan draws are left out, still counted as 2 calls (drawFans early return, l. 209)', () => {
     const tiny = new Float64Array([MIN_U * 0.5, MIN_U * 0.25]);
     const { cmds, stats } = planFrame([], { count: 2, spans: tiny }, params(), SIZE);
     expect(ofPass(cmds, 'fans')).toEqual([]);
-    expect(stats.drawCalls).toBe(2 + 1);
+    expect(stats.drawCalls).toBe(2 + 1 + 1 /* backdrop */);
     expect(stats.instances).toBe(0);
   });
 
   it('no fans at all, or faded out (λ ≥ 13.5), skips the pass entirely (l. 291)', () => {
-    expect(planFrame([], NO_FANS, params(), SIZE).stats.drawCalls).toBe(1);
+    expect(planFrame([], NO_FANS, params(), SIZE).stats.drawCalls).toBe(1 + 1 /* backdrop */);
     const deep = params({ lambda: 14, lambdaExt: 14 });
     expect(S.frameLook(deep).fans).toBe(0);
     const { cmds, stats } = planFrame([], fanSet(), deep, SIZE);
     expect(ofPass(cmds, 'fans')).toEqual([]);
-    expect(stats.drawCalls).toBe(0);
+    expect(stats.drawCalls).toBe(1 /* backdrop */);
   });
 
   it('the 1.5 px minimum scales with the DPR (l. 304)', () => {
@@ -237,7 +239,7 @@ describe('planFrame: rim ring', () => {
       halo: [S.RING_HALO, S.RING_HALO_OUT_PX * 2, S.RING_HALO_IN, S.RING_HALO_IN_PX * 2],
       fur: [S.RING_FUR, S.RING_FUR_PX * 2, S.RING_FUR_LINE_PX * 2],
     });
-    expect(stats).toEqual({ tiles: 0, instances: 0, drawCalls: 1 });
+    expect(stats).toEqual({ tiles: 0, instances: 0, drawCalls: 1 + 1 /* backdrop */ });
   });
 
   it('is skipped once it has faded (λ ≥ 13)', () => {
@@ -292,6 +294,69 @@ describe('planFrame: rim marks', () => {
   it('marks are drawn even when look values are 0 (no look guard, l. 363)', () => {
     const p = params({ lambda: 0, lambdaExt: 0, tipSpacing: 0.001 });
     expect(ofPass(planFrame([tile(1, 3, 0)], NO_FANS, p, SIZE).cmds, 'marks')).toHaveLength(1);
+  });
+});
+
+describe('planFrame: backdrop', () => {
+  it('is one draw after the tree, before the dims, with the camera in device px', () => {
+    const p = params({ dpr: 2, camera: { ...camera(4096), camRHi: 0.75, camRLo: 1e-9 } });
+    const { cmds } = planFrame([tile(1, 3, 0)], NO_FANS, p, SIZE);
+    const iBack = cmds.findIndex((c) => c.pass === 'backdrop');
+    expect(iBack).toBe(cmds.findIndex((c) => c.pass === 'marks') + 1);
+    const b = cmds[iBack] as BackdropCmd;
+    expect(b.blend).toBe('saturating');
+    // 800×600 at DPR 2 in 128 device px cells: 7 × 5.
+    expect(b.cells).toEqual([Math.ceil(800 / (2 * S.BACKDROP_CELL_PX)), Math.ceil(600 / (2 * S.BACKDROP_CELL_PX))]);
+    expect([b.vertexCount, b.instanceCount]).toEqual([6 * b.cells[0] * b.cells[1], 1]);
+    expect(b.strength).toBe(1);
+    expect(b.camRPx).toBeCloseTo((0.75 + 1e-9) * 4096, 9);
+    expect(b.rimOff).toBeCloseTo((0.75 + 1e-9 - 1) * 4096, 9);
+    expect(b.grid).toEqual([S.BACKDROP_GRID_ALPHA, 2 * S.BACKDROP_LINE_PX, 2 * S.BACKDROP_SPOKE_PX, b.grid[3]]);
+    expect(b.fade).toEqual([2 * S.BACKDROP_GAP_PX, 2 * S.BACKDROP_RAMP_PX]);
+    expect(b.corona).toEqual([S.BACKDROP_CORONA, 2 * S.BACKDROP_CORONA_PX]);
+  });
+
+  it('fades in at the end of the intro reveal', () => {
+    const at = (reveal: number): DrawCmd[] => ofPass(planFrame([], NO_FANS, params({ reveal }), SIZE).cmds, 'backdrop');
+    expect(at(0.3)).toEqual([]);
+    const mid = at((S.BACKDROP_INTRO[0] + S.BACKDROP_INTRO[1]) / 2)[0] as BackdropCmd;
+    expect(mid.strength).toBeCloseTo(0.5);
+    expect((at(Infinity)[0] as BackdropCmd).strength).toBe(1);
+  });
+
+  it('eases the wash down when deep, keeping the grid', () => {
+    const wash = (lambda: number): BackdropCmd => ofPass(planFrame([], NO_FANS, params({ lambda }), SIZE).cmds, 'backdrop')[0] as BackdropCmd;
+    expect(wash(S.BACKDROP_DEEP_RAMP[0]).wash[0]).toBeCloseTo(S.BACKDROP_WASH_ALPHA);
+    expect(wash(18).wash[0]).toBeCloseTo(S.BACKDROP_WASH_ALPHA * S.BACKDROP_DEEP);
+    expect(wash(18).grid[0]).toBe(S.BACKDROP_GRID_ALPHA);
+  });
+
+  it('?passes can leave it out or draw it alone', () => {
+    const only = planFrame([tile(1, 3, 0)], NO_FANS, params(), SIZE, new Set<Pass>(['backdrop']));
+    expect(only.cmds.map((c) => c.pass)).toEqual(['backdrop']);
+    const without = planFrame([tile(1, 3, 0)], NO_FANS, params(), SIZE, new Set<Pass>(['branches']));
+    expect(ofPass(without.cmds, 'backdrop')).toEqual([]);
+  });
+});
+
+describe('ringLevel', () => {
+  it('spaces rings target..2·target px apart, at 1/2^n world units', () => {
+    for (const scale of [300, 1000, 4096, 1.8e7]) {
+      const [px, fade] = ringLevel(scale, 96);
+      expect(px).toBeGreaterThanOrEqual(96);
+      expect(px).toBeLessThan(192);
+      expect(Math.log2(scale / px) % 1).toBeCloseTo(0);
+      expect(fade).toBeGreaterThanOrEqual(0);
+      expect(fade).toBeLessThan(1);
+    }
+  });
+
+  it('is continuous across an octave: the half-spaced rings are fully in as the level steps', () => {
+    const [pxBelow, fadeBelow] = ringLevel(96 * 4 * 0.99999, 96);
+    const [pxAt, fadeAt] = ringLevel(96 * 4, 96);
+    expect(fadeBelow).toBeCloseTo(1, 4);
+    expect(fadeAt).toBe(0);
+    expect(pxBelow / 2).toBeCloseTo(pxAt, 2);
   });
 });
 
@@ -408,6 +473,7 @@ describe('planFrame: order, blends and stats', () => {
       'arcs',
       'rim',
       'marks', 'marks',
+      'backdrop',
       'dim', // tree dim
       'path',
       'ring',
@@ -423,6 +489,7 @@ describe('planFrame: order, blends and stats', () => {
       arcs: 'saturating',
       rim: 'saturating',
       marks: 'additive',
+      backdrop: 'saturating',
       dim: 'dim',
       path: 'over',
       ring: 'over',
@@ -435,7 +502,7 @@ describe('planFrame: order, blends and stats', () => {
     expect(stats).toEqual({
       tiles: 3, // all tiles passed in, faded or not
       instances: 4 /* fans */ + 30 /* branches */ + 4 /* arcs */ + 30 /* marks */,
-      drawCalls: 2 /* fans */ + 2 + 1 + 1 /* rim */ + 2 + 1 /* tree dim */ + 1 /* path */ + 1 /* ring */ + 2 /* dims */,
+      drawCalls: 2 /* fans */ + 2 + 1 + 1 /* rim */ + 2 + 1 /* backdrop */ + 1 /* tree dim */ + 1 /* path */ + 1 /* ring */ + 2 /* dims */,
     });
   });
 
