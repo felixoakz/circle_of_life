@@ -240,7 +240,7 @@ Tree:     Lineage  … › Mammalia › Carnivora › Felidae   ← the nearest 
 ## 5. Canvas visual spec
 | Element | Spec |
 |---|---|
-| Background | `#000` |
+| Background | `#000`; beyond the rim, the backdrop (§5.1) |
 | Interior branches | 1 device px hairlines, thickening to 3 CSS px (antialiased quads) as tips spread from 8 to 32 px apart, where each branch reads as its own solid stroke running into its name, its alpha rising to 1 over the same ramp (a thick line at 0.85 reads as a dim olive); arcs and the frontier extensions follow. Below one device px they stay native hairlines, so the overview and mid zoom are unchanged. `--branch` α 0.35 (0.85 deep). Colour mixes toward the kingdom hue as r goes 0.55 → 1, squared so it concentrates near the rim. Within 120 px of the rim lines brighten (the luminous rim band) |
 | Frontier extensions and fans | stand for unresolved subtrees: faint at their node, building up towards the rim and dimming far from the rim band on screen. Fans are drawn as hashed fine strands (never flat polygons); fans under 1.5 px wide are left to their extension line |
 | Arcs | same as branches |
@@ -257,6 +257,19 @@ Tree:     Lineage  … › Mammalia › Carnivora › Felidae   ← the nearest 
 | Dense glow | saturating additive blending: dense areas converge on their kingdom hue and never wash to white |
 
 Glow exists **only** in the canvas. It comes from additive blending and soft-edged geometry; v1 has no post-processing bloom. It is strongest on the whole wheel and eases to 45% by mid zoom. **Glow never pulses or animates on its own.** All of these numbers live in `web/src/style.ts`.
+
+### 5.1 Backdrop (behind the glass)
+The empty space beyond the rim is not quite empty: a **polar graticule** in the wheel's own frame over a **soft wash of the kingdom hues**, so the glass card (§2.3) has something of the wheel's to blur. It belongs to the instrument (the calibrated plate the specimen sits on), not to the data: it carries no information, and it never competes with the tree.
+
+| Part | Spec |
+|---|---|
+| Graticule | hairline spokes and rings (1 px, α 0.12), `--branch` grey mixed halfway to the local wash hue. Spokes are 96–192 px apart at their radius: going outward each gap gains a new spoke halfway, fading in over the octave, so the spokes fork outward like the tree. Rings are 96–192 px apart, counted from the rim, halving as you zoom in (the new ones fade in over the octave). Both are fixed to the world: they turn and scale with the wheel through spin, fling, tour flights and zoom |
+| Wash | the rim's colour averaged over 320 px along the circle (neighbouring kingdoms blend softly), α 0.16 at the rim, decaying over 900 px. It gathers into soft **streamers**: hashed brightness per angular cell of about 64 px, subdividing outward like the spokes, like a corona. Streamers are broad enough to survive the card's 24 px blur, where hairlines vanish, so the glass shows drifting kingdom light as the wheel turns behind it. Deep in (λ 10 → 14) the wash eases to 30%, since the names' rows run along the streamers there; the graticule stays |
+| Extent | nothing within 24 px of the rim, fading in over the next 160 px, so the rim, its fur and the clade spikes stand on black. Never inside the wheel |
+| Layering | drawn after the tree with the saturating blend, so it only fills light the tree left: it stays behind every branch and the rim's glow. The tree dim and the HUD plates darken it like the tree |
+| Motion | none of its own. It moves only with the wheel; under reduced motion and `?still` it simply follows the (still) wheel. It fades in at the end of the intro reveal |
+
+One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of the list hides it), shaded analytically per pixel (the blurred hue per vertex of a 64 px grid), identical in WebGPU and WebGL2. It costs about 1 ms of GPU time at 2000×1030 on an integrated GPU; spinning stays at 60 fps. All numbers are the `BACKDROP_*` constants in `web/src/style.ts`.
 
 ## 6. Motion
 | What | Duration | Easing |
