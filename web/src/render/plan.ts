@@ -4,6 +4,7 @@
 // backends only execute the commands, so they cannot drift apart.
 
 import { RAD_PER_UNIT } from '../angle';
+import { smoothstep } from '../ease';
 import { PATH_WORDS } from '../path';
 import * as S from '../style';
 import type { Look } from '../style';
@@ -22,13 +23,13 @@ export function revealUniform(reveal: number): number {
   return Number.isFinite(reveal) ? reveal : REVEAL_DONE;
 }
 
-export type Pass = 'fans' | 'branches' | 'arcs' | 'rim' | 'marks' | 'dim' | 'path' | 'ring';
+export type Pass = 'fans' | 'branches' | 'arcs' | 'rim' | 'marks' | 'backdrop' | 'dim' | 'path' | 'ring';
 
-export const PASSES: readonly Pass[] = ['fans', 'branches', 'arcs', 'rim', 'marks', 'dim', 'path', 'ring'];
+export const PASSES: readonly Pass[] = ['fans', 'branches', 'arcs', 'rim', 'marks', 'backdrop', 'dim', 'path', 'ring'];
 
 /**
  * Blend modes, colour and alpha alike (src factor, dst factor):
- * - saturating: (1 − dst alpha, 1), the tree and the rim ring
+ * - saturating: (1 − dst alpha, 1), the tree, the rim ring and the backdrop
  * - additive: (1, 1), rim marks
  * - over: (1, 1 − src alpha), paths and rings
  * - dim: (0, 1 − src alpha), the tree dim and the HUD plates
@@ -41,6 +42,8 @@ export const PASS_BLEND: Readonly<Record<Pass, Blend>> = {
   arcs: 'saturating',
   rim: 'saturating',
   marks: 'additive',
+  // Drawn after the tree, it only fills the light the tree left: it stays behind.
+  backdrop: 'saturating',
   dim: 'dim',
   path: 'over',
   ring: 'over',
@@ -110,6 +113,39 @@ export interface MarksCmd extends DrawBase {
   leaderHalo: [number, number];
 }
 
+export interface BackdropCmd extends DrawBase {
+  pass: 'backdrop';
+  /** Overall strength (0 before the intro reveal reaches it). */
+  strength: number;
+  /** The camera point's distance from the centre, R·scale, device px. */
+  camRPx: number;
+  /** The rim's offset from it, (R − 1)·scale, device px (exact: from the double camera). */
+  rimOff: number;
+  /** Line alpha, line width px, spoke spacing px, ring spacing px (level 0; level 1 is half). */
+  grid: [number, number, number, number];
+  /** Fade-in of the level-1 rings (0..1 over the octave). */
+  ringFade: number;
+  /** Gap px beyond the rim, then ramp px over which everything fades in. */
+  fade: [number, number];
+  /** Wash alpha at the rim, its decay px, the blur window px along the circle, the grid's tint toward it. */
+  wash: [number, number, number, number];
+  /** How much the wash gathers into streamers (0: even), and a streamer's width px. */
+  corona: [number, number];
+  /** Columns and rows of the screen grid the hue is computed on (vertexCount = 6 · cols · rows). */
+  cells: [number, number];
+}
+
+/**
+ * Ring spacing for this scale: rings sit at 1 + m/n world units, n a power
+ * of two chosen so they are `targetPx`..2·`targetPx` apart; the rings of
+ * level n·2 fade in over the octave. Returns [spacing px of level n, fade].
+ */
+export function ringLevel(scale: number, targetPx: number): [number, number] {
+  const q = Math.log2(Math.max(scale / targetPx, 1e-9));
+  const n = 2 ** Math.floor(q);
+  return [scale / n, q - Math.floor(q)];
+}
+
 export interface DimCmd extends DrawBase {
   pass: 'dim';
   rect: Dim;
@@ -137,7 +173,7 @@ export interface RingCmd extends DrawBase {
   colour: [number, number, number, number];
 }
 
-export type DrawCmd = FansCmd | BranchesCmd | ArcsCmd | RimCmd | MarksCmd | DimCmd | PathCmd | RingCmd;
+export type DrawCmd = FansCmd | BranchesCmd | ArcsCmd | RimCmd | MarksCmd | BackdropCmd | DimCmd | PathCmd | RingCmd;
 
 /** The current frontier fans: how many, and each one's span in u32 units, widest first. */
 export interface FanSet {
@@ -351,6 +387,35 @@ export function planFrame(
         leaderHalo: [0, 1],
       });
       instances += t.count;
+      drawCalls++;
+    }
+  }
+
+  if (on('backdrop')) {
+    const strength = smoothstep(S.BACKDROP_INTRO[0], S.BACKDROP_INTRO[1], revealUniform(p.reveal));
+    if (strength > 0) {
+      const c = p.camera;
+      const px = p.dpr;
+      const [ringPx, ringFade] = ringLevel(c.scale, S.BACKDROP_RING_PX * px);
+      const deep = smoothstep(S.BACKDROP_DEEP_RAMP[0], S.BACKDROP_DEEP_RAMP[1], p.lambda);
+      const cols = Math.max(1, Math.ceil(size.width / (S.BACKDROP_CELL_PX * px)));
+      const rows = Math.max(1, Math.ceil(size.height / (S.BACKDROP_CELL_PX * px)));
+      const washAlpha = S.BACKDROP_WASH_ALPHA * (1 - (1 - S.BACKDROP_DEEP) * deep);
+      cmds.push({
+        pass: 'backdrop',
+        blend: PASS_BLEND.backdrop,
+        // The blurred hue is worked out per vertex of a coarse screen grid.
+        ...single(6 * cols * rows),
+        strength,
+        camRPx: (c.camRHi + c.camRLo) * c.scale,
+        rimOff: (c.camRHi - 1 + c.camRLo) * c.scale,
+        grid: [S.BACKDROP_GRID_ALPHA, S.BACKDROP_LINE_PX * px, S.BACKDROP_SPOKE_PX * px, ringPx],
+        ringFade,
+        fade: [S.BACKDROP_GAP_PX * px, S.BACKDROP_RAMP_PX * px],
+        wash: [washAlpha, S.BACKDROP_WASH_DECAY_PX * px, S.BACKDROP_WASH_BLUR_PX * px, S.BACKDROP_TINT],
+        corona: [S.BACKDROP_CORONA, S.BACKDROP_CORONA_PX * px],
+        cells: [cols, rows],
+      });
       drawCalls++;
     }
   }

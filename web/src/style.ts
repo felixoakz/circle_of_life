@@ -166,6 +166,50 @@ export const REVEAL_END = 1.05;
 export const REVEAL_SOFT = 0.04;
 
 /**
+ * The backdrop (DESIGN.md §5.1): a polar graticule in the wheel's own frame,
+ * beyond the rim, over a soft wash of the kingdom hues carried outward, so
+ * the glass card has something of the wheel's to blur. One fullscreen pass,
+ * drawn behind the tree (it only fills the light the tree left).
+ *
+ * - Spokes and rings are hairlines (BACKDROP_LINE_PX) of BACKDROP_GRID_ALPHA.
+ *   Both subdivide by halves as their spacing on screen passes BACKDROP_SPOKE_PX
+ *   / BACKDROP_RING_PX (the new lines fade in over the octave), so the grid
+ *   stays even at every zoom and spokes fork outward like the tree does.
+ * - The wash is the rim's colour, averaged over BACKDROP_WASH_BLUR_PX along
+ *   the circle, BACKDROP_WASH_ALPHA at the rim decaying over BACKDROP_WASH_DECAY_PX.
+ *   The grid lines are BACKDROP_TINT of the way from `--branch` grey to it.
+ * - Everything fades in from BACKDROP_GAP_PX beyond the rim over BACKDROP_RAMP_PX,
+ *   so the rim, its fur and the clade spikes stand on black.
+ * - The wash gathers into soft streamers (BACKDROP_CORONA, 0..1): hashed
+ *   brightness per angular cell of about BACKDROP_CORONA_PX, subdividing with
+ *   the radius like the spokes, fixed to the world as it turns. Broad enough
+ *   to survive the glass's 24 px blur, where hairlines vanish.
+ * - It fades in at the end of the intro reveal (reveal radius BACKDROP_INTRO).
+ */
+export const BACKDROP_GRID_ALPHA = 0.12;
+export const BACKDROP_LINE_PX = 1;
+export const BACKDROP_SPOKE_PX = 96;
+export const BACKDROP_RING_PX = 96;
+export const BACKDROP_WASH_ALPHA = 0.16;
+export const BACKDROP_WASH_DECAY_PX = 900;
+export const BACKDROP_WASH_BLUR_PX = 320;
+export const BACKDROP_TINT = 0.5;
+export const BACKDROP_CORONA = 1;
+export const BACKDROP_CORONA_PX = 64;
+/**
+ * Deep in, the empty space beyond the rim fills with species names whose
+ * rows run along the streamers: the wash eases to BACKDROP_DEEP of itself
+ * over λ BACKDROP_DEEP_RAMP (the grid stays).
+ */
+export const BACKDROP_DEEP = 0.3;
+/** The blurred hue is computed per vertex of a screen grid of cells about this size (it barely changes over one). */
+export const BACKDROP_CELL_PX = 64;
+export const BACKDROP_DEEP_RAMP: readonly [number, number] = [10, 14];
+export const BACKDROP_GAP_PX = 24;
+export const BACKDROP_RAMP_PX = 160;
+export const BACKDROP_INTRO: readonly [number, number] = [0.7, REVEAL_END];
+
+/**
  * The tree is darkened behind HUD text and controls (ui/obstacles.ts): by
  * DIM_HUD over the text's own box, easing to nothing over DIM_PAD_PX +
  * DIM_SOFT_PX around it (still about 70% at the pad), so the flat DOM text

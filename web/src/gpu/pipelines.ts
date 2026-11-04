@@ -19,6 +19,7 @@
 
 import type { Blend, Pass } from '../render/plan';
 import { structLayout, wgslStruct } from './layout';
+import backdrop from './shaders/backdrop.wgsl?raw';
 import common from './shaders/common.wgsl?raw';
 import dim from './shaders/dim.wgsl?raw';
 import fans from './shaders/fans.wgsl?raw';
@@ -65,6 +66,7 @@ export const PIPELINES: readonly PipelineSpec[] = [
   { pass: 'fans', module: 'fans.wgsl', vertex: 'vs_fans', fragment: 'fs_fans', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw-data' },
   { pass: 'rim', module: 'rim.wgsl', vertex: 'vs_rim', fragment: 'fs_rim', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw' },
   { pass: 'marks', module: 'marks.wgsl', vertex: 'vs_marks', fragment: 'fs_marks', topology: 'triangle-strip', blend: 'additive', groups: 'frame-draw-data' },
+  { pass: 'backdrop', module: 'backdrop.wgsl', vertex: 'vs_backdrop', fragment: 'fs_backdrop', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw' },
   { pass: 'path', module: 'path.wgsl', vertex: 'vs_path', fragment: 'fs_path', topology: 'triangle-list', blend: 'over', groups: 'frame-draw-data' },
   { pass: 'ring', module: 'ring.wgsl', vertex: 'vs_ring', fragment: 'fs_ring', topology: 'triangle-strip', blend: 'over', groups: 'frame-draw' },
   { pass: 'dim', module: 'dim.wgsl', vertex: 'vs_dim', fragment: 'fs_dim', topology: 'triangle-list', blend: 'dim', groups: 'frame-draw' },
@@ -83,6 +85,7 @@ const SOURCES: Readonly<Record<string, string>> = {
   'path.wgsl': path,
   'ring.wgsl': ring,
   'dim.wgsl': dim,
+  'backdrop.wgsl': backdrop,
 };
 
 /** MSAA samples of the colour target; WebGPU guarantees 1 and 4. */

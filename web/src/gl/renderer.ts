@@ -14,6 +14,7 @@ import { PATH_WORDS } from '../path';
 import { flipRows } from '../render/pixels';
 import {
   type ArcsCmd,
+  type BackdropCmd,
   type Blend,
   type BranchesCmd,
   type DimCmd,
@@ -35,6 +36,8 @@ import type { Tile } from '../tiles/decode';
 import { FAN_WORDS } from '../tiles/fans';
 import { type Program, createGL, createProgram } from './context';
 import arcsVert from './shaders/arcs.vert?raw';
+import backdropFrag from './shaders/backdrop.frag?raw';
+import backdropVert from './shaders/backdrop.vert?raw';
 import branchesVert from './shaders/branches.vert?raw';
 import common from './shaders/common.glsl?raw';
 import dimFrag from './shaders/dim.frag?raw';
@@ -131,6 +134,7 @@ export class WebGl2Renderer implements Renderer {
       fans: createProgram(gl, vertex(fansVert), fragment(fansFrag)),
       rim: createProgram(gl, vertex(rimVert), fragment(rimFrag)),
       marks: createProgram(gl, vertex(marksVert), fragment(marksFrag)),
+      backdrop: createProgram(gl, vertex(backdropVert), fragment(backdropFrag)),
       dim: createProgram(gl, `#version 300 es\n${dimVert}`, `#version 300 es\n${dimFrag}`),
       path: createProgram(gl, vertex(pathVert), `#version 300 es\n${pathFrag}`),
       ring: createProgram(gl, vertex(ringVert), `#version 300 es\n${ringFrag}`),
@@ -296,6 +300,8 @@ export class WebGl2Renderer implements Renderer {
         return this.drawRim(cmd);
       case 'marks':
         return this.drawMarks(cmd);
+      case 'backdrop':
+        return this.drawBackdrop(cmd);
       case 'dim':
         return this.drawDim(cmd);
       case 'path':
@@ -373,6 +379,23 @@ export class WebGl2Renderer implements Renderer {
     gl.uniform1f(u.uFade ?? null, c.fade);
     gl.bindVertexArray(glTile(c.tile).vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, c.vertexCount, c.instanceCount);
+  }
+
+  /** The graticule and wash behind the tree (backdrop.vert, backdrop.frag): a grid of quads over the screen. */
+  private drawBackdrop(c: BackdropCmd): void {
+    const gl = this.gl;
+    const u = this.programs.backdrop.u;
+    gl.uniform1f(u.uStrength ?? null, c.strength);
+    gl.uniform1f(u.uCamRPx ?? null, c.camRPx);
+    gl.uniform1f(u.uRimOff ?? null, c.rimOff);
+    gl.uniform4f(u.uGrid ?? null, ...c.grid);
+    gl.uniform1f(u.uRingFade ?? null, c.ringFade);
+    gl.uniform2f(u.uFade ?? null, ...c.fade);
+    gl.uniform4f(u.uWash ?? null, ...c.wash);
+    gl.uniform2f(u.uCorona ?? null, ...c.corona);
+    gl.uniform2f(u.uCells ?? null, ...c.cells);
+    gl.bindVertexArray(this.emptyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, c.vertexCount);
   }
 
   /**

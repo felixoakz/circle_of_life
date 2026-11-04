@@ -7,6 +7,7 @@ import { RAD_PER_UNIT } from '../angle';
 import { BRANCH, MAX_RUNS, type RunPalette, oklchToSrgb } from '../palette';
 import {
   type ArcsCmd,
+  type BackdropCmd,
   type BranchesCmd,
   type DimCmd,
   type FansCmd,
@@ -119,6 +120,19 @@ export const RING_FIELDS: Fields = [
   ['linePx', 'f32'],
 ];
 
+/** `BackdropDraw` (backdrop.wgsl), the vectors as in render/plan.ts `BackdropCmd`. */
+export const BACKDROP_FIELDS: Fields = [
+  ['grid', 'vec4f'],
+  ['wash', 'vec4f'],
+  ['fade', 'vec2f'],
+  ['corona', 'vec2f'],
+  ['cells', 'vec2f'],
+  ['strength', 'f32'],
+  ['camRPx', 'f32'],
+  ['rimOff', 'f32'],
+  ['ringFade', 'f32'],
+];
+
 /** `DimDraw` (dim.wgsl): rect = x0, y0, x1, y1 in device px, y down. */
 export const DIM_FIELDS: Fields = [
   ['rect', 'vec4f'],
@@ -135,6 +149,7 @@ export const DRAW_STRUCTS: Readonly<Record<string, Fields>> = {
   MarksDraw: MARKS_FIELDS,
   PathDraw: PATH_FIELDS,
   RingDraw: RING_FIELDS,
+  BackdropDraw: BACKDROP_FIELDS,
   DimDraw: DIM_FIELDS,
 };
 
@@ -232,7 +247,7 @@ export function packStruct(
 }
 
 /** Writes a draw command's struct (everything but branches and arcs: `packLines`) at byte `offset`. */
-export function packDraw(c: FansCmd | RimCmd | MarksCmd | PathCmd | RingCmd | DimCmd, out: ArrayBuffer, offset: number): void {
+export function packDraw(c: FansCmd | RimCmd | MarksCmd | BackdropCmd | PathCmd | RingCmd | DimCmd, out: ArrayBuffer, offset: number): void {
   switch (c.pass) {
     case 'fans':
       return packStruct(FANS_FIELDS, { lambda: c.lambda, fadeF: c.fadeF, alpha: c.alpha, linePx: c.linePx, k: c.k }, out, offset);
@@ -247,6 +262,23 @@ export function packDraw(c: FansCmd | RimCmd | MarksCmd | PathCmd | RingCmd | Di
       return packStruct(
         MARKS_FIELDS,
         { fade: c.fade, px: c.px, spike: c.spike, tipBar: c.tipBar, leaderHalo: c.leaderHalo, leader: c.leader },
+        out,
+        offset,
+      );
+    case 'backdrop':
+      return packStruct(
+        BACKDROP_FIELDS,
+        {
+          grid: c.grid,
+          wash: c.wash,
+          fade: c.fade,
+          corona: c.corona,
+          cells: c.cells,
+          strength: c.strength,
+          camRPx: c.camRPx,
+          rimOff: c.rimOff,
+          ringFade: c.ringFade,
+        },
         out,
         offset,
       );

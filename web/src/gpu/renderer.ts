@@ -431,6 +431,7 @@ export class WebGpuRenderer implements Renderer {
       }
       case 'rim':
       case 'ring':
+      case 'backdrop':
       case 'dim':
         packDraw(cmd, this.slots.bytes, slot);
         return null;
