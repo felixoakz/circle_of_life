@@ -82,10 +82,18 @@ function precisionLine(p: PrecisionResult): string {
 /**
  * Max zoom on the rim next to Homo sapiens, rotation 0 so lines are
  * diagonal. The camera is set directly, not through the rig (rig.ts): this
- * tests the renderer at a fixed pose and moves it by exact pixels.
+ * tests the renderer at a fixed pose and moves it by exact pixels. With a
+ * free view link (`&v=a,r,z,rot`, url.ts) it stays where that link looks,
+ * at max zoom, so free view anywhere on the wheel can be checked too
+ * (e.g. mid-radius, among the inner branches).
  */
 export function precisionCamera(scene: Scene, meta: Meta): void {
   const cam = scene.camera;
+  const free = scene.rig.free;
+  if (free) {
+    scene.rig.setFree({ ...free, scale: cam.maxScale(), rot: 0 });
+    return;
+  }
   cam.rot = 0;
   cam.scale = cam.maxScale();
   cam.angle = toRad(meta.home?.angle ?? 0);

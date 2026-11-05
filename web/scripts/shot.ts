@@ -35,6 +35,9 @@
 // for the locked view (no pan, fixed card; DESIGN.md §4):
 //
 //   SHOT_OUT=../screens/locked pnpm -C web shot locked
+//
+// The `free-*` states are free view's (DESIGN.md §4.1 "Free view"): links
+// with the pan (`v=a,r,z,rot`) and the padlock pressed.
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -163,6 +166,22 @@ async function openCredits(page: Page): Promise<void> {
 /** The `v` parameter: the angle at the anchor (u32 units) and log2 of the zoom in CSS px per unit. */
 function v(a: number, scaleCss: number): string {
   return `&v=${Math.round(a)},${Math.log2(scaleCss).toFixed(4)}`;
+}
+
+/** A free view `v`: the screen centre at angle `a` (u32 units) and radius `r`, the zoom, the rotation in degrees. */
+function fv(a: number, r: number, scaleCss: number, rotDeg: number): string {
+  return `&v=${Math.round(a)},${r},${Math.log2(scaleCss).toFixed(4)},${rotDeg}`;
+}
+
+/** The rotation (degrees) that turns the radius at angle `a` (u32 units) straight up the screen: the rim at the top. */
+function rimUp(a: number): number {
+  return +(90 - (a / TWO_32) * 360).toFixed(3);
+}
+
+/** A node's angle and radius, from the read API. */
+async function nodePoint(id: string): Promise<{ a: number; r: number; span: number }> {
+  const n = (await (await fetch(`${BASE}/api/nodes/${id}`)).json()) as { angle: number; r: number; arcLo: number; arcHi: number };
+  return { a: n.angle, r: n.r, span: n.arcHi - n.arcLo };
 }
 
 /** Scale (CSS px per world unit) at which λ equals `lambda`. */
@@ -313,6 +332,63 @@ const STATES: State[] = [
   { name: 'locked-mobile-clade', width: 390, height: 844, dpr: 2, query: () => '&n=ott563159' },
   { name: 'locked-old-link', width: 1440, height: 900, query: () => '&n=ott770315&v=1780855860,0.99999,24.1,-149.3' },
   { name: 'locked-1280', width: 1280, height: 800, query: () => '' },
+  // Free view (DESIGN.md §4.1): the padlock pressed on the default view, then
+  // the inner tree round Rhabditophora (a class at r 0.71), turned so the rim
+  // is up and at an arbitrary rotation, and deep zooms off and on the rim.
+  { name: 'free-button-2000', width: 2000, height: 1030, query: () => '', act: (page) => page.keyboard.press('f') },
+  { name: 'free-mobile', width: 390, height: 844, dpr: 2, query: () => '', act: (page) => page.click('.zoom-free') },
+  {
+    name: 'free-mid-rhabditophora-2000',
+    width: 2000,
+    height: 1030,
+    query: async () => {
+      const n = await nodePoint('ott3669734');
+      // The node's connector fills about a third of the width, a quarter of the height below the centre.
+      const scale = 2000 / (3 * n.r * n.span * (TAU / TWO_32));
+      return `&n=ott3669734${fv(n.a, n.r + 260 / scale, scale, rimUp(n.a))}`;
+    },
+  },
+  {
+    name: 'free-mid-rhabditophora-turned-2000',
+    width: 2000,
+    height: 1030,
+    query: async () => {
+      // Rhabditophora's node and its children's (Seriata, r 0.75) along the
+      // screen, the rim off to the lower right: clade names on their arcs.
+      const n = await nodePoint('ott3669734');
+      return `&n=ott3669734${fv(n.a, 0.745, 25000, rimUp(n.a) - 115)}`;
+    },
+  },
+  {
+    name: 'free-deep-inner-2000',
+    width: 2000,
+    height: 1030,
+    query: async () => {
+      const n = await nodePoint('ott3669734');
+      // Deep among the inner branches, well inside the rim (no tips on screen).
+      return `&n=ott3669734${fv(n.a, 0.93, 1e7, rimUp(n.a))}`;
+    },
+  },
+  {
+    name: 'free-deep-rim-turned-2000',
+    width: 2000,
+    height: 1030,
+    query: async () => {
+      const n = await nodePoint('ott3669734');
+      // Tip names at deep zoom with the rim across the middle at 30°, not at the anchor.
+      return `&n=ott3669734${fv(n.a, 1, 2e6, rimUp(n.a) - 60)}`;
+    },
+  },
+  {
+    name: 'free-precision-mid',
+    width: 1440,
+    height: 900,
+    query: async () => {
+      const n = await nodePoint('ott3669734');
+      return `&debug=precision${fv(n.a, 0.93, 1e7, 0)}`;
+    },
+    precision: true,
+  },
   {
     name: 'locked-search',
     width: 1440,
