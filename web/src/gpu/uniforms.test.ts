@@ -17,7 +17,9 @@ import {
   NO_HOME,
   PALETTE_FIELDS,
   REVEAL_DONE,
+  EDGE_FIELDS,
   RIM_FIELDS,
+  TIPS_FIELDS,
   RING_FIELDS,
   packDraw,
   packFrame,
@@ -121,9 +123,14 @@ describe('packFrame', () => {
     expect(at('rimBoost')).toBe(f32(S.RIM_BOOST * 0.8));
     expect(at('pxPerUnit')).toBe(f32(RAD_PER_UNIT * c.scale));
     expect([at('branch'), at('branch', 1), at('branch', 2)]).toEqual(oklchToSrgb(BRANCH).map(f32));
-    expect(at('extInner')).toBe(f32(S.EXT_INNER));
+    // tipSpacing 1: zoomed in, extensions are solid (style.ts extLevels).
+    expect(at('extInner')).toBe(1);
     expect(at('extPow')).toBe(f32(S.EXT_POWER));
-    expect(at('extFar')).toBe(f32(S.EXT_FAR));
+    expect(at('extFar')).toBe(1);
+    // On the whole wheel they keep the build-up.
+    const whole = pack(params({ tipSpacing: 0.001 }), 0.8).f;
+    expect(whole[off('extInner') / 4]).toBe(f32(S.EXT_INNER));
+    expect(whole[off('extFar') / 4]).toBe(f32(S.EXT_FAR));
   });
 
   it('writes the reveal sentinel once the intro is done', () => {
@@ -246,6 +253,40 @@ describe('packDraw', () => {
     expect(f[(at.ringFade ?? 0) / 4]).toBe(0.75);
   });
 
+  it('packs the tip dots as three f32 at their offsets, at the slot offset', () => {
+    const buf = new ArrayBuffer(2 * DRAW_SLOT_BYTES);
+    new Float32Array(buf).fill(-1);
+    const at = structLayout(TIPS_FIELDS).offsets;
+    const tile = { level: 13, count: 9, internalCount: 4 };
+    packDraw(
+      { pass: 'tips', blend: 'over', vertexCount: 4, instanceCount: 9, firstInstance: 0, tile, alpha: 0.3, radius: 7.5, lift: 0.3 },
+      buf,
+      DRAW_SLOT_BYTES,
+    );
+    const f = new Float32Array(buf, DRAW_SLOT_BYTES);
+    expect(f[(at.alpha ?? 0) / 4]).toBe(Math.fround(0.3));
+    expect(f[(at.radius ?? 0) / 4]).toBe(7.5);
+    expect(f[(at.lift ?? 0) / 4]).toBe(Math.fround(0.3));
+    // The first slot is untouched.
+    expect(new Float32Array(buf, 0, 4)).toEqual(new Float32Array([-1, -1, -1, -1]));
+  });
+
+  it('packs the rim edge: reach, then k as i32, then the scalars', () => {
+    const buf = new ArrayBuffer(DRAW_SLOT_BYTES);
+    const at = structLayout(EDGE_FIELDS).offsets;
+    packDraw(
+      { pass: 'edge', blend: 'over', vertexCount: 6 * 256, instanceCount: 1, firstInstance: 0, k: 256, reach: [2, 5], alpha: 0.9, width: 3, lift: 0.3 },
+      buf,
+      0,
+    );
+    const f = new Float32Array(buf);
+    expect([...f.subarray((at.reach ?? 0) / 4, (at.reach ?? 0) / 4 + 2)]).toEqual([2, 5]);
+    expect(new Int32Array(buf)[(at.k ?? 0) / 4]).toBe(256);
+    expect(f[(at.alpha ?? 0) / 4]).toBe(Math.fround(0.9));
+    expect(f[(at.width ?? 0) / 4]).toBe(3);
+    expect(f[(at.lift ?? 0) / 4]).toBe(Math.fround(0.3));
+  });
+
   it('every per-draw struct fits one slot', () => {
     for (const [name, fields] of Object.entries(DRAW_STRUCTS)) {
       expect(structLayout(fields).size, name).toBeLessThanOrEqual(DRAW_SLOT_BYTES);
@@ -256,7 +297,7 @@ describe('packDraw', () => {
     const buf = new ArrayBuffer(2 * DRAW_SLOT_BYTES);
     const at = structLayout(RING_FIELDS).offsets;
     packDraw(
-      { pass: 'ring', blend: 'over', vertexCount: 4, instanceCount: 1, firstInstance: 0, angle: 0xfffffffe, r: 0.5, radius: 7, linePx: 2, colour: [0.1, 0.2, 0.3, 0.4] },
+      { pass: 'ring', blend: 'over', vertexCount: 4, instanceCount: 1, firstInstance: 0, angle: 0xfffffffe, r: 0.5, radius: 7, linePx: 2, colour: [0.1, 0.2, 0.3, 0.4], dot: 4.5, knock: [5, 0.85] },
       buf,
       DRAW_SLOT_BYTES,
     );
@@ -265,6 +306,8 @@ describe('packDraw', () => {
     expect(u[(at.angle ?? 0) / 4]).toBe(0xfffffffe);
     expect(f[(at.radius ?? 0) / 4]).toBe(7);
     expect([...f.subarray((at.colour ?? 0) / 4, (at.colour ?? 0) / 4 + 4)]).toEqual([0.1, 0.2, 0.3, 0.4].map(Math.fround));
+    expect(f[(at.dot ?? 0) / 4]).toBe(4.5);
+    expect([...f.subarray((at.knock ?? 0) / 4, (at.knock ?? 0) / 4 + 2)]).toEqual([5, Math.fround(0.85)]);
     // Slot 0 untouched.
     expect(new Uint32Array(buf, 0, DRAW_SLOT_BYTES / 4).every((w) => w === 0)).toBe(true);
 

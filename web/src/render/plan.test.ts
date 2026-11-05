@@ -21,6 +21,7 @@ import {
   type PathCmd,
   type RimCmd,
   type RingCmd,
+  type TipsCmd,
   fanSpans,
   fansWiderThan,
   lineHalfWidth,
@@ -55,7 +56,7 @@ function params(over: Partial<FrameParams> = {}): FrameParams {
     fadeF: 1,
     reveal: Infinity,
     dpr: 1,
-    tipSpacing: 0.01,
+    tipSpacing: 0.001,
     homeId: -1,
     homeAngle: 0,
     leaderGap: 0,
@@ -297,11 +298,107 @@ describe('planFrame: rim marks', () => {
   });
 });
 
+describe('planFrame: rim edge', () => {
+  it('is off at overview and once the tip dots have taken over', () => {
+    for (const tipSpacing of [0.001, S.EDGE_SPACING[0], S.TIP_DOT_SPACING[1], 48]) {
+      expect(ofPass(planFrame([], NO_FANS, params({ tipSpacing }), SIZE).cmds, 'edge'), String(tipSpacing)).toEqual([]);
+    }
+  });
+
+  it('is one over-blended annulus after the rim, in device px', () => {
+    const p = params({ lambda: 9, lambdaExt: 9, dpr: 2, tipSpacing: 0.1 });
+    const look = S.frameLook(p);
+    const { cmds, stats } = planFrame([], NO_FANS, p, SIZE);
+    const [e] = ofPass(cmds, 'edge');
+    expect(e).toEqual({
+      pass: 'edge',
+      blend: 'over',
+      vertexCount: 6 * 256,
+      instanceCount: 1,
+      firstInstance: 0,
+      k: 256,
+      reach: [2, S.EDGE_WIDTH_PX * 2 + 2],
+      alpha: S.EDGE_ALPHA,
+      width: S.EDGE_WIDTH_PX * 2,
+      lift: S.TIP_DOT_LIFT,
+    });
+    expect(look.edge).toBe(S.EDGE_ALPHA);
+    expect(cmds.findIndex((c) => c.pass === 'edge')).toBe(cmds.findIndex((c) => c.pass === 'rim') + 1);
+    expect(stats.instances).toBe(0);
+  });
+
+  it('hands over to the tip dots: edge and dots cross-fade', () => {
+    const mid = (S.TIP_DOT_SPACING[0] + S.TIP_DOT_SPACING[1]) / 2;
+    const look = S.frameLook({ lambda: 16, tipSpacing: mid });
+    expect(look.edge).toBeCloseTo(S.EDGE_ALPHA * (1 - look.tipDot));
+    expect(look.tipDot).toBeGreaterThan(0);
+  });
+});
+
+describe('planFrame: tip dots', () => {
+  it('draws nothing while tips are too close for dots (overview and mid zoom)', () => {
+    for (const tipSpacing of [0.001, 1, S.TIP_DOT_SPACING[0]]) {
+      const p = params({ lambda: 15, lambdaExt: 13, tipSpacing });
+      const plan = planFrame([tile(13, 9, 4)], NO_FANS, p, SIZE);
+      expect(ofPass(plan.cmds, 'tips')).toEqual([]);
+    }
+  });
+
+  it('one over-blended quad per node of each tile with tips, radius in device px', () => {
+    const p = params({ lambda: 17, lambdaExt: 13, dpr: 2, tipSpacing: 6 });
+    const look = S.frameLook(p);
+    const tiles = [tile(12, 9, 4), tile(13, 5, 5) /* no tips */, tile(13, 7, 0)];
+    const dots = ofPass(planFrame(tiles, NO_FANS, p, SIZE).cmds, 'tips') as TipsCmd[];
+    expect(dots.map((d) => d.tile)).toEqual([tiles[0], tiles[2]]);
+    expect(dots[0]).toEqual({
+      pass: 'tips',
+      blend: 'over',
+      vertexCount: 4,
+      instanceCount: 9,
+      firstInstance: 0,
+      tile: tiles[0],
+      alpha: look.tipDot,
+      radius: S.tipDotRadiusPx(look.lineWidth) * 2,
+      lift: S.TIP_DOT_LIFT,
+    });
+    expect(look.tipDot).toBeGreaterThan(0);
+    expect(look.tipDot).toBeLessThan(1);
+  });
+
+  it('keeps the dot size fixed on screen while lines are hairlines, growing with thick lines only', () => {
+    const radius = (tipSpacing: number): number => {
+      const [d] = ofPass(planFrame([tile(13, 3, 0)], NO_FANS, params({ tipSpacing }), SIZE).cmds, 'tips') as TipsCmd[];
+      return d?.radius ?? NaN;
+    };
+    expect(radius(8)).toBe(S.TIP_DOT_RADIUS_PX);
+    expect(radius(9)).toBe(S.TIP_DOT_RADIUS_PX);
+    expect(radius(48)).toBe(S.TIP_DOT_LINE_RATIO * S.LINE_DEEP_PX);
+  });
+
+  it('multiplies in the tile fade and skips faded tiles', () => {
+    const fade = (level: number): number => (level === 12 ? 0 : 0.5);
+    const p = params({ tipSpacing: 20, fade });
+    const dots = ofPass(planFrame([tile(12, 3, 0), tile(13, 3, 0)], NO_FANS, p, SIZE).cmds, 'tips') as TipsCmd[];
+    expect(dots).toHaveLength(1);
+    expect(dots[0]?.alpha).toBe(0.5);
+  });
+
+  it('is drawn after the marks and before the backdrop, and counted', () => {
+    const p = params({ tipSpacing: 20 });
+    const { cmds, stats } = planFrame([tile(13, 3, 1)], NO_FANS, p, SIZE);
+    const i = cmds.findIndex((c) => c.pass === 'tips');
+    expect(cmds[i - 1]?.pass).toBe('marks');
+    expect(cmds[i + 1]?.pass).toBe('backdrop');
+    expect(stats.instances).toBe(3 /* branches */ + 1 /* arcs */ + 3 /* marks */ + 3 /* tips */);
+  });
+});
+
 describe('planFrame: backdrop', () => {
   it('is one draw after the tree, before the dims, with the camera in device px', () => {
     const p = params({ dpr: 2, camera: { ...camera(4096), camRHi: 0.75, camRLo: 1e-9 } });
     const { cmds } = planFrame([tile(1, 3, 0)], NO_FANS, p, SIZE);
     const iBack = cmds.findIndex((c) => c.pass === 'backdrop');
+    // tipSpacing 0.001: no tip dots, so the backdrop follows the marks.
     expect(iBack).toBe(cmds.findIndex((c) => c.pass === 'marks') + 1);
     const b = cmds[iBack] as BackdropCmd;
     expect(b.blend).toBe('saturating');
@@ -425,9 +522,14 @@ describe('planFrame: highlight and dims', () => {
       angle: 0xffffffff, // r.angle >>> 0
       r: 0.5,
       radius: 12,
-      linePx: 2,
+      linePx: S.SELECT_RING_LINE_PX * 2,
       colour: [1, 1, 1, 1],
+      dot: S.SELECT_DOT_PX * 2,
+      knock: [S.SELECT_KNOCK_PX * 2, S.SELECT_KNOCK_ALPHA],
     });
+    // The dot sits well inside the ring, and the dark disc reaches past it.
+    expect(S.SELECT_DOT_PX + 1).toBeLessThan(S.SELECT_RING_PX - S.SELECT_RING_LINE_PX / 2);
+    expect(S.SELECT_KNOCK_PX).toBeGreaterThan(S.SELECT_RING_LINE_PX / 2);
     expect(out[1]?.colour[3]).toBe(0);
   });
 
@@ -488,7 +590,9 @@ describe('planFrame: order, blends and stats', () => {
       branches: 'saturating',
       arcs: 'saturating',
       rim: 'saturating',
+      edge: 'over',
       marks: 'additive',
+      tips: 'over',
       backdrop: 'saturating',
       dim: 'dim',
       path: 'over',

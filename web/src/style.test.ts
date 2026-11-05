@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   BRANCH_ALPHA,
   BRANCH_ALPHA_DEEP,
+  EDGE_ALPHA,
+  EXT_FAR,
+  EXT_INNER,
+  EXT_SOLID_SPACING,
   GLOW_DEEP,
   LINE_DEEP_ALPHA,
   LINE_DEEP_PX,
@@ -9,13 +13,18 @@ import {
   PATH_MAX_PX,
   PATH_WIDTH_PX,
   TIP_BAR_ALPHA,
+  TIP_DOT_LINE_RATIO,
+  TIP_DOT_RADIUS_PX,
+  TIP_DOT_SPACING,
   TIP_GREEK_ALPHA,
   TIP_GREEK_SPACING,
   TIP_LABEL_SPACING,
   TIP_TEXT_FADE,
+  extLevels,
   frameLook,
   pathWidthPx,
   tipColumnAlpha,
+  tipDotRadiusPx,
   tipFontPx,
   tipGreekAlpha,
   tipTextAlpha,
@@ -47,6 +56,41 @@ describe('frameLook', () => {
     // Full width, full alpha: solid strokes, not a dim olive.
     expect(l.branchAlpha).toBe(LINE_DEEP_ALPHA);
     expect(frameLook({ lambda: 15.8, tipSpacing: 6 }).branchAlpha).toBe(BRANCH_ALPHA_DEEP);
+  });
+
+  it('keeps the extension build-up on the whole wheel, solid once zoomed in', () => {
+    expect(extLevels(0.001)).toEqual({ inner: EXT_INNER, far: EXT_FAR });
+    expect(extLevels(EXT_SOLID_SPACING[0])).toEqual({ inner: EXT_INNER, far: EXT_FAR });
+    const mid = extLevels((EXT_SOLID_SPACING[0] + EXT_SOLID_SPACING[1]) / 2);
+    expect(mid.inner).toBeCloseTo((EXT_INNER + 1) / 2);
+    expect(mid.far).toBeCloseTo((EXT_FAR + 1) / 2);
+    // From mid zoom on, an extension is as bright as the stem leading into it.
+    expect(extLevels(EXT_SOLID_SPACING[1])).toEqual({ inner: 1, far: 1 });
+    expect(extLevels(0.03)).toEqual({ inner: 1, far: 1 });
+  });
+
+  it('draws the rim edge from mid zoom until the tip dots take over', () => {
+    expect(frameLook({ lambda: 3.4, tipSpacing: 0.001 }).edge).toBe(0);
+    expect(frameLook({ lambda: 9, tipSpacing: 0.03 }).edge).toBe(EDGE_ALPHA);
+    expect(frameLook({ lambda: 14, tipSpacing: 1 }).edge).toBe(EDGE_ALPHA);
+    expect(frameLook({ lambda: 18.8, tipSpacing: 48 }).edge).toBe(0);
+  });
+
+  it('fades tip dots in as tips spread apart, never at overview', () => {
+    expect(frameLook({ lambda: 3.4, tipSpacing: 0.001 }).tipDot).toBe(0);
+    expect(frameLook({ lambda: 15, tipSpacing: TIP_DOT_SPACING[0] }).tipDot).toBe(0);
+    const mid = frameLook({ lambda: 16, tipSpacing: (TIP_DOT_SPACING[0] + TIP_DOT_SPACING[1]) / 2 }).tipDot;
+    expect(mid).toBeCloseTo(0.5);
+    expect(frameLook({ lambda: 17, tipSpacing: TIP_DOT_SPACING[1] }).tipDot).toBe(1);
+    expect(frameLook({ lambda: 18.8, tipSpacing: 48 }).tipDot).toBe(1);
+  });
+
+  it('keeps tip dots one size on screen, a little wider than thick lines', () => {
+    expect(tipDotRadiusPx(0)).toBe(TIP_DOT_RADIUS_PX);
+    expect(tipDotRadiusPx(1)).toBe(TIP_DOT_RADIUS_PX);
+    expect(tipDotRadiusPx(LINE_DEEP_PX)).toBe(TIP_DOT_LINE_RATIO * LINE_DEEP_PX);
+    // Wider than the line it ends, so it reads as a dot, not a rounded cap.
+    expect(2 * tipDotRadiusPx(LINE_DEEP_PX)).toBeGreaterThan(2 * LINE_DEEP_PX);
   });
 
   it('thickens lines only once tips read as single lines', () => {
