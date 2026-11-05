@@ -116,6 +116,9 @@ export class Hud {
   /** Whether the idle tour is moving the selection (tour.ts), and how to stop it (main.ts). */
   touring: () => boolean = () => false;
   stopTour: () => void = () => {};
+  /** Whether the view is free (freeview.ts), and the way back's wording ("Esc to return"; main.ts). */
+  free: () => boolean = () => false;
+  freeReturn = 'Esc to return';
   /**
    * A first visit's one-line hint on how to drive the wheel, shown in the
    * readout until the first input (main.ts sets it, and clears it).
@@ -197,8 +200,13 @@ export class Hud {
       this.settledOnce = true;
       const n = tipsInView(scene.camera, this.meta.tipCount);
       const count = `${n === null ? '—' : nf.format(n)} species in view`;
-      touring = this.touring();
-      if (touring) text = `Touring · ${count}`;
+      const free = this.free();
+      touring = !free && this.touring();
+      if (free) {
+        // The count only while some of the rim is in view (inside the wheel there is none to give).
+        text = ['Free view', ...(n === null ? [] : [count]), ...(this.freeReturn ? [this.freeReturn] : [])].join(' · ');
+      }
+      else if (touring) text = `Touring · ${count}`;
       else if (this.hint) text = this.hint;
       else {
         text = count;

@@ -15,10 +15,16 @@
 //
 // Turn (a click on the canvas): the zoom stays, and only the angle eases to
 // the target, 250–900 ms by how far the anchor travels on screen.
+//
+// From free view (freeview.ts) every flight is a way back to the locked
+// view: the same van Wijk–Nuij path, in two dimensions, from the free
+// camera to the camera the locked target puts on screen (Rig.cameraFor),
+// with the screen rotation eased the short way round alongside. It lands
+// through Rig.set, so the rig is locked again exactly where the path ends.
 
 import { wrapRad } from './angle';
 import { smoothstep } from './ease';
-import type { Pose, Rig } from './rig';
+import type { FreePose, Pose, Rig } from './rig';
 
 /** A path between two poses: its duration, and the pose at t ∈ [0, 1]. */
 export interface FlightPath {
@@ -50,32 +56,26 @@ function nearAngle(from: number, to: number): number {
   return from + wrapRad(to - from);
 }
 
-/** van Wijk–Nuij between two poses; `span` is the screen's shorter side, device px. */
-export function interpolate(from: Pose, to: Pose, span: number): FlightPath {
-  span = Math.max(1, span);
-  const w0 = span / from.scale;
-  const w1 = span / to.scale;
-  const end = nearAngle(from.theta, to.theta);
-  const du = end - from.theta;
-  const u1 = Math.abs(du);
+/**
+ * The van Wijk–Nuij path between view widths w0 and w1 a pan of u1 apart
+ * (any units, the same for all three): its length S, and at s ∈ [0, S]
+ * how far along the pan it is (0 to u1) and the view width there.
+ */
+export function zoomPan(w0: number, w1: number, u1: number): { S: number; at(s: number): { u: number; w: number } } {
   const rho2 = RHO * RHO;
-  const exact = (t: number, p: Pose): Pose => (t <= 0 ? from : t >= 1 ? { ...to, theta: end } : p);
-
-  // Same angle (to within far less than a pixel): a pure zoom, exponential
-  // in s, with the angle moved along in step in case it differs at all.
+  // No pan to speak of (far less than a pixel): a pure zoom, exponential
+  // in s, with the pan moved along in step in case it differs at all.
   if (u1 < 1e-6 * Math.min(w0, w1)) {
     const k = Math.log(w1 / w0);
     const S = Math.abs(k) / RHO;
     return {
-      ms: flightMs(S),
-      at(t) {
-        const e = ease(t);
-        const w = w0 * Math.exp(k * e);
-        return exact(t, { theta: from.theta + du * e, scale: span / w });
+      S,
+      at(s) {
+        const e = S > 0 ? s / S : 1;
+        return { u: u1 * e, w: w0 * Math.exp(k * e) };
       },
     };
   }
-
   // b_i and r_i of the paper. r_i = ln(−b_i + √(b_i² + 1)) is −asinh(b_i),
   // which stays accurate when b_i is large (deep zooms make w1 tiny).
   const b0 = (w1 * w1 - w0 * w0 + rho2 * rho2 * u1 * u1) / (2 * w0 * rho2 * u1);
@@ -86,12 +86,56 @@ export function interpolate(from: Pose, to: Pose, span: number): FlightPath {
   const coshR0 = Math.cosh(r0);
   const sinhR0 = Math.sinh(r0);
   return {
-    ms: flightMs(S),
-    at(t) {
-      const s = S * ease(t);
+    S,
+    at(s) {
       const u = (w0 / rho2) * (coshR0 * Math.tanh(RHO * s + r0) - sinhR0);
       const w = (w0 * coshR0) / Math.cosh(RHO * s + r0);
-      return exact(t, { theta: from.theta + du * (u / u1), scale: span / w });
+      return { u, w };
+    },
+  };
+}
+
+/** van Wijk–Nuij between two poses; `span` is the screen's shorter side, device px. */
+export function interpolate(from: Pose, to: Pose, span: number): FlightPath {
+  span = Math.max(1, span);
+  const end = nearAngle(from.theta, to.theta);
+  const du = end - from.theta;
+  const u1 = Math.abs(du);
+  const path = zoomPan(span / from.scale, span / to.scale, u1);
+  return {
+    ms: flightMs(path.S),
+    at(t) {
+      if (t <= 0) return from;
+      if (t >= 1) return { ...to, theta: end };
+      const { u, w } = path.at(path.S * ease(t));
+      return { theta: from.theta + (u1 > 0 ? du * (u / u1) : 0), scale: span / w };
+    },
+  };
+}
+
+/**
+ * van Wijk–Nuij between two free poses (the camera's centre in world
+ * units), the screen rotation eased the short way round; `span` as for
+ * `interpolate`.
+ */
+export function freePath(from: FreePose, to: FreePose, span: number): { ms: number; at(t: number): FreePose } {
+  span = Math.max(1, span);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const u1 = Math.hypot(dx, dy);
+  const dRot = wrapRad(to.rot - from.rot);
+  const path = zoomPan(span / from.scale, span / to.scale, u1);
+  // A pure turn still takes a moment: the rotation's travel at the screen's edge, in widths.
+  const S = Math.max(path.S, Math.abs(dRot) / 2);
+  return {
+    ms: flightMs(S),
+    at(t) {
+      if (t <= 0) return from;
+      if (t >= 1) return { ...to, rot: from.rot + dRot };
+      const e = ease(t);
+      const { u, w } = path.at(path.S * e);
+      const k = u1 > 0 ? u / u1 : e;
+      return { x: from.x + dx * k, y: from.y + dy * k, scale: span / w, rot: from.rot + dRot * e };
     },
   };
 }
@@ -129,7 +173,8 @@ export class Flight {
   onCut: () => void = () => {};
 
   private readonly rig: Rig;
-  private path: FlightPath | null = null;
+  /** The flight under way: its length, and how to put the rig at t ∈ [0, 1]. */
+  private path: { ms: number; put(t: number): void } | null = null;
   private t0 = 0;
 
   constructor(rig: Rig) {
@@ -150,7 +195,15 @@ export class Flight {
     }
     const cam = rig.camera;
     const span = Math.min(cam.width, cam.height);
-    const path = opts.turnOnly ? turnPath(rig.pose(), target, span) : interpolate(rig.pose(), target, span);
+    let path: { ms: number; put(t: number): void };
+    if (rig.free) {
+      // Back from free view: the camera flies to the locked target's, then the rig locks.
+      const p = freePath(rig.free, rig.cameraFor(target), span);
+      path = { ms: p.ms, put: (t) => (t >= 1 ? rig.set(target) : rig.setFree(p.at(t))) };
+    } else {
+      const p = opts.turnOnly ? turnPath(rig.pose(), target, span) : interpolate(rig.pose(), target, span);
+      path = { ms: p.ms, put: (t) => rig.set(p.at(t)) };
+    }
     this.path = opts.minMs && path.ms < opts.minMs ? { ...path, ms: opts.minMs } : path;
     this.t0 = now;
   }
@@ -182,7 +235,7 @@ export class Flight {
     const path = this.path;
     if (!path) return false;
     const t = Math.min(1, Math.max(0, (now - this.t0) / path.ms));
-    this.rig.set(path.at(t));
+    path.put(t);
     if (t >= 1) {
       this.path = null;
       this.onEnd(now);

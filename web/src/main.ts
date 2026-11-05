@@ -4,7 +4,8 @@
 //
 // URL parameters understood so far:
 //   ?n=ott770315       selected node (see url.ts; default Homo sapiens)
-//   ?v=a,z             view: rotation and zoom (see url.ts; old a,r,z,rot links still parse)
+//   ?v=a,z             view: rotation and zoom (see url.ts)
+//   ?v=a,r,z,rot       free view: the pan as well (see url.ts, freeview.ts)
 //   ?shot              screenshot mode: hides the cursor, skips the intro
 //   ?reduced           force reduced motion (no intro, no fling, cuts; no ambient turn, no tour)
 //   ?still             no ambient turn, no fling, no idle tour (implied by ?shot and reduced motion)
@@ -44,20 +45,22 @@ import {
 import type { BackendKind } from './render/types';
 import { type BenchResult, Scene } from './scene';
 import { FONT_SANS, FONT_SERIF, MAX_BACKING_PX } from './style';
+import { FreeView } from './freeview';
 import { Hover, pickAt } from './hover';
 import { NodeStore } from './nodes';
 import { TileIndex } from './picking';
-import { Selection, atRim } from './selection';
+import { Selection, atRim, suitPose } from './selection';
 import { Credits, type MenuItem, mountWordmarkMenu } from './ui/credits';
 import { Hud, groupSwatch } from './ui/hud';
 import { KeysDialog } from './ui/keys';
 import { ZoomStrip } from './ui/zoomstrip';
+import { FreeButton } from './ui/freebutton';
 import { SearchPalette, suggestion } from './ui/search';
 import { levelFade } from './lod';
 import { FLAG_HOME } from './tiles/decode';
 import { DWELL_MS, FIRST_MS, POINTER_HOLD_MS, TOUCH_HOLD_MS, TOUR, Tour } from './tour';
 import type { NodeInfo } from './types';
-import { formatView, parseLink, viewOf, viewPose } from './url';
+import { applyView, formatView, parseLink, rigView } from './url';
 
 declare global {
   interface Window {
@@ -118,7 +121,7 @@ async function main(): Promise<void> {
   renderer.onLost = (reason) => {
     console.warn(`GPU lost (${reason}); reloading with WebGL2`);
     rememberWebGpuLoss(sessionStore());
-    location.replace(webglReloadUrl(location.search, formatView(viewOf(scene.rig.pose(), scene.camera.dpr))));
+    location.replace(webglReloadUrl(location.search, formatView(rigView(scene.rig))));
   };
   scene.cache.onStale = () => location.reload(); // re-ingested: start over with new meta
   const reduced = params.has('reduced') || matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -157,13 +160,25 @@ async function main(): Promise<void> {
   const view = link.v;
   // Without a view: minimum zoom, Homo sapiens (the default selection) on
   // the anchor; a deep link's own selection turns onto it once it loads.
-  if (view) scene.rig.set(viewPose(view, scene.camera.dpr));
+  // A view with the pan opens in free view (url.ts).
+  if (view) applyView(scene.rig, view);
   else scene.rig.set({ theta: toRad(meta.home?.angle ?? 0), scale: scene.rig.minScale() });
   if (debug === 'precision') dbg?.precisionCamera(scene, meta);
+  // Free view (freeview.ts): F, Esc and the button beside the zoom strip.
+  const freeView = new FreeView(scene);
   window.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
-    if (e.key === 'r' || e.key === 'R') {
+    if (e.key === 'Escape') {
+      // Only once nothing else is open: search, a dialog and the menu close first.
+      const layer = document.querySelector('.search-layer.open, .wordmark-menu:not([hidden])');
+      if (!e.defaultPrevented && !layer && freeView.on()) {
+        freeView.leave();
+        e.preventDefault();
+      }
+    } else if (e.key === 'f' || e.key === 'F') {
+      freeView.toggle();
+    } else if (e.key === 'r' || e.key === 'R') {
       scene.orient.toggle(performance.now());
       scene.requestRender();
     } else if ((e.key === 'h' || e.key === 'H') && meta.home) {
@@ -191,10 +206,17 @@ async function main(): Promise<void> {
     () => credits.open(),
   );
   selection.panel.place(layout.card, cardHeight(layout), layout.compact);
-  // Zoom: the scale on the left edge, with the reset button (ui/zoomstrip.ts).
-  const strip = new ZoomStrip(scene, byId('zoom-strip', HTMLElement), () => hud.reset());
+  // Zoom: the scale on the left edge, with the reset button and the free view switch (ui/zoomstrip.ts).
+  const freeButton = new FreeButton(() => freeView.toggle());
+  const strip = new ZoomStrip(scene, byId('zoom-strip', HTMLElement), () => hud.reset(), [freeButton.el]);
   strip.place(layout, treeCanvas.clientHeight);
   hud.selected = () => selection.selected();
+  hud.free = () => freeView.on();
+  freeView.selected = () => selection.selected()?.id ?? null;
+  freeView.suit = () => {
+    const n = selection.selected();
+    return n ? suitPose(scene.rig, n, meta.tipCount) : null;
+  };
   hud.select = (ref) => void selection.select(ref, { motion: 'fly', history: 'push' });
   scene.input.onTap = (x, y, touch) => {
     const hit = pickAt(scene, meta, x, y, touch);
@@ -219,7 +241,8 @@ async function main(): Promise<void> {
     if (!t) return null;
     const w = treeCanvas.clientWidth;
     const h = treeCanvas.clientHeight;
-    const a = scene.rig.anchor();
+    // Free view has no anchor: an off-screen selection is pointed at from the screen centre.
+    const a = scene.rig.isFree() ? scene.rig.screenCentre() : scene.rig.anchor();
     const anchor = { x: a.x / scene.camera.dpr, y: a.y / scene.camera.dpr };
     // The card as it is (it is as tall as its content), not its nominal box.
     const card = selection.panel.box() ?? layout.card;
@@ -289,7 +312,8 @@ async function main(): Promise<void> {
     document.activeElement instanceof HTMLInputElement ||
     document.hidden ||
     scene.introPlaying();
-  scene.spin.blocked = () => looking() || scene.input.dragging() || scene.flight.active();
+  // Free view holds the wheel's own motion: nothing turns it but the user.
+  scene.spin.blocked = () => looking() || scene.input.dragging() || scene.flight.active() || scene.rig.isFree();
   document.addEventListener('visibilitychange', () => scene.requestRender());
   const custom = tourParam !== null && Number(tourParam) > 0;
   const dwell = custom ? Number(tourParam) * 1000 : DWELL_MS;
@@ -311,6 +335,7 @@ async function main(): Promise<void> {
     performance.now() - lastMove < POINTER_HOLD_MS ||
     performance.now() - lastTouch < TOUCH_HOLD_MS ||
     scene.flight.active() ||
+    scene.rig.isFree() ||
     selection.busy();
   tour.go = (id) => void selection.select(id, { motion: 'tour', history: 'replace', announce: false });
   tour.wake = () => scene.requestRender();
@@ -352,6 +377,8 @@ async function main(): Promise<void> {
   // A first visit's hint, in the readout until the first input (DESIGN.md §4.1).
   const store2 = sessionStore();
   const touch = matchMedia('(pointer: coarse)').matches;
+  // A touch screen has no Esc: the pressed lock beside the zoom strip is the way back.
+  if (touch) hud.freeReturn = '';
   if (!shot && debug === null && store2?.getItem('col-hinted') !== '1') {
     hud.hint = touch
       ? 'Drag to turn · pinch or use the strip to zoom · tap a branch'
@@ -391,6 +418,9 @@ async function main(): Promise<void> {
     });
     hud.frame(now);
     strip.frame();
+    const free = freeView.on();
+    freeButton.show(free);
+    document.documentElement.classList.toggle('free', free);
     hover.frame(now);
     selection.frame();
     return fading;
@@ -419,10 +449,13 @@ async function main(): Promise<void> {
     // minimum, so resizing feels like scaling the picture.
     const rig = scene.rig;
     const zoom = rig.scale / rig.minScale();
+    const free = rig.free;
     scene.camera.setViewport(treeCanvas.width, treeCanvas.height, dpr());
     layout = layoutFor(treeCanvas.clientWidth, treeCanvas.clientHeight);
     rig.setLayout(layout);
-    rig.set({ theta: rig.theta, scale: zoom * rig.minScale() });
+    // Free view keeps the world point at the screen centre.
+    if (free) rig.setFree({ ...free, scale: zoom * rig.minScale() });
+    else rig.set({ theta: rig.theta, scale: zoom * rig.minScale() });
     selection.panel.place(layout.card, cardHeight(layout), layout.compact);
     search.place(layout.compact ? null : layout.card);
     strip.place(layout, treeCanvas.clientHeight);

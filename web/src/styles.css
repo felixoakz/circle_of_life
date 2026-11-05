@@ -162,6 +162,11 @@ button {
   cursor: grabbing;
 }
 
+/* Free view: the drag pans. */
+.free #tree {
+  cursor: move;
+}
+
 #overlay {
   pointer-events: none;
 }
@@ -544,6 +549,22 @@ button {
   position: absolute;
   left: -6px;
   /* top: set from TS, just under the "−" step (ui/zoomstrip.ts). */
+}
+
+/* The free view switch (ui/freebutton.ts): beside the reset button, the same glass. */
+.zoom-free {
+  position: absolute;
+  left: 26px;
+}
+
+/* Pressed (free view): the open padlock in text-1, the edge brighter. */
+.zoom-free[aria-pressed='true'] {
+  border-color: var(--glass-edge-strong);
+  color: var(--text-1);
+}
+
+.zoom-strip.compact .zoom-free {
+  left: 38px;
 }
 
 /* Phone: a wider touch target, and the reset button stays 40 px. */
@@ -1881,7 +1902,8 @@ button {
 .wordmark-menu,
 .credits,
 .tooltip,
-.zoom-reset {
+.zoom-reset,
+.zoom-free {
   border: 1px solid var(--glass-edge);
   background: var(--glass-fill);
   box-shadow: var(--glass-highlight);
@@ -1908,7 +1930,8 @@ button {
 
 /* Small boxes need less blur to read as glass. */
 .tooltip,
-.zoom-reset {
+.zoom-reset,
+.zoom-free {
   -webkit-backdrop-filter: var(--glass-filter-small);
   backdrop-filter: var(--glass-filter-small);
 }
@@ -1925,7 +1948,8 @@ button {
   border-radius: var(--radius-m);
 }
 
-.zoom-reset {
+.zoom-reset,
+.zoom-free {
   border-radius: var(--radius-s);
 }
 
@@ -1947,7 +1971,8 @@ button {
   background: var(--glass-fill-dense);
 }
 
-.zoom-reset:hover {
+.zoom-reset:hover,
+.zoom-free:hover {
   border-color: var(--glass-edge-strong);
   background: var(--glass-fill-dense);
 }

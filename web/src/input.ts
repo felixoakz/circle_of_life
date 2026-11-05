@@ -10,6 +10,15 @@
 //                 flings it too)
 //   tap / click   selects (onTap; selection.ts)
 //
+// In free view (rig.ts, freeview.ts) the same gestures pan instead:
+//
+//   drag          pans: the point under the pointer stays under it (no fling)
+//   shift + drag  turns the picture about the point where the drag began
+//   wheel         zooms about the cursor; double-click ×2 about it
+//   + / −         zoom about the screen centre
+//   pinch         zooms about the fingers' midpoint, pans with it and turns
+//                 by the twist, about it
+//
 // All positions are device pixels relative to the canvas, like the camera.
 
 import type { Rig } from './rig';
@@ -21,6 +30,8 @@ const KEY_ZOOM = 1.5;
 /** A press that moves less than this (CSS px) and lifts within TAP_MS is a tap (select), not a drag. */
 const TAP_SLOP_PX = 6;
 const TAP_MS = 500;
+/** Free view's shift + drag: radians per CSS px of horizontal travel (dragging right turns clockwise). */
+const SHIFT_TURN_PER_PX = 0.005;
 
 interface Ptr {
   x: number;
@@ -31,6 +42,8 @@ interface ZoomTween {
   from: number; // log2 scale
   to: number;
   t0: number;
+  /** Free view: the screen point it zooms about (null: the anchor, or the screen centre). */
+  at: Ptr | null;
 }
 
 export class Input {
@@ -55,6 +68,8 @@ export class Input {
   private tween: ZoomTween | null = null;
   /** The press that may become a tap: where and when it started, and whether it stayed put. */
   private press: { x: number; y: number; t: number; still: boolean; touch: boolean } | null = null;
+  /** Free view: the point a shift + drag turns about, while shift is held. */
+  private pivot: Ptr | null = null;
 
   constructor(canvas: HTMLCanvasElement, rig: Rig, onChange: () => void) {
     this.canvas = canvas;
@@ -65,9 +80,9 @@ export class Input {
     canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
     canvas.addEventListener('pointercancel', (e) => this.onPointerUp(e));
-    canvas.addEventListener('dblclick', () => {
+    canvas.addEventListener('dblclick', (e) => {
       this.onUserInput();
-      this.zoomTo(2);
+      this.zoomTo(2, this.rig.isFree() ? this.pos(e) : null);
     });
     window.addEventListener('keydown', (e) => this.onKey(e));
   }
@@ -88,7 +103,9 @@ export class Input {
       const tw = this.tween;
       const t = Math.min(1, (now - tw.t0) / ZOOM_TWEEN_MS);
       const e = 1 - (1 - t) ** 3; // ease-out cubic
-      this.rig.set({ theta: this.rig.theta, scale: 2 ** (tw.from + (tw.to - tw.from) * e) });
+      const scale = 2 ** (tw.from + (tw.to - tw.from) * e);
+      if (tw.at) this.rig.setScale(scale, tw.at);
+      else this.rig.setScale(scale);
       if (t >= 1) this.tween = null;
     }
   }
@@ -98,15 +115,19 @@ export class Input {
     this.tween = null;
   }
 
-  /** Zooms by `factor` about the anchor, animated unless reduced motion. */
-  zoomTo(factor: number): void {
+  /**
+   * Zooms by `factor`, animated unless reduced motion: about the anchor, or
+   * in free view about `at` (device px; default the screen centre).
+   */
+  zoomTo(factor: number, at: Ptr | null = null): void {
     this.cancel();
     if (this.reducedMotion) {
-      this.rig.zoomBy(factor);
+      if (at) this.rig.zoomAt(factor, at);
+      else this.rig.zoomBy(factor);
     } else {
       const from = Math.log2(this.rig.scale);
       const to = Math.log2(this.rig.clampScale(this.rig.scale * factor));
-      this.tween = { from, to, t0: performance.now() };
+      this.tween = { from, to, t0: performance.now(), at };
     }
     this.onChange();
   }
@@ -123,7 +144,8 @@ export class Input {
     this.onUserInput();
     // deltaMode: 0 pixels, 1 lines, 2 pages.
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.canvas.clientHeight : 1;
-    this.rig.zoomBy(Math.exp(-e.deltaY * unit * WHEEL_RATE));
+    // About the anchor; in free view about the cursor.
+    this.rig.zoomAt(Math.exp(-e.deltaY * unit * WHEEL_RATE), this.pos(e));
     this.onChange();
   }
 
@@ -138,6 +160,7 @@ export class Input {
         ? { x: p.x, y: p.y, t: e.timeStamp, still: true, touch: e.pointerType !== 'mouse' }
         : null;
     this.pointers.set(e.pointerId, p);
+    this.pivot = null;
     this.velocity = 0;
     this.lastMoveT = e.timeStamp;
   }
@@ -148,7 +171,9 @@ export class Input {
     const p = this.pos(e);
     const press = this.press;
     if (press && Math.hypot(p.x - press.x, p.y - press.y) > TAP_SLOP_PX * this.rig.camera.dpr) press.still = false;
-    if (this.pointers.size === 1) {
+    if (this.rig.isFree()) {
+      this.freeMove(e, prev, p);
+    } else if (this.pointers.size === 1) {
       // The point under the pointer follows it round the wheel's centre.
       const turn = this.rig.sweep(prev, p);
       this.rig.rotateBy(turn);
@@ -165,12 +190,7 @@ export class Input {
       const d0 = Math.hypot(prev.x - other.x, prev.y - other.y);
       const d1 = Math.hypot(p.x - other.x, p.y - other.y);
       if (d0 > 0) this.rig.zoomBy(d1 / d0);
-      // y down on screen, so negate for counter-clockwise.
-      const a0 = Math.atan2(-(prev.y - other.y), prev.x - other.x);
-      const a1 = Math.atan2(-(p.y - other.y), p.x - other.x);
-      let twist = a1 - a0;
-      if (twist > Math.PI) twist -= 2 * Math.PI;
-      if (twist < -Math.PI) twist += 2 * Math.PI;
+      const twist = twistAngle(prev, p, other);
       if (d0 > 0 && d1 > 0) {
         this.rig.rotateBy(twist);
         const dt = Math.max(1, e.timeStamp - this.lastMoveT);
@@ -180,6 +200,34 @@ export class Input {
     }
     this.pointers.set(e.pointerId, p);
     this.onChange();
+  }
+
+  /** Free view: a drag pans (shift + drag turns about where it began), two fingers pinch, pan and twist. */
+  private freeMove(e: PointerEvent, prev: Ptr, p: Ptr): void {
+    const rig = this.rig;
+    if (this.pointers.size === 1) {
+      if (!e.shiftKey) {
+        this.pivot = null;
+        rig.panBy(p.x - prev.x, p.y - prev.y);
+        return;
+      }
+      this.pivot ??= { ...prev };
+      rig.rotateAt((-(p.x - prev.x) / rig.camera.dpr) * SHIFT_TURN_PER_PX, this.pivot);
+      return;
+    }
+    if (this.pointers.size !== 2) return;
+    let other: Ptr | undefined;
+    for (const [id, q] of this.pointers) if (id !== e.pointerId) other = q;
+    if (!other) return;
+    const m0 = { x: (prev.x + other.x) / 2, y: (prev.y + other.y) / 2 };
+    const m1 = { x: (p.x + other.x) / 2, y: (p.y + other.y) / 2 };
+    const d0 = Math.hypot(prev.x - other.x, prev.y - other.y);
+    const d1 = Math.hypot(p.x - other.x, p.y - other.y);
+    rig.panBy(m1.x - m0.x, m1.y - m0.y);
+    if (d0 > 0 && d1 > 0) {
+      rig.zoomAt(d1 / d0, m1);
+      rig.rotateAt(twistAngle(prev, p, other), m1);
+    }
   }
 
   private onPointerUp(e: PointerEvent): void {
@@ -194,7 +242,7 @@ export class Input {
     const recent = e.timeStamp - this.lastMoveT < 60;
     // Fast: the anchor's content moves more than 0.05 px per ms.
     const fast = Math.abs(this.velocity) * this.rig.scale > 0.05;
-    if (this.pointers.size === 0 && recent && fast && !this.reducedMotion) {
+    if (this.pointers.size === 0 && recent && fast && !this.reducedMotion && !this.rig.isFree()) {
       this.onFling(this.velocity);
       this.onChange();
     }
@@ -217,4 +265,15 @@ export class Input {
     this.onUserInput();
     e.preventDefault();
   }
+}
+
+/** The angle (radians, counter-clockwise on screen) one finger turned from `prev` to `p` round the other one. */
+function twistAngle(prev: Ptr, p: Ptr, other: Ptr): number {
+  // y down on screen, so negate for counter-clockwise.
+  const a0 = Math.atan2(-(prev.y - other.y), prev.x - other.x);
+  const a1 = Math.atan2(-(p.y - other.y), p.x - other.x);
+  let twist = a1 - a0;
+  if (twist > Math.PI) twist -= 2 * Math.PI;
+  if (twist < -Math.PI) twist += 2 * Math.PI;
+  return twist;
 }

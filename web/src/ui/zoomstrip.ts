@@ -5,7 +5,8 @@
 // in zoom, so every step along it, and every wheel notch, feels the same:
 //   t = (log2 scale − log2 min) / (log2 max − log2 min)      0 … 1
 //   % = ZOOM_FLOOR + (100 − ZOOM_FLOOR) · t
-// It replaces the − and + buttons; the reset button sits under it. A small
+// It replaces the − and + buttons; the reset button sits under it, the free
+// view switch beside that (ui/freebutton.ts). A small
 // "+" above the scale and "−" below it step it by a fifth (and say which end
 // is which); the % reading shows only while the strip is hovered, focused
 // or dragged.
@@ -122,7 +123,8 @@ export class ZoomStrip {
   private shown = '';
   private len = 1;
 
-  constructor(scene: Scene, root: HTMLElement, reset: () => void) {
+  /** `extra`: controls that sit in a row beside the reset button (ui/freebutton.ts). */
+  constructor(scene: Scene, root: HTMLElement, reset: () => void, extra: HTMLElement[] = []) {
     this.scene = scene;
     this.root = root;
     this.track = document.createElement('div');
@@ -160,7 +162,7 @@ export class ZoomStrip {
       b.addEventListener('click', () => this.stepBy(sign * PAGE_STEP, true));
       return b;
     };
-    root.replaceChildren(step('+', 1), this.track, step('−', -1), resetButton);
+    root.replaceChildren(step('+', 1), this.track, step('−', -1), resetButton, ...extra);
     this.bind();
     scene.obstacles.set('zoom-strip', () => {
       // The strip with the buttons above and below it.
@@ -181,8 +183,8 @@ export class ZoomStrip {
     this.track.style.height = `${this.len}px`;
     const out = this.root.querySelector<HTMLElement>('.zoom-out');
     if (out) out.style.top = `${this.len + 6}px`;
-    const reset = this.root.querySelector<HTMLElement>('.zoom-reset');
-    if (reset) reset.style.top = `${this.len + (l.compact ? COMPACT_RESET_GAP : RESET_GAP)}px`;
+    const top = `${this.len + (l.compact ? COMPACT_RESET_GAP : RESET_GAP)}px`;
+    for (const b of this.root.querySelectorAll<HTMLElement>('.zoom-reset, .zoom-free')) b.style.top = top;
     this.root.classList.toggle('compact', l.compact);
     this.drawTicks();
     this.shown = '';
@@ -240,17 +242,25 @@ export class ZoomStrip {
     this.zoomToFraction(percentFraction(now + pct), fly);
   }
 
-  /** Zooms to fraction `t` about the anchor, at once (drag, keys) or by a flight (click). */
+  /**
+   * Zooms to fraction `t` about the anchor, at once (drag, keys) or by a
+   * flight (click). In free view it zooms about the screen centre, a click
+   * by the zoom tween (a flight would take it back to the locked view).
+   */
   private zoomToFraction(t: number, fly: boolean): void {
     const scene = this.scene;
     const rig = scene.rig;
     const scale = scaleAt(t, rig.minScale(), rig.maxScale());
     scene.input.cancel();
-    if (fly) {
+    if (rig.isFree()) {
+      scene.flight.cancel();
+      if (fly) scene.input.zoomTo(scale / rig.scale);
+      else rig.setScale(scale);
+    } else if (fly) {
       scene.flight.fly({ theta: rig.theta, scale });
     } else {
       scene.flight.cancel();
-      rig.set({ theta: rig.theta, scale });
+      rig.setScale(scale);
     }
     scene.requestRender();
   }

@@ -28,7 +28,7 @@ import * as S from './style';
 import { FLAG_HOME } from './tiles/decode';
 import type { Meta, NodeInfo } from './types';
 import { Panel } from './ui/panel';
-import { type DeepLink, linkSearch, parseLink, viewOf, viewPose } from './url';
+import { type DeepLink, applyView, linkSearch, parseLink, rigView, viewPose } from './url';
 
 /** The URL's view is rewritten this long after the view stops (PLAN §7.11). */
 const URL_DEBOUNCE_MS = 300;
@@ -289,7 +289,8 @@ export class Selection {
       this.show(p, true);
     }
     const rig = this.scene.rig;
-    const key = `${rig.theta},${rig.scale}`;
+    const f = rig.free;
+    const key = f ? `${f.x},${f.y},${f.scale},${f.rot}` : `${rig.theta},${rig.scale}`;
     if (key === this.viewKey) return;
     const first = this.viewKey === '';
     this.viewKey = key;
@@ -325,8 +326,7 @@ export class Selection {
   }
 
   private link(node: NodeInfo | null = this.node): DeepLink {
-    const rig = this.scene.rig;
-    return { n: node?.nodeId ?? null, v: this.trackView ? viewOf(rig.pose(), rig.camera.dpr) : null };
+    return { n: node?.nodeId ?? null, v: this.trackView ? rigView(this.scene.rig) : null };
   }
 
   private writeUrl(mode: 'push' | 'replace', node: NodeInfo | null = this.pending?.n ?? this.node): void {
@@ -337,11 +337,16 @@ export class Selection {
     else history.replaceState(null, '', url);
   }
 
-  /** Moves the view for a selection (see Motion). */
+  /**
+   * Moves the view for a selection (see Motion). In free view a click (and
+   * the tour, which is held there) leaves the view where it is; `fly` and
+   * `cut` go back to the locked view (freeview.ts).
+   */
   private move(n: NodeInfo, motion: Motion): void {
     if (motion === 'none') return;
     const scene = this.scene;
     const rig = scene.rig;
+    if (rig.isFree() && (motion === 'turn' || motion === 'tour')) return;
     scene.input.cancel();
     if (motion === 'turn') {
       scene.flight.fly({ theta: toRad(n.angle), scale: rig.scale }, { turnOnly: true });
@@ -403,7 +408,13 @@ export class Selection {
     const rig = this.scene.rig;
     if (view) {
       this.scene.input.cancel();
-      this.scene.flight.fly(viewPose(view, rig.camera.dpr));
+      // A free view entry is restored at once (there is no flight between two free views).
+      if (view.free) {
+        this.scene.flight.cancel();
+        applyView(rig, view);
+      } else {
+        this.scene.flight.fly(viewPose(view, rig.camera.dpr));
+      }
       this.scene.requestRender();
     }
     void this.select(link.n ?? this.defaultRef(), { motion: view ? 'none' : 'fly', history: 'none' });
