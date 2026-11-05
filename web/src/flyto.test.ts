@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Camera } from './camera';
-import { Flight, MAX_MS, MIN_MS, TURN_MAX_MS, TURN_MIN_MS, flightMs, interpolate, turnPath } from './flyto';
+import { Flight, MAX_MS, MIN_MS, TURN_MAX_MS, TURN_MIN_MS, flightMs, freePath, interpolate, turnPath } from './flyto';
 import { layoutFor } from './layout';
 import { Rig } from './rig';
 
@@ -124,5 +124,55 @@ describe('Flight', () => {
     expect(calls).toEqual(['cut at 0.5', 'end']);
     expect(r.theta).toBeCloseTo(1.5, 12);
     expect(f.active()).toBe(false);
+  });
+});
+
+describe('freePath (back from free view)', () => {
+  const from = { x: 0.2, y: 0.3, scale: 4e6, rot: 2.5 };
+  const to = { x: 0.9, y: -0.1, scale: 1e5, rot: -3 };
+
+  it('starts and ends at its endpoints, turning the short way round', () => {
+    const p = freePath(from, to, SPAN);
+    expect(p.at(0)).toEqual(from);
+    const end = p.at(1);
+    expect(end.x).toBe(to.x);
+    expect(end.scale).toBe(to.scale);
+    // 2.5 → −3 is 0.78 rad the short way (through π), not 5.5 back.
+    expect(end.rot - from.rot).toBeCloseTo(2 * Math.PI - 5.5, 12);
+    const mid = p.at(0.5);
+    expect(mid.rot).toBeGreaterThan(from.rot);
+    expect(p.ms).toBeGreaterThanOrEqual(MIN_MS);
+    expect(p.ms).toBeLessThanOrEqual(MAX_MS);
+  });
+
+  it('zooms out on the way when the ends are far apart', () => {
+    const p = freePath(from, { ...from, x: -0.5 }, SPAN);
+    let least = Infinity;
+    for (let t = 0; t <= 1; t += 0.05) least = Math.min(least, p.at(t).scale);
+    expect(least).toBeLessThan(from.scale / 100);
+  });
+});
+
+describe('Flight from free view', () => {
+  it('lands locked on the target, the camera continuous at the hand-over', () => {
+    const cam = new Camera(2_385_875);
+    cam.setViewport(1440, 900, 1);
+    const rig = new Rig(cam);
+    rig.setLayout(layoutFor(1440, 900));
+    rig.set({ theta: 1, scale: rig.minScale() * 10 });
+    rig.enterFree();
+    rig.panBy(300, 200);
+    const f = new Flight(rig);
+    const target = { theta: 1.2, scale: rig.minScale() * 50 };
+    f.fly(target, { now: 0 });
+    const ms = f.durationMs();
+    f.step(ms * 0.999999);
+    expect(rig.isFree()).toBe(true);
+    const almost = cam.polarToScreen(1.2, 1);
+    f.step(ms);
+    expect(rig.isFree()).toBe(false);
+    expect(rig.theta).toBeCloseTo(1.2, 12);
+    const landed = cam.polarToScreen(1.2, 1);
+    expect(Math.hypot(landed.x - almost.x, landed.y - almost.y)).toBeLessThan(0.5);
   });
 });

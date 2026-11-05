@@ -331,6 +331,96 @@ async function interactionChecks(page: Page): Promise<void> {
   console.log(`     click: selected ${turned.sel.trim()} (${new URL(page.url()).search})`);
 }
 
+/** The world point (x, y) under a CSS px screen point, and whether the view is free (needs ?debug). */
+async function under(page: Page, x: number, y: number): Promise<{ x: number; y: number; free: boolean }> {
+  return page.evaluate(
+    ([px, py]) => {
+      const scene = window.__scene;
+      if (!scene) throw new Error('window.__scene missing (needs ?debug)');
+      const dpr = scene.camera.dpr;
+      const w = scene.camera.screenToWorld(px * dpr, py * dpr);
+      return { x: w.x, y: w.y, free: scene.rig.isFree() };
+    },
+    [x, y] as const,
+  );
+}
+
+/** Free view (DESIGN.md §4.1): F, pan, zoom about the cursor, the URL, Esc back, the padlock (reduced motion: cuts). */
+async function freeViewChecks(page: Page): Promise<void> {
+  await cardShows(page, 'Homo sapiens');
+  const button = page.locator('.zoom-free');
+  assert.equal(await button.getAttribute('aria-pressed'), 'false', 'the padlock starts shut');
+  assert.equal(await button.getAttribute('aria-label'), 'Free view');
+  const p0 = await pose(page);
+
+  await page.keyboard.press('f');
+  await page.waitForFunction(() => window.__scene?.rig.isFree() === true, null, { timeout: TIMEOUT });
+  assert.equal(await button.getAttribute('aria-pressed'), 'true', 'F opens the padlock');
+  await page.waitForFunction(() => document.querySelector('.readout')?.textContent?.startsWith('Free view'), null, {
+    timeout: TIMEOUT,
+  });
+
+  // A drag pans: the world point under the pointer follows it.
+  const a = await under(page, 500, 400);
+  await page.mouse.move(500, 400);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(500 + i * 20, 400 + i * 10);
+  await page.mouse.up();
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const b = await under(page, 620, 460);
+  assert.ok(b.free, 'still free after a drag');
+  const moved = await page.evaluate(
+    ([wx, wy]) => {
+      const scene = window.__scene;
+      if (!scene) throw new Error('no scene');
+      const p = scene.camera.worldToScreen(wx, wy);
+      return { x: p.x / scene.camera.dpr, y: p.y / scene.camera.dpr };
+    },
+    [a.x, a.y] as const,
+  );
+  assert.ok(Math.hypot(moved.x - 620, moved.y - 460) < 1, `a drag pans with the pointer (${moved.x}, ${moved.y})`);
+
+  // The wheel zooms about the cursor, mid-wheel.
+  const c = await under(page, 400, 500);
+  await page.mouse.move(400, 500);
+  for (let i = 0; i < 5; i++) await page.mouse.wheel(0, -400);
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const p1 = await pose(page);
+  assert.ok(p1.scale > p0.scale * 2, `zoomed in (${p0.scale} → ${p1.scale})`);
+  const at = await page.evaluate(
+    ([wx, wy]) => {
+      const scene = window.__scene;
+      if (!scene) throw new Error('no scene');
+      const p = scene.camera.worldToScreen(wx, wy);
+      return { x: p.x / scene.camera.dpr, y: p.y / scene.camera.dpr };
+    },
+    [c.x, c.y] as const,
+  );
+  assert.ok(Math.hypot(at.x - 400, at.y - 500) < 0.5, `the wheel zooms about the cursor (${at.x}, ${at.y})`);
+
+  // The URL carries the pan: v=a,r,z,rot.
+  await page.waitForFunction(() => /[?&]v=[^&,]+,[^&,]+,[^&,]+,[^&,]+(&|$)/.test(location.search), null, { timeout: TIMEOUT });
+  console.log(`     free: pan, zoom ×${(p1.scale / p0.scale).toFixed(1)} about the cursor (${new URL(page.url()).search})`);
+
+  // Esc goes back to the locked pose it left (a cut under reduced motion).
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.__scene?.rig.isFree() === false, null, { timeout: TIMEOUT });
+  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
+  const p2 = await pose(page);
+  assert.equal(await button.getAttribute('aria-pressed'), 'false', 'Esc shuts the padlock');
+  assert.ok(Math.abs(p2.scale - p0.scale) < 1e-6 * p0.scale, 'back at the zoom it left');
+  assert.ok(Math.abs(p2.theta - p0.theta) < 1e-9, 'back at the rotation it left');
+  assert.ok(Math.abs(p2.atAnchor.r - 1) < 1e-6, 'the rim is on the anchor again');
+  await page.waitForFunction(() => /[?&]v=[^&,]+,[^&,]+(&|$)/.test(location.search), null, { timeout: TIMEOUT });
+
+  // The padlock does the same.
+  await button.click();
+  await page.waitForFunction(() => window.__scene?.rig.isFree() === true, null, { timeout: TIMEOUT });
+  await button.click();
+  await page.waitForFunction(() => window.__scene?.rig.isFree() === false, null, { timeout: TIMEOUT });
+  console.log('     free: Esc and the padlock return to the locked view');
+}
+
 /** The card's head, the wordmark menu, the empty palette and the live region (DESIGN.md §4.1, §4.2, §4.4, §8). */
 async function chromeChecks(page: Page): Promise<void> {
   await cardShows(page, 'Homo sapiens');
@@ -559,18 +649,27 @@ async function main(): Promise<void> {
       await lossChecks(page);
     });
     await run(browser, 'interactions: zoom, turn, select', '?reduced&debug', interactionChecks, false);
+    await run(browser, 'free view: F, pan, zoom about the cursor, Esc, padlock', '?reduced&debug', freeViewChecks, false);
     await run(browser, 'card head, menu, empty palette, live region', '?reduced', chromeChecks, false);
     await bootFailureCheck(browser);
     await cardTabChecks(browser);
     await run(
       browser,
-      'old pan link → selection and zoom, pan ignored',
+      'pan link → free view at its pan and zoom',
       '?reduced&debug&n=ott770315&v=1780855860,0.99999,24.1,-149.3',
       async (page) => {
         await cardShows(page, 'Homo sapiens');
         const p = await pose(page);
-        assert.ok(Math.abs(Math.log2(p.scale) - 24.1) < 1e-6, `zoom from the old link (${Math.log2(p.scale)})`);
-        assert.ok(Math.abs(p.atAnchor.r - 1) < 1e-6, 'the anchor is on the rim');
+        assert.ok(Math.abs(Math.log2(p.scale) - 24.1) < 1e-6, `zoom from the link (${Math.log2(p.scale)})`);
+        const cam = await page.evaluate(() => {
+          const scene = window.__scene;
+          if (!scene) throw new Error('no scene');
+          return { free: scene.rig.isFree(), r: scene.camera.r, rot: (scene.camera.rot * 180) / Math.PI };
+        });
+        assert.ok(cam.free, 'a link with the pan opens in free view');
+        assert.ok(Math.abs(cam.r - 0.99999) < 1e-9, `the pan from the link (r ${cam.r})`);
+        assert.ok(Math.abs(cam.rot + 149.3) < 1e-6, `the rotation from the link (${cam.rot}°)`);
+        assert.equal(await page.locator('.zoom-free').getAttribute('aria-pressed'), 'true');
       },
       false,
     );

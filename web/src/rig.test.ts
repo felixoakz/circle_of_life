@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TAU } from './angle';
 import { Camera } from './camera';
 import { layoutFor } from './layout';
-import { Rig, driftShare, focusAngle, wrapAngle } from './rig';
+import { Rig, clampFree, driftShare, focusAngle, freeAbout, freePan, wrapAngle } from './rig';
 import { TURN_SPACING } from './style';
 
 const N = 2_385_875;
@@ -146,5 +146,106 @@ describe('rig', () => {
     const p = rimAt(r, 4.0000001234);
     const a = r.anchor();
     expect(Math.hypot(p.x - a.x, p.y - a.y)).toBeLessThan(1e-3);
+  });
+});
+
+describe('free view', () => {
+  const W = 2000;
+  const H = 1030;
+  const dist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
+
+  it('enters where the locked view is, and set() leaves it', () => {
+    const r = rig();
+    r.set({ theta: 1.3, scale: r.minScale() * 300 });
+    const before = r.camera.polarToScreen(1.31, 0.6);
+    r.enterFree();
+    expect(r.isFree()).toBe(true);
+    expect(dist(r.camera.polarToScreen(1.31, 0.6), before)).toBeLessThan(1e-6);
+    r.set({ theta: 1.3, scale: r.minScale() });
+    expect(r.isFree()).toBe(false);
+  });
+
+  it('cameraFor is the camera the locked view writes', () => {
+    const r = rig();
+    for (const s of [r.minScale(), 1e5, r.maxScale()]) {
+      r.set({ theta: 0.7, scale: s });
+      const f = r.cameraFor(r.pose());
+      const c = r.camera.centre();
+      expect(f.x).toBeCloseTo(c.x, 14);
+      expect(f.y).toBeCloseTo(c.y, 14);
+      expect(f.rot).toBeCloseTo(r.camera.rot, 14);
+    }
+  });
+
+  it('zooms about the cursor: the point under it stays put', () => {
+    const r = rig();
+    r.enterFree();
+    const p = { x: 400, y: 700 };
+    const w = r.camera.screenToWorld(p.x, p.y);
+    r.zoomAt(40, p);
+    expect(r.scale).toBeCloseTo(r.minScale() * 40, 6);
+    expect(dist(r.camera.worldToScreen(w.x, w.y), p)).toBeLessThan(1e-6);
+  });
+
+  it('dives to maximum zoom mid-wheel without losing a pixel', () => {
+    const r = rig();
+    r.enterFree();
+    // A point halfway in, among the inner branches; zoom about it in wheel notches.
+    const target = { x: 0.5 * Math.cos(2.2), y: 0.5 * Math.sin(2.2) };
+    let p = r.camera.worldToScreen(target.x, target.y);
+    r.panBy(W / 2 - p.x, H / 2 - p.y);
+    p = r.camera.worldToScreen(target.x, target.y);
+    for (let i = 0; i < 400 && r.scale < r.maxScale(); i++) r.zoomAt(1.16, p);
+    expect(dist(r.camera.worldToScreen(target.x, target.y), p)).toBeLessThan(1e-3);
+    expect(r.scale).toBe(r.maxScale());
+    // Pan a little and turn about a point, at max zoom: the picture moves rigidly.
+    const q = r.camera.screenToWorld(900, 500);
+    r.panBy(37, 23);
+    expect(dist(r.camera.worldToScreen(q.x, q.y), { x: 937, y: 523 })).toBeLessThan(1e-3);
+    r.rotateAt(0.3, { x: 937, y: 523 });
+    expect(dist(r.camera.worldToScreen(q.x, q.y), { x: 937, y: 523 })).toBeLessThan(1e-3);
+    // Still mid-wheel.
+    const c = r.camera.screenToPolar(W / 2, H / 2);
+    expect(c.r).toBeGreaterThan(0.45);
+    expect(c.r).toBeLessThan(0.55);
+  });
+
+  it('pans with the pointer and turns about a point', () => {
+    const f = { x: 0.3, y: 0.1, scale: 1000, rot: 0.4 };
+    const cam = new Camera(N);
+    cam.setViewport(W, H, 1);
+    const put = (g: typeof f): void => {
+      cam.scale = g.scale;
+      cam.rot = g.rot;
+      cam.setCentre(g.x, g.y);
+    };
+    put(f);
+    const w = cam.screenToWorld(500, 300);
+    put(freePan(f, 20, -10));
+    expect(dist(cam.worldToScreen(w.x, w.y), { x: 520, y: 290 })).toBeLessThan(1e-9);
+    const turned = freeAbout(f, f.scale, 0.5, { x: 500, y: 300 }, W, H);
+    put(turned);
+    expect(turned.rot).toBeCloseTo(0.9, 12);
+    expect(dist(cam.worldToScreen(w.x, w.y), { x: 500, y: 300 })).toBeLessThan(1e-9);
+  });
+
+  it('keeps the wheel within reach of the screen', () => {
+    const far = clampFree({ x: 30, y: 40, scale: 100, rot: 0 }, 500);
+    expect(Math.hypot(far.x, far.y)).toBeCloseTo(1 + 500 / 100, 12);
+    const near = { x: 0.2, y: 0.1, scale: 100, rot: 0 };
+    expect(clampFree(near, 500)).toBe(near);
+    const r = rig();
+    r.enterFree();
+    r.panBy(-1e6, 0);
+    const c = r.camera.centre();
+    expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(1 + (0.5 * W) / r.scale + 1e-12);
+  });
+
+  it('turns about the screen centre with rotateBy (the ambient turn never runs here, but stays sane)', () => {
+    const r = rig();
+    r.enterFree();
+    const c = r.camera.screenToWorld(W / 2, H / 2);
+    r.rotateBy(1);
+    expect(dist(r.camera.worldToScreen(c.x, c.y), { x: W / 2, y: H / 2 })).toBeLessThan(1e-6);
   });
 });
