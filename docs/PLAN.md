@@ -539,10 +539,10 @@ web/src/
   render/canvas.ts   backing-store size and DPR cap, shared by both backends
   render/pixels.ts   top-down RGBA readback helpers (precision test, pixel diffs)
   gpu/*.ts           WebGPU backend: device, pipelines, uniforms, tiles, timing, parity page
-  gpu/shaders/*.wgsl common, palette, frag, tile, fans, lines, rim, marks, dim, path, ring, parity
+  gpu/shaders/*.wgsl common, palette, frag, tile, fans, lines, rim, marks, tips, dim, path, ring, parity
   gl/context.ts      WebGL2 context creation, program compile/link helpers
   gl/renderer.ts     WebGL2 backend: executes the frame plan with GL calls
-  gl/shaders/*       branches.vert, arcs.vert, marks.*, line.frag, rim.*, fans.*, path.*, ring.*, dim.*, common/palette/frag.glsl
+  gl/shaders/*       branches.vert, arcs.vert, marks.*, tips.*, line.frag, rim.*, fans.*, path.*, ring.*, dim.*, common/palette/frag.glsl
   palette.ts         OKLCH → linear sRGB; run colours from meta.runs (§7.4)
   labels.ts          Canvas2D overlay: tip labels, clade arc labels, group labels, "You are here"
   picking.ts         CPU hit testing over loaded tiles (doubles)
