@@ -19,12 +19,14 @@ import {
   type BranchesCmd,
   type DimCmd,
   type DrawCmd,
+  type EdgeCmd,
   type FansCmd,
   type MarksCmd,
   type Pass,
   type PathCmd,
   type RimCmd,
   type RingCmd,
+  type TipsCmd,
   fanSpans,
   parsePasses,
   planFrame,
@@ -42,6 +44,8 @@ import branchesVert from './shaders/branches.vert?raw';
 import common from './shaders/common.glsl?raw';
 import dimFrag from './shaders/dim.frag?raw';
 import dimVert from './shaders/dim.vert?raw';
+import edgeFrag from './shaders/edge.frag?raw';
+import edgeVert from './shaders/edge.vert?raw';
 import fansFrag from './shaders/fans.frag?raw';
 import fansVert from './shaders/fans.vert?raw';
 import fragCommon from './shaders/frag.glsl?raw';
@@ -55,6 +59,8 @@ import ringVert from './shaders/ring.vert?raw';
 import paletteGlsl from './shaders/palette.glsl?raw';
 import rimFrag from './shaders/rim.frag?raw';
 import rimVert from './shaders/rim.vert?raw';
+import tipsFrag from './shaders/tips.frag?raw';
+import tipsVert from './shaders/tips.vert?raw';
 
 
 /** A tile's bytes on the GPU: one buffer, one VAO pointing into it. */
@@ -133,7 +139,9 @@ export class WebGl2Renderer implements Renderer {
       arcs: createProgram(gl, vertex(arcsVert), fragment(lineFrag)),
       fans: createProgram(gl, vertex(fansVert), fragment(fansFrag)),
       rim: createProgram(gl, vertex(rimVert), fragment(rimFrag)),
+      edge: createProgram(gl, vertex(edgeVert), fragment(edgeFrag)),
       marks: createProgram(gl, vertex(marksVert), fragment(marksFrag)),
+      tips: createProgram(gl, vertex(tipsVert), fragment(tipsFrag)),
       backdrop: createProgram(gl, vertex(backdropVert), fragment(backdropFrag)),
       dim: createProgram(gl, `#version 300 es\n${dimVert}`, `#version 300 es\n${dimFrag}`),
       path: createProgram(gl, vertex(pathVert), `#version 300 es\n${pathFrag}`),
@@ -277,7 +285,7 @@ export class WebGl2Renderer implements Renderer {
    *   clipping per channel and drifting to white.
    * - additive, for rim marks: they sit on their own terminal branch, which
    *   has used up most of the room, so plain (1, 1) keeps the bars solid.
-   * - over, for paths and rings: opaque on top of the tree.
+   * - over, for tip dots, paths and rings: opaque on top of the tree.
    * - dim: multiplies what is drawn by 1 − amount.
    */
   private setBlend(b: Blend): void {
@@ -298,8 +306,12 @@ export class WebGl2Renderer implements Renderer {
         return this.drawArcs(cmd);
       case 'rim':
         return this.drawRim(cmd);
+      case 'edge':
+        return this.drawEdge(cmd);
       case 'marks':
         return this.drawMarks(cmd);
+      case 'tips':
+        return this.drawTips(cmd);
       case 'backdrop':
         return this.drawBackdrop(cmd);
       case 'dim':
@@ -368,6 +380,18 @@ export class WebGl2Renderer implements Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, c.vertexCount);
   }
 
+  private drawEdge(c: EdgeCmd): void {
+    const gl = this.gl;
+    const u = this.programs.edge.u;
+    gl.uniform1i(u.uK ?? null, c.k);
+    gl.uniform2f(u.uReach ?? null, ...c.reach);
+    gl.uniform1f(u.uAlpha ?? null, c.alpha);
+    gl.uniform1f(u.uWidth ?? null, c.width);
+    gl.uniform1f(u.uLift ?? null, c.lift);
+    gl.bindVertexArray(this.emptyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, c.vertexCount);
+  }
+
   private drawMarks(c: MarksCmd): void {
     const gl = this.gl;
     const u = this.programs.marks.u;
@@ -377,6 +401,16 @@ export class WebGl2Renderer implements Renderer {
     gl.uniform2f(u.uLeaderHalo ?? null, ...c.leaderHalo);
     gl.uniform4f(u.uLeader ?? null, ...c.leader);
     gl.uniform1f(u.uFade ?? null, c.fade);
+    gl.bindVertexArray(glTile(c.tile).vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, c.vertexCount, c.instanceCount);
+  }
+
+  private drawTips(c: TipsCmd): void {
+    const gl = this.gl;
+    const u = this.programs.tips.u;
+    gl.uniform1f(u.uAlpha ?? null, c.alpha);
+    gl.uniform1f(u.uRadius ?? null, c.radius);
+    gl.uniform1f(u.uLift ?? null, c.lift);
     gl.bindVertexArray(glTile(c.tile).vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, c.vertexCount, c.instanceCount);
   }
@@ -435,6 +469,8 @@ export class WebGl2Renderer implements Renderer {
     gl.uniform1f(u.uR ?? null, c.r);
     gl.uniform1f(u.uRadius ?? null, c.radius);
     gl.uniform4f(u.uColour ?? null, ...c.colour);
+    gl.uniform1f(u.uDot ?? null, c.dot);
+    gl.uniform2f(u.uKnock ?? null, ...c.knock);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, c.vertexCount);
   }
 
@@ -503,8 +539,9 @@ export class WebGl2Renderer implements Renderer {
     gl.uniform1f(u.uRimBand ?? null, 1 - (S.RIM_BAND_PX * p.dpr) / c.scale);
     gl.uniform1f(u.uRimBoost ?? null, S.RIM_BOOST * glow);
     gl.uniform1f(u.uPxPerUnit ?? null, RAD_PER_UNIT * c.scale);
-    gl.uniform1f(u.uExtInner ?? null, S.EXT_INNER);
+    const ext = S.extLevels(p.tipSpacing);
+    gl.uniform1f(u.uExtInner ?? null, ext.inner);
     gl.uniform1f(u.uExtPow ?? null, S.EXT_POWER);
-    gl.uniform1f(u.uExtFar ?? null, S.EXT_FAR);
+    gl.uniform1f(u.uExtFar ?? null, ext.far);
   }
 }

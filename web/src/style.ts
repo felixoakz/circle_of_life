@@ -69,6 +69,22 @@ export const EXT_INNER = 0.04;
 export const EXT_POWER = 4;
 /** …and on screen: beyond ~3 rim bands from the rim they dim to this. */
 export const EXT_FAR = 0.3;
+/**
+ * That build-up only suits the whole wheel, where it gives the grey interior
+ * and the glowing rim. Zoomed in, a frontier node's own stem is drawn at
+ * full line alpha, so an extension starting at a few percent of it reads
+ * as the lineage ending at the node: a dark staircase of clade nodes well
+ * inside the rim. So as tips spread over EXT_SOLID_SPACING (px between tips,
+ * as the wheel stops fitting the screen) the build-up eases away and every
+ * extension runs to the rim as bright as the stem leading into it.
+ */
+export const EXT_SOLID_SPACING: readonly [number, number] = [0.004, 0.015];
+
+/** The extension ramp's floor at its node and far from the rim, for this tip spacing (CSS px). */
+export function extLevels(tipSpacing: number): { inner: number; far: number } {
+  const solid = smoothstep(EXT_SOLID_SPACING[0], EXT_SOLID_SPACING[1], tipSpacing);
+  return { inner: EXT_INNER + (1 - EXT_INNER) * solid, far: EXT_FAR + (1 - EXT_FAR) * solid };
+}
 
 /**
  * Fans: overall alpha, and the width of one fine line of their striation.
@@ -130,6 +146,39 @@ export const TIP_BAR_RAMP: readonly [number, number] = [12, 13.5];
 export const TIP_BAR_FADE_SPACING: readonly [number, number] = [2, 6];
 export const TIP_BAR_ALPHA = 0.6;
 export const TIP_BAR_MAX_LEN_PX = 120;
+
+/**
+ * Tip dots (DESIGN.md §5): a small filled dot where each species' line meets
+ * the rim, so the end of every line reads as a terminal node, as in a printed
+ * phylogeny, once tips are far enough apart to tell one end from the next.
+ * Constant on screen: TIP_DOT_RADIUS_PX, or the line width times
+ * TIP_DOT_LINE_RATIO once lines thicken (so it stays a dot on a 3 px line),
+ * in the kingdom colour lifted TIP_DOT_LIFT of the way to white. It fades in
+ * as tips spread over TIP_DOT_SPACING (px between tips): below it the dots
+ * would touch, and the rim glow and tip bars mark the line ends instead. So
+ * only what fits on screen is ever drawn (a few hundred dots), never 2.4M.
+ */
+export const TIP_DOT_SPACING: readonly [number, number] = [4, 8];
+export const TIP_DOT_RADIUS_PX = 2;
+export const TIP_DOT_LINE_RATIO = 1.25;
+export const TIP_DOT_LIFT = 0.3;
+
+/**
+ * Rim edge (DESIGN.md §5): from mid zoom, a crisp EDGE_WIDTH_PX line just
+ * outside r = 1 in the kingdom colour (lifted like the tip dots), so where
+ * the lines end is a clean edge rather than a soft gradient into the glow.
+ * It fades in as tips spread over EDGE_SPACING (px between tips: about
+ * where the wheel no longer fits on screen; at overview the rim glow is the
+ * edge) and hands over to the tip dots as they fade in.
+ */
+export const EDGE_SPACING: readonly [number, number] = [0.004, 0.015];
+export const EDGE_WIDTH_PX = 1.5;
+export const EDGE_ALPHA = 0.9;
+
+/** Radius of a tip dot, CSS px, for the frame's line width (CSS px, 0 for hairlines). */
+export function tipDotRadiusPx(lineWidth: number): number {
+  return Math.max(TIP_DOT_RADIUS_PX, TIP_DOT_LINE_RATIO * lineWidth);
+}
 
 /**
  * Home (Homo sapiens): its subtree is white, and a short outward leader bar
@@ -358,6 +407,10 @@ export interface Look {
   ring: number;
   /** Tip bar alpha (0: off). */
   tipBar: number;
+  /** Tip dot alpha (0: off). */
+  tipDot: number;
+  /** Rim edge line alpha (0: off). */
+  edge: number;
   /** Home leader bar alpha (0: off). */
   leader: number;
   /** Line width, CSS px (0 while lines are hairlines: see LINE_WIDTH_SPACING). */
@@ -372,6 +425,7 @@ export function frameLook(p: { lambda: number; tipSpacing: number }): Look {
   const deep = smoothstep(BRANCH_ALPHA_RAMP[0], BRANCH_ALPHA_RAMP[1], p.lambda);
   const wide = smoothstep(LINE_WIDTH_SPACING[0], LINE_WIDTH_SPACING[1], p.tipSpacing);
   const alpha = BRANCH_ALPHA + (BRANCH_ALPHA_DEEP - BRANCH_ALPHA) * deep;
+  const tipDot = smoothstep(TIP_DOT_SPACING[0], TIP_DOT_SPACING[1], p.tipSpacing);
   return {
     glow,
     branchAlpha: alpha + (LINE_DEEP_ALPHA - alpha) * wide,
@@ -380,6 +434,8 @@ export function frameLook(p: { lambda: number; tipSpacing: number }): Look {
       TIP_BAR_ALPHA *
       smoothstep(TIP_BAR_RAMP[0], TIP_BAR_RAMP[1], p.lambda) *
       (1 - smoothstep(TIP_BAR_FADE_SPACING[0], TIP_BAR_FADE_SPACING[1], p.tipSpacing)),
+    tipDot,
+    edge: EDGE_ALPHA * smoothstep(EDGE_SPACING[0], EDGE_SPACING[1], p.tipSpacing) * (1 - tipDot),
     leader: smoothstep(HOME_LEADER_SPACING[0], HOME_LEADER_SPACING[1], p.tipSpacing),
     lineWidth: LINE_DEEP_PX * wide,
     fans: 1 - smoothstep(FAN_FADE[0], FAN_FADE[1], p.lambda),
@@ -402,8 +458,18 @@ export const HOVER_PATH_ALPHA = 0.6;
 /** The dim eases in and out over this long, so sweeping across the tree does not flicker. */
 export const HOVER_FADE_MS = 150;
 export const PATH_WIDTH_PX = 2;
-/** Selection: a white 2 px path and a hairline ring of this radius round the node. */
+/**
+ * Selection: a white 2 px path ending in a marker that reads at every zoom,
+ * even in the rim's densest glow: a SELECT_RING_LINE_PX ring of radius
+ * SELECT_RING_PX round the node, a filled dot of radius SELECT_DOT_PX at
+ * its centre, and under both a dark disc reaching SELECT_KNOCK_PX past the
+ * ring (SELECT_KNOCK_ALPHA opaque) that clears the glow behind them.
+ */
 export const SELECT_RING_PX = 6;
+export const SELECT_RING_LINE_PX = 1.5;
+export const SELECT_DOT_PX = 2.25;
+export const SELECT_KNOCK_PX = 2.5;
+export const SELECT_KNOCK_ALPHA = 0.85;
 /** Pointer hit tolerance, CSS px (PLAN §7.8: 4 px; fingers get more). */
 export const PICK_TOL_MOUSE_PX = 4;
 export const PICK_TOL_TOUCH_PX = 12;

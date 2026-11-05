@@ -416,6 +416,7 @@ export class WebGpuRenderer implements Renderer {
         packLines(cmd, this.slots.bytes, slot);
         return gpuTile(cmd.tile).bindGroup;
       case 'marks':
+      case 'tips':
         packDraw(cmd, this.slots.bytes, slot);
         return gpuTile(cmd.tile).bindGroup;
       case 'fans':
@@ -430,6 +431,7 @@ export class WebGpuRenderer implements Renderer {
         return buf.group;
       }
       case 'rim':
+      case 'edge':
       case 'ring':
       case 'backdrop':
       case 'dim':

@@ -22,6 +22,7 @@ import { structLayout, wgslStruct } from './layout';
 import backdrop from './shaders/backdrop.wgsl?raw';
 import common from './shaders/common.wgsl?raw';
 import dim from './shaders/dim.wgsl?raw';
+import edge from './shaders/edge.wgsl?raw';
 import fans from './shaders/fans.wgsl?raw';
 import frag from './shaders/frag.wgsl?raw';
 import lines from './shaders/lines.wgsl?raw';
@@ -31,6 +32,7 @@ import path from './shaders/path.wgsl?raw';
 import rim from './shaders/rim.wgsl?raw';
 import ring from './shaders/ring.wgsl?raw';
 import tile from './shaders/tile.wgsl?raw';
+import tips from './shaders/tips.wgsl?raw';
 import { DRAW_SLOT_BYTES, DRAW_STRUCTS, FRAME_FIELDS, PALETTE_FIELDS } from './uniforms';
 
 /** Shared WGSL modules, prepended in this order to every pipeline's own module. */
@@ -65,7 +67,9 @@ export const PIPELINES: readonly PipelineSpec[] = [
   { pass: 'arcs', module: 'lines.wgsl', vertex: 'vs_arcs', fragment: 'fs_line', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw-data', wide: true },
   { pass: 'fans', module: 'fans.wgsl', vertex: 'vs_fans', fragment: 'fs_fans', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw-data' },
   { pass: 'rim', module: 'rim.wgsl', vertex: 'vs_rim', fragment: 'fs_rim', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw' },
+  { pass: 'edge', module: 'edge.wgsl', vertex: 'vs_edge', fragment: 'fs_edge', topology: 'triangle-list', blend: 'over', groups: 'frame-draw' },
   { pass: 'marks', module: 'marks.wgsl', vertex: 'vs_marks', fragment: 'fs_marks', topology: 'triangle-strip', blend: 'additive', groups: 'frame-draw-data' },
+  { pass: 'tips', module: 'tips.wgsl', vertex: 'vs_tips', fragment: 'fs_tips', topology: 'triangle-strip', blend: 'over', groups: 'frame-draw-data' },
   { pass: 'backdrop', module: 'backdrop.wgsl', vertex: 'vs_backdrop', fragment: 'fs_backdrop', topology: 'triangle-list', blend: 'saturating', groups: 'frame-draw' },
   { pass: 'path', module: 'path.wgsl', vertex: 'vs_path', fragment: 'fs_path', topology: 'triangle-list', blend: 'over', groups: 'frame-draw-data' },
   { pass: 'ring', module: 'ring.wgsl', vertex: 'vs_ring', fragment: 'fs_ring', topology: 'triangle-strip', blend: 'over', groups: 'frame-draw' },
@@ -81,7 +85,9 @@ const SOURCES: Readonly<Record<string, string>> = {
   'lines.wgsl': lines,
   'fans.wgsl': fans,
   'rim.wgsl': rim,
+  'edge.wgsl': edge,
   'marks.wgsl': marks,
+  'tips.wgsl': tips,
   'path.wgsl': path,
   'ring.wgsl': ring,
   'dim.wgsl': dim,

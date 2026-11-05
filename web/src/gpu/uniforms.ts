@@ -10,11 +10,13 @@ import {
   type BackdropCmd,
   type BranchesCmd,
   type DimCmd,
+  type EdgeCmd,
   type FansCmd,
   type MarksCmd,
   type PathCmd,
   type RimCmd,
   type RingCmd,
+  type TipsCmd,
   revealUniform,
 } from '../render/plan';
 import type { FrameParams } from '../render/types';
@@ -94,6 +96,15 @@ export const RIM_FIELDS: Fields = [
   ['fur', 'vec3f'],
 ];
 
+/** `EdgeDraw` (edge.wgsl), as in render/plan.ts `EdgeCmd`. */
+export const EDGE_FIELDS: Fields = [
+  ['reach', 'vec2f'],
+  ['k', 'i32'],
+  ['alpha', 'f32'],
+  ['width', 'f32'],
+  ['lift', 'f32'],
+];
+
 /** `MarksDraw` (marks.wgsl), the vectors as in render/plan.ts `MarksCmd`. */
 export const MARKS_FIELDS: Fields = [
   ['fade', 'f32'],
@@ -102,6 +113,13 @@ export const MARKS_FIELDS: Fields = [
   ['tipBar', 'vec4f'],
   ['leaderHalo', 'vec2f'],
   ['leader', 'vec4f'],
+];
+
+/** `TipsDraw` (tips.wgsl), as in render/plan.ts `TipsCmd`. */
+export const TIPS_FIELDS: Fields = [
+  ['alpha', 'f32'],
+  ['radius', 'f32'],
+  ['lift', 'f32'],
 ];
 
 /** `PathDraw` (path.wgsl). */
@@ -118,6 +136,8 @@ export const RING_FIELDS: Fields = [
   ['r', 'f32'],
   ['radius', 'f32'],
   ['linePx', 'f32'],
+  ['knock', 'vec2f'],
+  ['dot', 'f32'],
 ];
 
 /** `BackdropDraw` (backdrop.wgsl), the vectors as in render/plan.ts `BackdropCmd`. */
@@ -146,7 +166,9 @@ export const DRAW_STRUCTS: Readonly<Record<string, Fields>> = {
   LinesDraw: LINES_FIELDS,
   FansDraw: FANS_FIELDS,
   RimDraw: RIM_FIELDS,
+  EdgeDraw: EDGE_FIELDS,
   MarksDraw: MARKS_FIELDS,
+  TipsDraw: TIPS_FIELDS,
   PathDraw: PATH_FIELDS,
   RingDraw: RING_FIELDS,
   BackdropDraw: BACKDROP_FIELDS,
@@ -187,9 +209,10 @@ export function packFrame(p: FrameParams, look: Pick<Look, 'glow'>, out: ArrayBu
   f[word('rimBoost')] = S.RIM_BOOST * look.glow;
   f[word('pxPerUnit')] = RAD_PER_UNIT * c.scale;
   f.set(branchRgb, word('branch'));
-  f[word('extInner')] = S.EXT_INNER;
+  const ext = S.extLevels(p.tipSpacing);
+  f[word('extInner')] = ext.inner;
   f[word('extPow')] = S.EXT_POWER;
-  f[word('extFar')] = S.EXT_FAR;
+  f[word('extFar')] = ext.far;
 }
 
 let linesLayout: StructLayout | null = null;
@@ -247,7 +270,7 @@ export function packStruct(
 }
 
 /** Writes a draw command's struct (everything but branches and arcs: `packLines`) at byte `offset`. */
-export function packDraw(c: FansCmd | RimCmd | MarksCmd | BackdropCmd | PathCmd | RingCmd | DimCmd, out: ArrayBuffer, offset: number): void {
+export function packDraw(c: FansCmd | RimCmd | EdgeCmd | MarksCmd | TipsCmd | BackdropCmd | PathCmd | RingCmd | DimCmd, out: ArrayBuffer, offset: number): void {
   switch (c.pass) {
     case 'fans':
       return packStruct(FANS_FIELDS, { lambda: c.lambda, fadeF: c.fadeF, alpha: c.alpha, linePx: c.linePx, k: c.k }, out, offset);
@@ -258,6 +281,13 @@ export function packDraw(c: FansCmd | RimCmd | MarksCmd | BackdropCmd | PathCmd 
         out,
         offset,
       );
+    case 'edge':
+      return packStruct(
+        EDGE_FIELDS,
+        { reach: c.reach, k: c.k, alpha: c.alpha, width: c.width, lift: c.lift },
+        out,
+        offset,
+      );
     case 'marks':
       return packStruct(
         MARKS_FIELDS,
@@ -265,6 +295,8 @@ export function packDraw(c: FansCmd | RimCmd | MarksCmd | BackdropCmd | PathCmd 
         out,
         offset,
       );
+    case 'tips':
+      return packStruct(TIPS_FIELDS, { alpha: c.alpha, radius: c.radius, lift: c.lift }, out, offset);
     case 'backdrop':
       return packStruct(
         BACKDROP_FIELDS,
@@ -287,7 +319,7 @@ export function packDraw(c: FansCmd | RimCmd | MarksCmd | BackdropCmd | PathCmd 
     case 'ring':
       return packStruct(
         RING_FIELDS,
-        { colour: c.colour, angle: c.angle, r: c.r, radius: c.radius, linePx: c.linePx },
+        { colour: c.colour, angle: c.angle, r: c.r, radius: c.radius, linePx: c.linePx, knock: c.knock, dot: c.dot },
         out,
         offset,
       );

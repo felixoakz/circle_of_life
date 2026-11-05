@@ -23,15 +23,15 @@ export function revealUniform(reveal: number): number {
   return Number.isFinite(reveal) ? reveal : REVEAL_DONE;
 }
 
-export type Pass = 'fans' | 'branches' | 'arcs' | 'rim' | 'marks' | 'backdrop' | 'dim' | 'path' | 'ring';
+export type Pass = 'fans' | 'branches' | 'arcs' | 'rim' | 'edge' | 'marks' | 'tips' | 'backdrop' | 'dim' | 'path' | 'ring';
 
-export const PASSES: readonly Pass[] = ['fans', 'branches', 'arcs', 'rim', 'marks', 'backdrop', 'dim', 'path', 'ring'];
+export const PASSES: readonly Pass[] = ['fans', 'branches', 'arcs', 'rim', 'edge', 'marks', 'tips', 'backdrop', 'dim', 'path', 'ring'];
 
 /**
  * Blend modes, colour and alpha alike (src factor, dst factor):
  * - saturating: (1 − dst alpha, 1), the tree, the rim ring and the backdrop
  * - additive: (1, 1), rim marks
- * - over: (1, 1 − src alpha), paths and rings
+ * - over: (1, 1 − src alpha), the rim edge, tip dots, paths and rings
  * - dim: (0, 1 − src alpha), the tree dim and the HUD plates
  */
 export type Blend = 'saturating' | 'additive' | 'over' | 'dim';
@@ -41,7 +41,11 @@ export const PASS_BLEND: Readonly<Record<Pass, Blend>> = {
   branches: 'saturating',
   arcs: 'saturating',
   rim: 'saturating',
+  // Over the glow, so the edge stays crisp where the tree has used up the light.
+  edge: 'over',
   marks: 'additive',
+  // Opaque on its line, so the dot keeps its colour where it covers the line.
+  tips: 'over',
   // Drawn after the tree, it only fills the light the tree left: it stays behind.
   backdrop: 'saturating',
   dim: 'dim',
@@ -99,6 +103,19 @@ export interface RimCmd extends DrawBase {
   fur: [number, number, number];
 }
 
+export interface EdgeCmd extends DrawBase {
+  pass: 'edge';
+  /** Steps around the visible rim (vertexCount = 6k). */
+  k: number;
+  /** The annulus drawn: px inside, px outside the rim. */
+  reach: [number, number];
+  alpha: number;
+  /** Line width, device px, starting at the rim and running outward. */
+  width: number;
+  /** How far the kingdom colour is lifted toward white (0..1). */
+  lift: number;
+}
+
 export interface MarksCmd extends DrawBase {
   pass: 'marks';
   tile: GpuTile;
@@ -111,6 +128,17 @@ export interface MarksCmd extends DrawBase {
   leader: [number, number, number, number];
   /** The leader's halo: amount, decay px. */
   leaderHalo: [number, number];
+}
+
+export interface TipsCmd extends DrawBase {
+  pass: 'tips';
+  tile: GpuTile;
+  /** The tile's level fade times the frame's dot fade-in (0..1). */
+  alpha: number;
+  /** Dot radius, device px. */
+  radius: number;
+  /** How far the kingdom colour is lifted toward white (0..1). */
+  lift: number;
 }
 
 export interface BackdropCmd extends DrawBase {
@@ -171,9 +199,13 @@ export interface RingCmd extends DrawBase {
   radius: number;
   linePx: number;
   colour: [number, number, number, number];
+  /** Centre dot radius, device px. */
+  dot: number;
+  /** The dark disc: px past the ring, and its opacity. */
+  knock: [number, number];
 }
 
-export type DrawCmd = FansCmd | BranchesCmd | ArcsCmd | RimCmd | MarksCmd | BackdropCmd | DimCmd | PathCmd | RingCmd;
+export type DrawCmd = FansCmd | BranchesCmd | ArcsCmd | RimCmd | EdgeCmd | MarksCmd | TipsCmd | BackdropCmd | DimCmd | PathCmd | RingCmd;
 
 /** The current frontier fans: how many, and each one's span in u32 units, widest first. */
 export interface FanSet {
@@ -365,6 +397,22 @@ export function planFrame(
     drawCalls++;
   }
 
+  if (on('edge') && look.edge > 0) {
+    const width = S.EDGE_WIDTH_PX * p.dpr;
+    cmds.push({
+      pass: 'edge',
+      blend: PASS_BLEND.edge,
+      ...single(6 * K_RING),
+      k: K_RING,
+      // A px of room each side for antialiasing.
+      reach: [p.dpr, width + p.dpr],
+      alpha: look.edge,
+      width,
+      lift: S.TIP_DOT_LIFT,
+    });
+    drawCalls++;
+  }
+
   if (on('marks')) {
     // A leader squeezed by the screen edge (leader.ts) fades out rather than shrinking to a stub.
     const leaderAlpha = p.homeLeader * look.leader * Math.min(1, Math.max(0, (p.leaderLen - 24) / 40));
@@ -385,6 +433,29 @@ export function planFrame(
         leader: [leaderAlpha, p.leaderGap * p.dpr, Math.max(1, p.leaderLen) * p.dpr, Math.max(S.HOME_LEADER_WIDTH_DEVICE_PX, lineDev)],
         // No halo: the bar is a plain hairline like the tip bars (DESIGN.md §5).
         leaderHalo: [0, 1],
+      });
+      instances += t.count;
+      drawCalls++;
+    }
+  }
+
+  // Tip dots: one screen-aligned quad per node (the shader keeps the tips),
+  // only once tips are far enough apart for the dots not to touch.
+  if (on('tips') && look.tipDot > 0) {
+    const radius = S.tipDotRadiusPx(look.lineWidth) * p.dpr;
+    for (const t of tiles) {
+      const fade = p.fade(t.level);
+      if (fade <= 0 || t.count === t.internalCount) continue;
+      cmds.push({
+        pass: 'tips',
+        blend: PASS_BLEND.tips,
+        vertexCount: 4,
+        instanceCount: t.count,
+        firstInstance: 0,
+        tile: t,
+        alpha: fade * look.tipDot,
+        radius,
+        lift: S.TIP_DOT_LIFT,
       });
       instances += t.count;
       drawCalls++;
@@ -458,8 +529,10 @@ export function planFrame(
         angle: r.angle >>> 0,
         r: r.r,
         radius: r.radiusPx * p.dpr,
-        linePx: p.dpr,
+        linePx: S.SELECT_RING_LINE_PX * p.dpr,
         colour: [r.rgb[0], r.rgb[1], r.rgb[2], r.alpha],
+        dot: S.SELECT_DOT_PX * p.dpr,
+        knock: [S.SELECT_KNOCK_PX * p.dpr, S.SELECT_KNOCK_ALPHA],
       });
       drawCalls++;
     }
