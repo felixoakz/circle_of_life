@@ -1,4 +1,4 @@
-// Canvas sizing helpers (formerly in gl/context.ts, now shared by both backends).
+// Canvas sizing helpers (render/canvas.ts).
 
 import { describe, expect, it } from 'vitest';
 import { type SizedCanvas, backingStoreSize, fitCanvas, treeDpr } from './canvas';

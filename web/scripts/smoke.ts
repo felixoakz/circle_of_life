@@ -1,13 +1,9 @@
-// End-to-end smoke test (PLAN §9 P12, docs/plan-webgpu.md W5): load the app,
+// End-to-end smoke test (ARCHITECTURE §9.3): load the app,
 // expect the card on Homo sapiens (the default selection), search "panthera
 // onca", choose the first result, and expect the card to show the jaguar,
 // with the selection in the URL. Runs:
 //
-//   default             lands on a working renderer (WebGL2 headless: no hardware adapter)
-//   ?renderer=webgl     must be WebGL2
-//   ?renderer=webgpu    must be WebGPU with SMOKE_WEBGPU=1; otherwise it must
-//                       fall back to WebGL2, and the WebGPU checks are skipped
-//                       with a log line
+//   default             draws with WebGL2
 //   ?nowebgl            the fallback page, where search and the card still work
 //   interactions        the locked view (DESIGN.md §4, §8): the wheel zooms
 //                       about the anchor, a drag turns the wheel and never
@@ -32,27 +28,20 @@
 // ambient turn, the fling and the tour off, so the scene can go idle.
 //
 // Every drawn run uses reduced motion, so choosing the result is a cut with
-// a crossfade; the snapshot of the tree canvas must not be black (on WebGPU
-// the canvas is only readable before it is presented). On WebGPU, a forced
-// device loss (`__loseDevice`, `?debug`) must recover with tiles redrawn and
-// no GPU errors, and a second loss must reload into WebGL2.
+// a crossfade; the snapshot of the tree canvas must not be black (it is
+// taken in the task that drew the frame).
 //
 //   make smoke                                        # builds, starts a server, runs this
 //   SMOKE_BASE=http://localhost:3000 pnpm -C web test:e2e   # against a running server
-//   SMOKE_WEBGPU=1 make smoke                         # WebGPU required (docs/webgpu.md flags)
 //
-// By default headless Chromium draws WebGL2 through SwiftShader, so no GPU is
-// needed. WebGPU canvases need ANGLE on the host's GL driver
-// (docs/webgpu.md), so SMOKE_WEBGPU=1 uses those flags instead.
+// Headless Chromium draws WebGL2 through SwiftShader, so no GPU is needed.
 
 import assert from 'node:assert/strict';
 import { type Browser, type Page, chromium } from 'playwright';
 
 const BASE = process.env.SMOKE_BASE ?? 'http://localhost:3000';
-const WEBGPU = process.env.SMOKE_WEBGPU === '1';
 const TIMEOUT = 60_000;
 const SWIFTSHADER_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
-const WEBGPU_ARGS = ['--enable-unsafe-webgpu', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'];
 
 // Records, when the crossfade snapshot copies the tree canvas, the share of
 // its pixels that are not black (`window.__crossfadeLit`). Plain JS: it runs
@@ -101,7 +90,7 @@ async function searchAndOpen(page: Page): Promise<void> {
   await cardShows(page, 'Panthera onca');
 }
 
-/** Checks after the cut: selection in the URL, canvas visible, crossfade snapshot not black, no GPU errors. */
+/** Checks after the cut: selection in the URL, canvas visible, crossfade snapshot not black. */
 async function drawnChecks(page: Page): Promise<void> {
   await page.waitForFunction((id) => location.search.includes(`n=${id}`), JAGUAR, { timeout: TIMEOUT });
   assert.equal(await page.locator('#tree').isVisible(), true);
@@ -109,61 +98,6 @@ async function drawnChecks(page: Page): Promise<void> {
   assert.ok(lit !== undefined, 'the cut made a crossfade snapshot of the tree');
   assert.ok(lit > 0.005, `crossfade snapshot of the tree is not black (lit ${(lit * 100).toFixed(2)}%)`);
   console.log(`     crossfade snapshot of the tree: ${(lit * 100).toFixed(1)}% lit`);
-  assert.equal(await page.evaluate(() => window.__gpuErrors ?? 0), 0, 'no WebGPU errors');
-}
-
-/** Lit share of the tree canvas right after a fresh frame (WebGPU readback), and that frame's tile count. */
-async function freshFrame(page: Page): Promise<{ tiles: number; lit: number }> {
-  return page.evaluate(async () => {
-    const scene = window.__scene;
-    if (!scene) throw new Error('window.__scene missing (needs ?debug)');
-    const { tiles } = scene.renderNow();
-    if (tiles === 0) return { tiles, lit: 0 };
-    let px;
-    try {
-      px = await scene.renderer.readPixels();
-    } catch {
-      // The device went away while this frame was read back (the loss is still being noticed).
-      return { tiles: 0, lit: 0 };
-    }
-    let lit = 0;
-    for (let i = 0; i < px.data.length; i += 4) {
-      if ((px.data[i] ?? 0) + (px.data[i + 1] ?? 0) + (px.data[i + 2] ?? 0) > 24) lit++;
-    }
-    return { tiles, lit: lit / (px.width * px.height) };
-  });
-}
-
-/** Forced device loss: the first recovers in place, the second reloads into WebGL2. */
-async function lossChecks(page: Page): Promise<void> {
-  const before = await freshFrame(page);
-  assert.ok(before.tiles > 0 && before.lit > 0.005, `drawn before the loss (${JSON.stringify(before)})`);
-  const url = page.url();
-  await page.evaluate(() => window.__loseDevice?.());
-  let after = { tiles: 0, lit: 0 };
-  const t0 = Date.now();
-  while (Date.now() - t0 < TIMEOUT) {
-    await page.waitForTimeout(200);
-    after = await freshFrame(page);
-    if (after.tiles > 0 && after.lit > 0.005) break;
-  }
-  assert.ok(after.tiles > 0 && after.lit > 0.005, `tiles redrawn after the loss (${JSON.stringify(after)})`);
-  assert.equal(page.url(), url, 'recovered in place, no reload');
-  assert.equal(await page.evaluate(() => window.__renderer), 'webgpu');
-  assert.equal(await page.evaluate(() => window.__gpuErrors ?? 0), 0, 'no WebGPU errors after the recovery');
-  const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
-  console.log(`     device loss recovered: ${before.tiles} → ${after.tiles} tiles, lit ${pct(before.lit)} → ${pct(after.lit)}`);
-
-  // Lost again: recovery happens once per page, so this one reloads into WebGL2.
-  await Promise.all([
-    page.waitForURL(/renderer=webgl(&|$)/, { timeout: TIMEOUT }),
-    page.evaluate(() => window.__loseDevice?.()),
-  ]);
-  await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
-  assert.equal(await page.evaluate(() => window.__renderer), 'webgl2');
-  assert.match(page.url(), new RegExp(`n=${JAGUAR}`), 'the reload keeps the selection');
-  assert.match(page.url(), /v=[-\d.]+,[-\d.]+(&|$)/, 'the reload keeps the view (a,z)');
-  console.log(`     second loss reloaded into WebGL2: ${new URL(page.url()).search}`);
 }
 
 /** The rig's pose and the world point at the anchor (needs ?debug for window.__scene). */
@@ -595,12 +529,12 @@ async function cardTabChecks(browser: Browser): Promise<void> {
   console.log(`ok   card tabs and search bar (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 }
 
-/** Opens `query`, waits for idle, searches, then runs `check` (which returns 'skip' when it could not run). */
+/** Opens `query`, waits for idle, searches, then runs `check`. */
 async function run(
   browser: Browser,
   name: string,
   query: string,
-  check: (page: Page) => Promise<void | 'skip'>,
+  check: (page: Page) => Promise<void>,
   search = true,
 ): Promise<void> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -613,40 +547,21 @@ async function run(
     await page.waitForFunction(() => window.__renderIdle === true, null, { timeout: TIMEOUT });
     const renderer = await page.evaluate(() => window.__renderer);
     if (search) await searchAndOpen(page);
-    const outcome = await check(page);
+    await check(page);
     assert.deepEqual(errors, [], 'no uncaught page errors');
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
-    if (outcome === 'skip') console.log(`skip ${name}: WebGPU unavailable here, landed on ${renderer} (${secs} s)`);
-    else console.log(`ok   ${name} [${renderer}] (${secs} s)`);
+    console.log(`ok   ${name} [${renderer}] (${secs} s)`);
   } finally {
     await page.close();
   }
 }
 
 async function main(): Promise<void> {
-  const browser = await chromium.launch({ args: WEBGPU ? WEBGPU_ARGS : SWIFTSHADER_ARGS });
+  const browser = await chromium.launch({ args: SWIFTSHADER_ARGS });
   try {
     await run(browser, 'default → search → card', '?reduced', async (page) => {
-      // Software WebGPU adapters are refused by default, so headless lands on WebGL2.
-      const r = await page.evaluate(() => window.__renderer);
-      assert.ok(r === 'webgpu' || r === 'webgl2', `a working renderer, got ${r}`);
-      await drawnChecks(page);
-    });
-    await run(browser, '?renderer=webgl → search → card', '?renderer=webgl&reduced', async (page) => {
       assert.equal(await page.evaluate(() => window.__renderer), 'webgl2');
       await drawnChecks(page);
-    });
-    await run(browser, '?renderer=webgpu → search → card → device loss', '?renderer=webgpu&reduced&debug', async (page) => {
-      const r = await page.evaluate(() => window.__renderer);
-      if (r !== 'webgpu') {
-        assert.equal(WEBGPU, false, `SMOKE_WEBGPU=1 needs WebGPU, got ${r}`);
-        // Without WebGPU, asking for it must still land on WebGL2.
-        assert.equal(r, 'webgl2');
-        await drawnChecks(page);
-        return 'skip';
-      }
-      await drawnChecks(page);
-      await lossChecks(page);
     });
     await run(browser, 'interactions: zoom, turn, select', '?reduced&debug', interactionChecks, false);
     await run(browser, 'free view: F, pan, zoom about the cursor, Esc, padlock', '?reduced&debug', freeViewChecks, false);
@@ -676,7 +591,7 @@ async function main(): Promise<void> {
     await motionChecks(browser);
     await run(browser, 'no GPU: fallback → search → card', '?nowebgl', async (page) => {
       assert.equal(await page.locator('.fallback img').isVisible(), true);
-      assert.match((await page.locator('.fallback figcaption').textContent()) ?? '', /no WebGPU or WebGL2/);
+      assert.match((await page.locator('.fallback figcaption').textContent()) ?? '', /no WebGL2/);
       assert.equal(await page.evaluate(() => window.__renderer), 'none');
     });
   } finally {

@@ -1,5 +1,5 @@
-// The frame plan must reproduce what gl/renderer.ts `Renderer.draw` does
-// today; each expectation names the line of renderer.ts it comes from.
+// The frame plan must reproduce what gl/renderer.ts `draw` did before the
+// plan existed; each expectation names the part of renderer.ts it comes from.
 
 import { describe, expect, it } from 'vitest';
 import { RAD_PER_UNIT } from '../angle';

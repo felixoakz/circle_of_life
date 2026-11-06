@@ -1,4 +1,4 @@
-// The read API end to end (PLAN §9 P4): build the mini tree.db with the
+// The read API end to end (ARCHITECTURE §9.3): build the mini tree.db with the
 // real ingest, then send requests through the router with httptest (no
 // socket) and check status codes, headers and JSON.
 //

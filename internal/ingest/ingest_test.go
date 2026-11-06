@@ -1,5 +1,6 @@
-// End-to-end checks of `species ingest` (PLAN §9 P3): build tree.db from the
-// mini fixtures, then read it back with plain SQL and the tile decoder.
+// End-to-end checks of `species ingest` (ARCHITECTURE §9.3): build tree.db
+// from the mini fixtures, then read it back with plain SQL and the tile
+// decoder.
 // Also writes/checks the golden tile used by the TypeScript decoder tests,
 // and that ingesting twice gives the same database.
 //

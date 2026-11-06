@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  bgraToRgba,
-  compareFrames,
-  flipRows,
-  paddedBytesPerRow,
-  readbackToPixels,
-  stripRowPadding,
-} from './pixels';
+import { compareFrames, flipRows } from './pixels';
 import type { Pixels } from './types';
 
 /** A w×h RGBA image whose pixel (x, y) is [x, y, 10·x + y, 255]. */
@@ -18,21 +11,7 @@ function gradient(w: number, h: number): Uint8Array {
   return out;
 }
 
-/** The same image with each row padded to `pitch` bytes, padding filled with 0xee. */
-function padded(data: Uint8Array, w: number, h: number, pitch: number): Uint8Array {
-  const out = new Uint8Array(pitch * h).fill(0xee);
-  for (let y = 0; y < h; y++) out.set(data.subarray(y * w * 4, (y + 1) * w * 4), y * pitch);
-  return out;
-}
-
-describe('row helpers', () => {
-  it('pads rows to 256 bytes for copyTextureToBuffer', () => {
-    expect(paddedBytesPerRow(1)).toBe(256);
-    expect(paddedBytesPerRow(64)).toBe(256);
-    expect(paddedBytesPerRow(65)).toBe(512);
-    expect(paddedBytesPerRow(1440)).toBe(5888);
-  });
-
+describe('flipRows', () => {
   it('flipRows turns bottom-up rows top-down and leaves the input alone', () => {
     const src = gradient(2, 3);
     const before = src.slice();
@@ -41,41 +20,6 @@ describe('row helpers', () => {
     expect([...out.subarray(0, 8)]).toEqual([...src.subarray(16, 24)]);
     expect([...out.subarray(8, 16)]).toEqual([...src.subarray(8, 16)]);
     expect([...out.subarray(16, 24)]).toEqual([...src.subarray(0, 8)]);
-  });
-
-  it('bgraToRgba swaps red and blue only', () => {
-    const px = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect([...bgraToRgba(px)]).toEqual([3, 2, 1, 4, 7, 6, 5, 8]);
-  });
-
-  it('stripRowPadding drops the bytes past each row', () => {
-    const src = gradient(2, 2);
-    const out = stripRowPadding(padded(src, 2, 2, 12), 2, 2, 12);
-    expect([...out]).toEqual([...src]);
-  });
-});
-
-describe('readbackToPixels', () => {
-  const w = 3;
-  const h = 2;
-  const pitch = 256; // paddedBytesPerRow(3)
-  const rgba = gradient(w, h);
-
-  it('rgba8unorm: strips padding, keeps the channels, rows top-down', () => {
-    const p = readbackToPixels(padded(rgba, w, h, pitch), w, h, pitch, 'rgba8unorm');
-    expect(p.width).toBe(w);
-    expect(p.height).toBe(h);
-    expect([...p.data]).toEqual([...rgba]);
-  });
-
-  it('bgra8unorm: also swaps blue and red back', () => {
-    const bgra = rgba.slice();
-    for (let i = 0; i < bgra.length; i += 4) {
-      bgra[i] = rgba[i + 2] ?? 0;
-      bgra[i + 2] = rgba[i] ?? 0;
-    }
-    const p = readbackToPixels(padded(bgra, w, h, pitch), w, h, pitch, 'bgra8unorm');
-    expect([...p.data]).toEqual([...rgba]);
   });
 });
 

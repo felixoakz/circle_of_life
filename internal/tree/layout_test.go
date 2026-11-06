@@ -69,9 +69,9 @@ func randomTree(size int, seed uint64) *Tree {
 	return tr
 }
 
-// checkProperties runs the P2 property tests (PLAN §9) on any tree. It
-// stops at the first failure: with thousands of nodes, later failures are
-// usually the same bug again.
+// checkProperties runs the layout and LOD property tests (ARCHITECTURE
+// §9.3) on any tree. It stops at the first failure: with thousands of
+// nodes, later failures are usually the same bug again.
 func checkProperties(t *testing.T, tr *Tree, l *Layout) {
 	t.Helper()
 	n := l.Len()
