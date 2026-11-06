@@ -7,7 +7,7 @@
 // arc_lo up to D's first drawn child. Each of them covers less than ~1 px of
 // rim, and all of them branch off D at r_D, so together they look like a
 // solid fan from r_D to the rim. Drawing that fan keeps every lineage
-// reaching the rim at any zoom (the frontier extension of PLAN §3.5, widened
+// reaching the rim at any zoom (the frontier extension of ARCHITECTURE §3.5, widened
 // from one line to the whole undrawn prefix).
 //
 // Children at level F (the last fully loaded level) are still fading in, so

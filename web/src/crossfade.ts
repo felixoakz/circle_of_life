@@ -5,7 +5,7 @@
 // that drew it (its drawing buffer is not preserved), so the scene renders
 // the old view once more right before calling `snapshot`.
 
-export const CROSSFADE_MS = 120;
+const CROSSFADE_MS = 120;
 
 /** Lays a fading copy of `canvases` (stacked in order) over the last of them. */
 export function crossfade(canvases: readonly HTMLCanvasElement[], ms = CROSSFADE_MS): void {

@@ -1,5 +1,5 @@
-// WebGL2 context creation and shader program helpers (canvas sizing is
-// shared with WebGPU, in render/canvas.ts).
+// WebGL2 context creation and shader program helpers (canvas sizing is in
+// render/canvas.ts).
 
 /** Returns a WebGL2 context, or null when the browser cannot provide one. */
 export function createGL(canvas: HTMLCanvasElement): WebGL2RenderingContext | null {

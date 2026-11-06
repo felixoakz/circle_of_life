@@ -1,4 +1,4 @@
-// Typed fetch wrappers for the read API (PLAN §5.1).
+// Typed fetch wrappers for the read API (ARCHITECTURE §5.1).
 
 import type { About, Meta, NodeInfo, SearchHit } from './types';
 
@@ -37,7 +37,7 @@ export async function fetchNode(ref: number | string, signal?: AbortSignal): Pro
   return (await res.json()) as NodeInfo;
 }
 
-/** Search results for `q`, best first (PLAN §5.2). */
+/** Search results for `q`, best first (ARCHITECTURE §5.2). */
 export async function fetchSearch(q: string, limit: number, signal?: AbortSignal): Promise<SearchHit[]> {
   const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`, { signal });
   if (!res.ok) throw new Error(`/api/search: HTTP ${res.status}`);
@@ -45,7 +45,7 @@ export async function fetchSearch(q: string, limit: number, signal?: AbortSignal
 }
 
 /**
- * The enrichment document for a node (PLAN §6). Slow on a cache miss (a few
+ * The enrichment document for a node (ARCHITECTURE §6). Slow on a cache miss (a few
  * seconds). `retry` asks the server to refetch a partial document.
  */
 export async function fetchAbout(ref: number | string, retry: boolean, signal?: AbortSignal): Promise<About> {

@@ -9,12 +9,10 @@
 //   ?shot              screenshot mode: hides the cursor, skips the intro
 //   ?reduced           force reduced motion (no intro, no fling, cuts; no ambient turn, no tour)
 //   ?still             no ambient turn, no fling, no idle tour (implied by ?shot and reduced motion)
-//   ?tour=<seconds>    the idle tour's dwell (default 10; resumes after 3 dwells); with ?still or
+//   ?tour=<seconds>    the idle tour's dwell (default 12; resumes after 3 dwells); with ?still or
 //                      ?shot it turns the tour on by itself (tests, screenshots)
 //   ?debug             debug HUD;  ?debug=precision  max-zoom jitter test
-//   ?debug=parity      WGSL vs TS compute check (gpu/parity.ts, window.__gpuParity)
 //   ?nowebgl           the no-GPU fallback (still image, search, panel)
-//   ?renderer=webgl|webgpu   force a backend (render/select.ts; default: WebGPU, else WebGL2)
 //   ?passes=branches,arcs    draw only these passes (debug, render/plan.ts)
 
 // Self-hosted fonts (no runtime requests to Google). Each file declares
@@ -33,17 +31,8 @@ import { mountFallback } from './fallback';
 import { Labels } from './labels';
 import { RunPalette } from './palette';
 import { fitCanvas, treeDpr } from './render/canvas';
-import {
-  FACTORIES,
-  backendOrder,
-  createRenderer,
-  rememberWebGpuLoss,
-  rendererOptions,
-  webglReloadUrl,
-  webgpuFailedBefore,
-} from './render/select';
-import type { BackendKind } from './render/types';
-import { type BenchResult, Scene } from './scene';
+import { createWebGl2Renderer } from './gl/renderer';
+import { Scene } from './scene';
 import { FONT_SANS, FONT_SERIF, MAX_BACKING_PX } from './style';
 import { FreeView } from './freeview';
 import { Hover, pickAt } from './hover';
@@ -60,19 +49,17 @@ import { levelFade } from './lod';
 import { FLAG_HOME } from './tiles/decode';
 import { DWELL_MS, FIRST_MS, POINTER_HOLD_MS, TOUCH_HOLD_MS, TOUR, Tour } from './tour';
 import type { NodeInfo } from './types';
-import { applyView, formatView, parseLink, rigView } from './url';
+import { applyView, parseLink } from './url';
 
 declare global {
   interface Window {
-    /** ?shot only: average frame time over n frames, waiting for the GPU after each, plus GPU time where measured (scripts/shot.ts). */
-    __bench?: (n: number) => Promise<BenchResult>;
-    /** The backend drawing the tree, or 'none' on the fallback page; harnesses assert it. */
-    __renderer?: BackendKind | 'none';
+    /** ?shot only: average frame time in ms over n frames, waiting for the GPU after each (scripts/shot.ts). */
+    __bench?: (n: number) => number;
+    /** 'webgl2' when the tree is drawn, 'none' on the fallback page; harnesses assert it. */
+    __renderer?: 'webgl2' | 'none';
     /** ?shot / ?debug: label counts of the last layout. */
     __labels?: { candidates: number; shown: number; drawn: number; layoutMs: number; paintMs: number };
     __labelDump?: () => unknown;
-    /** ?debug, WebGPU only: simulate a GPU device loss (the renderer recovers once, then reloads). */
-    __loseDevice?: () => void;
   }
 }
 
@@ -100,29 +87,17 @@ async function main(): Promise<void> {
   const treeCanvas = byId('tree', HTMLCanvasElement);
   const overlayCanvas = byId('overlay', HTMLCanvasElement);
   const meta = await fetchMeta();
-  // The backend is chosen before any getContext: a canvas that gave one
-  // kind of context never gives the other. `?nowebgl` tries none, showing
-  // the fallback on purpose (the smoke test and screenshots).
-  const order = backendOrder(params, {
-    hasGpu: 'gpu' in navigator,
-    webgpuFailedBefore: webgpuFailedBefore(sessionStore()),
-  });
   const palette = new RunPalette(meta.runs, meta.tipCount);
-  const renderer = await createRenderer(treeCanvas, palette, order, FACTORIES, rendererOptions(params));
-  window.__renderer = renderer?.kind ?? 'none';
+  // `?nowebgl` skips WebGL2 and shows the fallback on purpose (the smoke
+  // test and screenshots).
+  const renderer = params.has('nowebgl') ? null : createWebGl2Renderer(treeCanvas, palette);
+  window.__renderer = renderer ? 'webgl2' : 'none';
   if (!renderer) {
     mountFallback(meta);
     return;
   }
 
   const scene = new Scene(renderer, treeCanvas, meta, palette);
-  // The GPU was lost and could not come back (plan §2.4): remember it for
-  // this session and reload into WebGL2 at the same place.
-  renderer.onLost = (reason) => {
-    console.warn(`GPU lost (${reason}); reloading with WebGL2`);
-    rememberWebGpuLoss(sessionStore());
-    location.replace(webglReloadUrl(location.search, formatView(rigView(scene.rig))));
-  };
   scene.cache.onStale = () => location.reload(); // re-ingested: start over with new meta
   const reduced = params.has('reduced') || matchMedia('(prefers-reduced-motion: reduce)').matches;
   scene.input.reducedMotion = reduced;
@@ -135,17 +110,14 @@ async function main(): Promise<void> {
   scene.spin.enabled = !still;
   // Debug aids are a separate chunk: ordinary visits never download them.
   const dbg = debug !== null ? await import('./debug') : null;
-  if (dbg) {
-    dbg.mountDebugHud(scene);
-    if (renderer.loseDevice) window.__loseDevice = renderer.loseDevice.bind(renderer);
-  }
+  if (dbg) dbg.mountDebugHud(scene);
   if (shot) {
     window.__bench = (n: number) => scene.bench(n);
     window.__scene = scene; // flight timing in screenshot scripts
   }
 
   // Size the canvases, then place the view once the viewport is known.
-  // The tree canvas's DPR is capped (PLAN §7.12); the overlay keeps the full one.
+  // The tree canvas's DPR is capped (ARCHITECTURE §7.12); the overlay keeps the full one.
   const screenDpr = (): number => window.devicePixelRatio || 1;
   const dpr = (): number =>
     treeDpr(treeCanvas.clientWidth, treeCanvas.clientHeight, screenDpr(), MAX_BACKING_PX);
@@ -477,7 +449,7 @@ async function main(): Promise<void> {
   watchDpr();
 
   // Canvas text cannot wait for CSS to ask for a face, so load the label
-  // faces explicitly before the first label draw (PLAN §7.7).
+  // faces explicitly before the first label draw (ARCHITECTURE §7.7).
   void Promise.all([
     document.fonts.load(`500 13px ${FONT_SANS}`),
     document.fonts.load(`400 13px ${FONT_SANS}`),
@@ -494,7 +466,7 @@ async function main(): Promise<void> {
 
   // The selection: the link's, else Homo sapiens. With a view in the URL the
   // view is restored as is; a link with only a node cuts to it, zoomed to
-  // suit (PLAN §7.11).
+  // suit (ARCHITECTURE §7.11).
   void selection.select(link.n ?? selection.defaultRef(), { motion: !view && link.n ? 'cut' : 'none', history: 'none' });
 
   if (dbg && debug === 'precision') {
@@ -502,14 +474,6 @@ async function main(): Promise<void> {
     console.info('precision test', window.__precision);
     if (!shot) dbg.precisionGlide(scene);
     else scene.requestRender();
-  }
-  if (debug === 'parity') {
-    // Its own device (any adapter, software included): it checks the WGSL
-    // maths, whichever backend draws the tree.
-    const { runGpuParity } = await import('./gpu/parity');
-    window.__gpuParity = await runGpuParity(palette, meta.tipCount);
-    console.info('gpu parity', window.__gpuParity);
-    scene.requestRender();
   }
 }
 

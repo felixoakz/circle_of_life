@@ -1,12 +1,12 @@
-// The WebGL2 backend (PLAN §7.3): frontier fans, branches, arcs, the rim
+// The WebGL2 renderer (ARCHITECTURE §7.3, §7.13): frontier fans, branches, arcs, the rim
 // ring and rim marks, additively blended on black (saturating for the tree,
 // so dense areas keep their hue; see `setBlend`). Glow comes only from that
 // blending and soft-edged geometry; there is no bloom pass (DESIGN.md §5).
 // Each tile's bytes are uploaded once as a single ARRAY_BUFFER and one VAO
 // points every attribute at its array's byte offset, without copies.
 //
-// What to draw is decided by `planFrame` (render/plan.ts), shared with the
-// WebGPU backend; this class only turns its commands into GL calls.
+// What to draw is decided by `planFrame` (render/plan.ts), a pure, tested
+// function; this class only turns its commands into GL calls.
 
 import { RAD_PER_UNIT } from '../angle';
 import { BRANCH, MAX_RUNS, type RunPalette, oklchToSrgb } from '../palette';
@@ -32,7 +32,7 @@ import {
   planFrame,
   revealUniform,
 } from '../render/plan';
-import type { FrameParams, FrameStats, GpuTile, Pixels, Renderer, RendererFactory } from '../render/types';
+import type { FrameParams, FrameStats, GpuTile, Pixels, Renderer } from '../render/types';
 import * as S from '../style';
 import type { Tile } from '../tiles/decode';
 import { FAN_WORDS } from '../tiles/fans';
@@ -80,7 +80,7 @@ export class WebGl2Tile implements GpuTile {
   }
 }
 
-/** Narrows a tile from the shared plan to this backend's kind. */
+/** Narrows a tile from the frame plan to the one `upload` made. */
 function glTile(t: GpuTile): WebGl2Tile {
   if (!(t instanceof WebGl2Tile)) throw new Error('tile was not uploaded by the WebGL2 renderer');
   return t;
@@ -97,18 +97,24 @@ interface PathBuffer {
 const vertex = (body: string): string => `#version 300 es\n${common}\n${paletteGlsl}\n${body}`;
 const fragment = (body: string): string => `#version 300 es\n${fragCommon}\n${paletteGlsl}\n${body}`;
 
-/** Builds the WebGL2 renderer, or null when the canvas cannot give a WebGL2 context. */
-export const createWebGl2Renderer: RendererFactory = async (canvas, palette) => {
+/**
+ * Builds the WebGL2 renderer, or null when the canvas cannot give a WebGL2
+ * context or the shaders fail to build (main.ts then shows the fallback page).
+ */
+export function createWebGl2Renderer(canvas: HTMLCanvasElement, palette: RunPalette): WebGl2Renderer | null {
   const gl = createGL(canvas);
   if (!gl) return null;
-  return new WebGl2Renderer(gl, palette, parsePasses(new URLSearchParams(location.search)));
-};
+  try {
+    return new WebGl2Renderer(gl, palette, parsePasses(new URLSearchParams(location.search)));
+  } catch (err) {
+    console.warn('webgl2 renderer failed', err);
+    return null;
+  }
+}
 
+// WebGL context loss is not handled: a lost context leaves the canvas blank
+// until the page is reloaded.
 export class WebGl2Renderer implements Renderer {
-  readonly kind = 'webgl2';
-  onLost: (reason: string) => void = () => {};
-  // WebGL context loss is not handled (docs/plan-webgpu.md §8.5), so this never fires.
-  onRestored: () => void = () => {};
 
   private readonly gl: WebGL2RenderingContext;
   private readonly programs: Record<Pass, Program>;
@@ -243,25 +249,20 @@ export class WebGl2Renderer implements Renderer {
     return plan.stats;
   }
 
-  /** Resolves once the GPU has finished: gl.finish() does not block in Chrome, reading a pixel back does. */
-  finish(): Promise<void> {
+  /** Waits for the GPU: gl.finish() does not block in Chrome, reading a pixel back does. */
+  finish(): void {
     const gl = this.gl;
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.syncPixel);
-    return Promise.resolve();
   }
 
-  readPixels(): Promise<Pixels> {
+  readPixels(): Pixels {
     // Read now, in the task that drew: the drawing buffer is not preserved.
     const gl = this.gl;
     const { width, height } = this.size();
     const px = new Uint8Array(width * height * 4);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);
     // GL rows run bottom-up.
-    return Promise.resolve({ width, height, data: flipRows(px, width, height) });
-  }
-
-  gpuMs(): number | null {
-    return null;
+    return { width, height, data: flipRows(px, width, height) };
   }
 
   destroy(): void {

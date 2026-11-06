@@ -1,4 +1,4 @@
-// The camera rig (DESIGN.md §4, PLAN §7.5): the state the user controls.
+// The camera rig (DESIGN.md §4, ARCHITECTURE §7.5): the state the user controls.
 // In the locked view (the default) that is zoom and rotation, and nothing
 // else: there is no pan. Free view (below) adds the pan.
 //
@@ -78,7 +78,7 @@ export function driftShare(scale: number, min: number, end: number): number {
 }
 
 /** How far into the deep-zoom turn a tip spacing (CSS px) is: 0 to 1 over TURN_SPACING (log scale). */
-export function deepShare(spacing: number): number {
+function deepShare(spacing: number): number {
   const lo = Math.log2(TURN_SPACING[0]);
   const hi = Math.log2(TURN_SPACING[1]);
   return smoothstep(lo, hi, Math.log2(Math.max(spacing, 1e-12)));

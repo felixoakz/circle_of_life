@@ -13,7 +13,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', child
 }
 
 /** [keys, what they do], in the order DESIGN.md §8 lists them. */
-export const KEYS: readonly [string, string][] = [
+const KEYS: readonly [string, string][] = [
   ['/  or  ⌘K', 'Search'],
   ['Esc', 'Close search, a dialog or this menu; leave free view'],
   ['↑  or  Backspace', 'Select the parent'],

@@ -1,4 +1,4 @@
-// Branches and arcs (PLAN §7.3): grey lines taking the kingdom colour
+// Branches and arcs (ARCHITECTURE §7.3): grey lines taking the kingdom colour
 // towards the rim. Frontier extensions start faint at their node and build
 // up towards the rim, where their unresolved lineages would be. Hairlines
 // are native lines; wider lines are quads whose edge is antialiased here.

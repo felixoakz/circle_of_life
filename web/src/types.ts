@@ -1,4 +1,4 @@
-// Payload types of the read API (PLAN §5.1).
+// Payload types of the read API (ARCHITECTURE §5.1).
 
 export interface GroupInfo {
   id: number;
@@ -49,7 +49,7 @@ export interface ChildEntry {
   leafCount: number;
 }
 
-/** `GET /api/nodes/{ref}` (PLAN §5.1). */
+/** `GET /api/nodes/{ref}` (ARCHITECTURE §5.1). */
 export interface NodeInfo {
   id: number;
   nodeId: string;
@@ -77,7 +77,7 @@ export interface NodeInfo {
   commonName: string | null;
 }
 
-/** One result of `GET /api/search` (PLAN §5.1): the node's own fields plus the match. */
+/** One result of `GET /api/search` (ARCHITECTURE §5.1): the node's own fields plus the match. */
 export interface SearchHit {
   id: number;
   nodeId: string;
@@ -110,7 +110,7 @@ export interface AboutRef {
   rank: string | null;
 }
 
-/** `GET /api/nodes/{ref}/about` (PLAN §6.3): enrichment, every part optional. */
+/** `GET /api/nodes/{ref}/about` (ARCHITECTURE §6.3): enrichment, every part optional. */
 export interface About {
   nodeId: string;
   taxonomy: { authorship: string | null; publishedIn: string | null; source: string } | null;

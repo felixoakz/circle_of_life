@@ -1,4 +1,4 @@
-// Rim ring (PLAN §7.3 pass 3): an annulus around r = 1, from uReachIn px
+// Rim ring (ARCHITECTURE §7.3 pass 3): an annulus around r = 1, from uReachIn px
 // inside to uReachOut px outside, cut into K steps over the visible part of
 // the circle (6 vertices per step). rim.frag shades it analytically.
 uniform int uK;

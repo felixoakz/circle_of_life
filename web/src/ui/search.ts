@@ -1,4 +1,4 @@
-// The search palette (DESIGN.md §4.4, PLAN §7.10, §7.11): opened with "/",
+// The search palette (DESIGN.md §4.4, ARCHITECTURE §7.10, §7.11): opened with "/",
 // ⌘K / Ctrl+K or the search field at the top right. A WAI-ARIA combobox:
 // the input has role="combobox", aria-expanded and aria-activedescendant,
 // the results are a listbox of options, and focus stays in the input while
@@ -41,7 +41,7 @@ const DEBOUNCE_MS = 120;
 const LIMIT = 8;
 /** Queries shorter than this are not sent (the API answers [] anyway). */
 const MIN_CHARS = 2;
-/** From this length an empty answer says "No taxon matches" (shorter ones match whole words only, PLAN §5.2). */
+/** From this length an empty answer says "No taxon matches" (shorter ones match whole words only, ARCHITECTURE §5.2). */
 const EMPTY_MIN_CHARS = 3;
 /** The progress hairline shows only for answers slower than this. */
 const PROGRESS_DELAY_MS = 150;
@@ -60,12 +60,12 @@ const DOCK_MIN_W = 400;
 // ---- Pure helpers (search.test.ts) ----
 
 /** Names that are sequencing leftovers rather than taxa a visitor means. */
-export function isJunkName(name: string | null): boolean {
+function isJunkName(name: string | null): boolean {
   return name !== null && /environmental sample|metagenome|uncultured|unidentified/i.test(name);
 }
 
 /** Hits with real names first, leftovers last, each group in the server's order. */
-export function junkLast(hits: readonly SearchHit[]): SearchHit[] {
+function junkLast(hits: readonly SearchHit[]): SearchHit[] {
   return [...hits.filter((h) => !isJunkName(h.name)), ...hits.filter((h) => isJunkName(h.name))];
 }
 
@@ -117,7 +117,7 @@ const WORD_CHAR = /[\p{L}\p{N}]/u;
 /**
  * The parts of `text` the query matched, as [start, end) ranges: each query
  * word matches the start of a word in the text (the FTS index matches word
- * prefixes, PLAN §5.2), ignoring case and diacritics. Each query word
+ * prefixes, ARCHITECTURE §5.2), ignoring case and diacritics. Each query word
  * marks its first match.
  */
 export function matchRanges(text: string, query: string): [number, number][] {

@@ -1,4 +1,4 @@
-// Canvas2D label overlay (PLAN §7.7, DESIGN.md §3 and §5), drawn over the
+// Canvas2D label overlay (ARCHITECTURE §7.7, DESIGN.md §3 and §5), drawn over the
 // tree canvas. At most MAX_LABELS per frame, from what the loaded tiles say:
 //
 //   - group labels (Animals, Plants…) outside the rim at each group's largest
@@ -1169,7 +1169,7 @@ class Geometry {
 }
 
 /** The tips (ranks [first, end)) of node `id` if a loaded tile holds it, else null. */
-export function selectedTips(tiles: readonly Tile[], id: number): [number, number] | null {
+function selectedTips(tiles: readonly Tile[], id: number): [number, number] | null {
   if (id < 0) return null;
   for (const t of tiles) {
     for (let i = 0; i < t.count; i++) {
@@ -1198,7 +1198,7 @@ function slidePositions(lo: number, hi: number): number[] {
 }
 
 /** Intersection of two circular intervals (radians). */
-export function intersectArcs(a: Arc, b: Arc): Arc[] {
+function intersectArcs(a: Arc, b: Arc): Arc[] {
   if (a.len >= TAU) return [{ lo: b.lo, len: b.len }];
   if (b.len >= TAU) return [{ lo: a.lo, len: a.len }];
   const out: Arc[] = [];

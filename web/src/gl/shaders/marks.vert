@@ -1,4 +1,4 @@
-// Rim marks (PLAN §7.3 pass 4): one quad per node (TRIANGLE_STRIP, 4
+// Rim marks (ARCHITECTURE §7.3 pass 4): one quad per node (TRIANGLE_STRIP, 4
 // vertices), sized in device px around the node's point on the rim:
 //   - a frontier clade gets a short outward spike (the overview "fur"),
 //   - a tip gets a bright bar inward from the rim, one device px wide like

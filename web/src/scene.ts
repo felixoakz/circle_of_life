@@ -1,6 +1,6 @@
 // Ties camera, input, tiles and renderer together, and owns the frame loop.
 // Frames are rendered on demand only: when the camera, tiles or an animation
-// change (PLAN §7.1). `window.__renderIdle` turns true once nothing is
+// change (ARCHITECTURE §7.1). `window.__renderIdle` turns true once nothing is
 // pending and two quiet frames have passed, for the screenshot script.
 
 import { fetchTile } from './api';
@@ -47,14 +47,8 @@ export interface FrameInfo {
   tiles: number;
   instances: number;
   drawCalls: number;
-  /** CPU time of the frame, plus GPU time when `syncGpu` is on (WebGL2 waits synchronously). */
+  /** CPU time of the frame, plus GPU time when `syncGpu` is on (it waits for the GPU). */
   ms: number;
-}
-
-/** `Scene.bench`: average wall-clock frame time, and GPU time when the backend measures it. */
-export interface BenchResult {
-  ms: number;
-  gpuMs: number | null;
 }
 
 export class Scene {
@@ -108,7 +102,7 @@ export class Scene {
   lastView: View | null = null;
   lastTiles: Tile[] = [];
 
-  /** The backend drawing the tree (WebGPU or WebGL2, render/select.ts). */
+  /** Draws the tree (gl/renderer.ts). */
   readonly renderer: Renderer;
   private readonly meta: Meta;
   private scheduled = false;
@@ -138,11 +132,6 @@ export class Scene {
       release: (gpu) => this.renderer.release(gpu),
     });
     this.cache.onChange = () => this.requestRender();
-    // After a GPU loss the backend is on a new device: every tile goes up again.
-    renderer.onRestored = () => {
-      this.cache.rebuild();
-      this.requestRender();
-    };
     this.rig = new Rig(this.camera);
     this.input = new Input(canvas, this.rig, () => this.requestRender());
     this.orient = new AutoOrient(this.rig);
@@ -190,25 +179,16 @@ export class Scene {
   }
 
   /**
-   * Average time of `n` back-to-back frames, waiting for the GPU after each
-   * (a frame-time measurement for headless runs): wall-clock `ms`, and the
-   * GPU's own `gpuMs` when the backend can time frames (gpu/timing.ts).
+   * Average wall-clock time in ms of `n` back-to-back frames, waiting for
+   * the GPU after each (a frame-time measurement for headless runs).
    */
-  async bench(n: number): Promise<BenchResult> {
+  bench(n: number): number {
     const t0 = performance.now();
-    let gpuSum = 0;
-    let gpuFrames = 0;
     for (let i = 0; i < n; i++) {
       this.renderNow();
-      // finish() also waits for the frame's timestamps, so gpuMs() is this frame's.
-      await this.renderer.finish();
-      const g = this.renderer.gpuMs();
-      if (g !== null) {
-        gpuSum += g;
-        gpuFrames++;
-      }
+      this.renderer.finish();
     }
-    return { ms: (performance.now() - t0) / n, gpuMs: gpuFrames > 0 ? gpuSum / gpuFrames : null };
+    return (performance.now() - t0) / n;
   }
 
   /** Resolves the next time the scene goes idle. */
@@ -264,8 +244,7 @@ export class Scene {
       dims: this.dims(),
       highlight: this.dimsOn ? hl.draw : NO_HIGHLIGHT,
     });
-    // WebGL2 waits inside finish() itself; WebGPU only resolves later, so its `ms` is CPU time.
-    if (this.syncGpu) void this.renderer.finish();
+    if (this.syncGpu) this.renderer.finish();
     const info = { view, ...stats, ms: performance.now() - t0 };
     const c = this.cache.stats();
     window.__stats = {

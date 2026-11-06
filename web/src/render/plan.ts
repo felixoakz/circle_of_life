@@ -1,7 +1,8 @@
-// The shared frame plan (docs/plan-webgpu.md §2.1): every per-draw CPU
-// decision the WebGL2 renderer's `draw` used to make, as a pure function from the
-// tiles, the fans and the frame parameters to a list of draw commands. Both
-// backends only execute the commands, so they cannot drift apart.
+// The frame plan (ARCHITECTURE §7.3): every per-draw CPU decision (fade
+// skips, the fan split, arc segment counts, highlight paths, stats), as a
+// pure function from the tiles, the fans and the frame parameters to a list
+// of draw commands. gl/renderer.ts only executes the commands, so all of
+// this is tested without a GPU (plan.test.ts).
 
 import { RAD_PER_UNIT } from '../angle';
 import { smoothstep } from '../ease';
@@ -13,8 +14,9 @@ import type { Dim, FrameParams, FrameStats, GpuTile } from './types';
 
 /**
  * The reveal radius once the intro is done. `FrameParams.reveal` is then
- * Infinity, but WGSL may assume floats are finite and smoothstep(∞ − s, ∞, r)
- * is NaN, so both backends hand their shaders this instead (far beyond r = 1).
+ * Infinity, but smoothstep(∞ − s, ∞, r) is NaN (∞ − ∞ in its maths) and
+ * shader compilers may assume floats are finite, so the shaders get this
+ * instead (far beyond r = 1).
  */
 export const REVEAL_DONE = 1e4;
 
@@ -215,7 +217,7 @@ export interface FanSet {
 
 export interface FramePlan {
   cmds: DrawCmd[];
-  /** Counted exactly as `Renderer.draw` counts today. */
+  /** Counted as the renderer draws: every tile drawn, every instance, every draw call. */
   stats: FrameStats;
   look: Look;
 }
@@ -223,7 +225,7 @@ export interface FramePlan {
 /** Steps along a fan: wide fans need many to follow the circle, most need 2. */
 const K_FAN_WIDE = 16;
 const K_FAN_NARROW = 2;
-/** Chords per arc: many for the big low-level arcs, few for the rest (PLAN §7.3). */
+/** Chords per arc: many for the big low-level arcs, few for the rest (ARCHITECTURE §7.3). */
 const K_COARSE = 128;
 const K_FINE = 16;
 /** Steps around the rim ring: under 0.1 px of chord sag at overview. */

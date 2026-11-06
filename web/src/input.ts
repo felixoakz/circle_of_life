@@ -1,4 +1,4 @@
-// Pointer, wheel, pinch and keyboard → the rig (PLAN §7.5, DESIGN.md §8).
+// Pointer, wheel, pinch and keyboard → the rig (ARCHITECTURE §7.5, DESIGN.md §8).
 // There is no pan: the view is a rotation and a zoom (rig.ts).
 //
 //   drag          turns the wheel about its centre (the point under the

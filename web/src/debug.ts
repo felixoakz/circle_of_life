@@ -1,13 +1,10 @@
-// Debug aids behind `?debug` (PLAN §7.11): a small HUD with fps, frame time
-// (CPU, and GPU when the backend times frames), tiles, instances, λ and V;
-// `?debug=precision`, which checks that the picture moves rigidly at max
-// zoom (no float jitter, PLAN §7.2); and the result line of
-// `?debug=parity` (gpu/parity.ts). main.ts loads this module lazily, only
-// when `?debug` is in the URL.
+// Debug aids behind `?debug` (ARCHITECTURE §7.11): a small HUD with fps, frame
+// time, tiles, instances, λ and V; and `?debug=precision`, which checks that
+// the picture moves rigidly at max zoom (no float jitter, ARCHITECTURE §7.2).
+// main.ts loads this module lazily, only when `?debug` is in the URL.
 
 import { toRad } from './angle';
 import type { Camera } from './camera';
-import type { GpuParity } from './gpu/parity';
 import { type FrameComparison, compareFrames } from './render/pixels';
 import type { Pixels, Renderer } from './render/types';
 import type { FrameInfo, Scene } from './scene';
@@ -31,7 +28,6 @@ export function mountDebugHud(scene: Scene): void {
 
   const frameTimes: number[] = [];
   let msAvg = 0;
-  let gpuAvg = 0;
   let lastPaint = 0;
   scene.onFrame = (f: FrameInfo) => {
     const now = performance.now();
@@ -39,34 +35,23 @@ export function mountDebugHud(scene: Scene): void {
     while (frameTimes.length > 0 && (frameTimes[0] ?? 0) < now - 1000) frameTimes.shift();
     msAvg = msAvg === 0 ? f.ms : 0.9 * msAvg + 0.1 * f.ms;
     window.__frameMs = msAvg;
-    // The GPU time arrives a frame or two late (gpu/timing.ts); null on WebGL2.
-    const gpu = scene.renderer.gpuMs();
-    if (gpu !== null) gpuAvg = gpuAvg === 0 ? gpu : 0.9 * gpuAvg + 0.1 * gpu;
     if (now - lastPaint < 250) return;
     lastPaint = now;
     const s = scene.cache.stats();
     const cam = scene.camera;
     el.textContent = [
-      `fps ${frameTimes.length}  frame ${msAvg.toFixed(1)} ms` +
-        (gpu !== null ? `  gpu ${gpuAvg.toFixed(2)} ms` : '') +
-        `  ${scene.renderer.kind}`,
+      `fps ${frameTimes.length}  frame ${msAvg.toFixed(1)} ms`,
       `tiles ${f.tiles} drawn · ${s.resident} resident · ${s.inFlight} in flight · ${s.pending} pending · ${s.aborted} aborted`,
       `instances ${f.instances.toLocaleString('en')} · ${f.drawCalls} draws`,
       `λ ${f.view.lambda.toFixed(2)}  V ${f.view.level}  fetch ≤ ${f.view.fetchLevel}`,
       `tip spacing ${cam.tipSpacingPx().toFixed(3)} px`,
       window.__precision ? precisionLine(window.__precision) : '',
-      window.__gpuParity ? parityLine(window.__gpuParity) : '',
     ]
       .filter((line) => line !== '')
       .join('\n');
   };
 }
 
-function parityLine(p: GpuParity): string {
-  if (p.error) return `parity: ${p.error}`;
-  const failed = p.results.filter((r) => !r.ok).map((r) => r.name);
-  return `parity ${p.ok ? 'ok' : 'FAIL'} on ${p.adapter}: ${p.results.length} checks` + (failed.length > 0 ? `, failed ${failed.join(', ')}` : '');
-}
 
 export interface PrecisionResult extends FrameComparison {
   shift: [number, number];
@@ -118,7 +103,7 @@ export async function runPrecisionTest(scene: Scene, renderer: Renderer): Promis
   const grab = async (): Promise<Pixels> => {
     await scene.whenIdle();
     scene.renderNow();
-    // Same task as the draw: the frame is not readable afterwards.
+    // Same task as the draw: the drawing buffer is not preserved.
     return renderer.readPixels();
   };
 

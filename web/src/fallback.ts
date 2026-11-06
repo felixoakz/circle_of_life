@@ -1,4 +1,4 @@
-// No GPU drawing, neither WebGPU nor WebGL2 (DESIGN.md §7): a still image of the wheel and one sentence in
+// No GPU drawing, no WebGL2 (DESIGN.md §7): a still image of the wheel and one sentence in
 // place of the canvas, with search, the card and Data & credits still
 // working, since they need only the API. Choosing a search result shows it
 // in the card; lineage and children links in the card show theirs.
@@ -13,7 +13,7 @@ import { Obstacles } from './ui/obstacles';
 import { Panel } from './ui/panel';
 import { SearchPalette } from './ui/search';
 
-export const NO_GPU_TEXT = 'Your browser can’t draw the interactive tree (no WebGPU or WebGL2). Search still works.';
+const NO_GPU_TEXT = 'Your browser can’t draw the interactive tree (no WebGL2). Search still works.';
 
 function byId(id: string): HTMLElement {
   const el = document.getElementById(id);

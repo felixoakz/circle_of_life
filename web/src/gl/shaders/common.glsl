@@ -1,5 +1,5 @@
 // Shared by every tree vertex shader: the camera-relative polar transform
-// (PLAN §7.2). Prepended after the #version line by gl/renderer.ts.
+// (ARCHITECTURE §7.2). Prepended after the #version line by gl/renderer.ts.
 precision highp float;
 precision highp int;
 

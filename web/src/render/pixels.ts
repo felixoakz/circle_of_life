@@ -1,17 +1,8 @@
-// Pure pixel helpers for reading frames back (docs/plan-webgpu.md §2.3):
-// WebGL rows come bottom-up, WebGPU rows are padded to 256 bytes and may be
-// BGRA. Everything ends up as top-down RGBA8 `Pixels`. Also the precision
+// Pure pixel helpers for frames read back from the GPU: WebGL rows come
+// bottom-up and end up as top-down RGBA8 `Pixels`. Also the precision
 // comparison of two frames (the `?debug=precision` test).
 
 import type { Pixels } from './types';
-
-/** Canvas formats `getPreferredCanvasFormat()` returns. */
-export type CanvasFormat = 'rgba8unorm' | 'bgra8unorm';
-
-/** `copyTextureToBuffer` row pitch: 4 bytes per pixel, rounded up to 256. */
-export function paddedBytesPerRow(width: number): number {
-  return Math.ceil((width * 4) / 256) * 256;
-}
 
 /** A copy of RGBA rows in the opposite vertical order (WebGL readPixels → top-down). */
 export function flipRows(data: Uint8Array, width: number, height: number): Uint8Array {
@@ -21,39 +12,6 @@ export function flipRows(data: Uint8Array, width: number, height: number): Uint8
     out.set(data.subarray(y * row, (y + 1) * row), (height - 1 - y) * row);
   }
   return out;
-}
-
-/** Swaps the R and B channels of every pixel, in place; returns `data`. */
-export function bgraToRgba(data: Uint8Array): Uint8Array {
-  for (let i = 0; i + 3 < data.length; i += 4) {
-    const b = data[i] ?? 0;
-    data[i] = data[i + 2] ?? 0;
-    data[i + 2] = b;
-  }
-  return data;
-}
-
-/** Tightly packed rows from rows `bytesPerRow` apart. */
-export function stripRowPadding(data: Uint8Array, width: number, height: number, bytesPerRow: number): Uint8Array {
-  const row = width * 4;
-  const out = new Uint8Array(row * height);
-  for (let y = 0; y < height; y++) {
-    out.set(data.subarray(y * bytesPerRow, y * bytesPerRow + row), y * row);
-  }
-  return out;
-}
-
-/** A mapped WebGPU readback buffer → top-down RGBA `Pixels`, whatever the canvas format. */
-export function readbackToPixels(
-  mapped: Uint8Array,
-  width: number,
-  height: number,
-  bytesPerRow: number,
-  format: CanvasFormat,
-): Pixels {
-  const data = stripRowPadding(mapped, width, height, bytesPerRow);
-  if (format === 'bgra8unorm') bgraToRgba(data);
-  return { width, height, data };
 }
 
 /** The precision test's measurements (debug.ts `PrecisionResult` without `shift`). */

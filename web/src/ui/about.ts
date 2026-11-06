@@ -1,4 +1,4 @@
-// The card's about tabs (DESIGN.md §4.2, §7; PLAN §6.3, §7.10): what
+// The card's about tabs (DESIGN.md §4.2, §7; ARCHITECTURE §6.3, §7.10): what
 // /api/nodes/{ref}/about found, as the Overview tab (image beside the
 // extract, status) and the Range tab (map sized to the tab, records,
 // countries), for ui/panel.ts to place.
@@ -56,7 +56,7 @@ export function countryName(code: string): string {
 }
 
 /** Countries shown under the map. */
-export const COUNTRIES_SHOWN = 8;
+const COUNTRIES_SHOWN = 8;
 
 /** "Brazil 97,224 · Paraguay 21,808 · …", the top few. */
 export function countriesLine(countries: readonly [string, number][], limit = COUNTRIES_SHOWN): string {
@@ -107,7 +107,7 @@ export function sentenceCase(name: string): string {
 }
 
 /** The text of the generated sentence, its leading taxon name styled. */
-export function generatedNodes(text: string, name: string | null, rank: string | null): (Node | string)[] {
+function generatedNodes(text: string, name: string | null, rank: string | null): (Node | string)[] {
   if (!name || !text.startsWith(name)) return [text];
   return [...nameSpans(nameRuns(name, rank)), text.slice(name.length)];
 }

@@ -1,4 +1,4 @@
-// The persistent HUD (DESIGN.md §4.1, PLAN §7.10): the breadcrumb and
+// The persistent HUD (DESIGN.md §4.1, ARCHITECTURE §7.10): the breadcrumb and
 // readout at the bottom left, the kingdom key at the bottom right, and the
 // 1 px loading line at the top. Zoom has its own control on the left edge
 // (ui/zoomstrip.ts), whose reset button calls `reset` here.
@@ -68,7 +68,7 @@ function need<T extends Element>(sel: string, type: new () => T): T {
 }
 
 /** "otl16.1-ott3.7.3-02e1d1" → "OpenTree 16.1". */
-export function versionLabel(dataVersion: string): string {
+function versionLabel(dataVersion: string): string {
   const m = /^otl([\d.]+)/.exec(dataVersion);
   return m ? `OpenTree ${m[1]}` : dataVersion;
 }

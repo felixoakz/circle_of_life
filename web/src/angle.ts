@@ -1,4 +1,4 @@
-// u32 fixed-point angles (PLAN §3.3): θ = a / 2^32 · 2π.
+// u32 fixed-point angles (ARCHITECTURE §3.3): θ = a / 2^32 · 2π.
 // Tiles store angles this way so differences wrap exactly; JS numbers hold
 // them as plain non-negative integers in [0, 2^32).
 
@@ -21,7 +21,7 @@ export function fromRad(rad: number): number {
 }
 
 /**
- * The angle of tip `rank` out of `tipCount`, the middle of its slot (PLAN
+ * The angle of tip `rank` out of `tipCount`, the middle of its slot (ARCHITECTURE
  * §3.3, the same integer the ingest computes): ⌊(2·rank + 1) · 2^31 / N⌋.
  */
 export function tipAngle(rank: number, tipCount: number): number {
@@ -69,7 +69,7 @@ export function sectorWidth(level: number): number {
   return 2 ** (32 - level);
 }
 
-/** Sector index of an integer angle at `level` (PLAN §3.6). */
+/** Sector index of an integer angle at `level` (ARCHITECTURE §3.6). */
 export function sectorOf(a: number, level: number): number {
   // `>>> 32` is a no-op in JS (shift counts are taken mod 32), so level 0 is
   // special-cased, as in the server's tree.SectorOf.

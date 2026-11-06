@@ -1,4 +1,4 @@
-// CPU hit testing over the loaded tiles, in doubles (PLAN §7.8).
+// CPU hit testing over the loaded tiles, in doubles (ARCHITECTURE §7.8).
 //
 // The pointer is turned into polar coordinates (θ in u32 units, ρ in world
 // units) by the camera; everything here compares those with node geometry
@@ -6,7 +6,7 @@
 //
 // What can be hit is what is drawn: only tiles at levels ≤ V (the view
 // level), and a node's radial line runs on to the rim while its children
-// are not drawn (its frontier extension, PLAN §3.5). In priority order:
+// are not drawn (its frontier extension, ARCHITECTURE §3.5). In priority order:
 //   1. In the rim zone (from the inner end of the tip bars to just past the
 //      spikes): the nearest tip within half a tip slot, found by binary
 //      search in each tile's tip run (sorted by angle); else the deepest
@@ -151,7 +151,7 @@ function nearestLine(tiles: readonly Tile[], q: PickQuery): Pick | null {
         const lo = t.arcLo[i] ?? 0;
         const span = (t.arcHi[i] ?? 0) - lo;
         if (span > 0) {
-          // Arcs never wrap through angle 0 (PLAN §3.3).
+          // Arcs never wrap through angle 0 (ARCHITECTURE §3.3).
           const u = q.theta - lo;
           if (u >= 0 && u <= span) consider(t, i, id, Math.abs(rho - r) * scale, r);
         }

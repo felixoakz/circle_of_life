@@ -1,4 +1,4 @@
-// The selection card (DESIGN.md §4.1–4.3, PLAN §7.10): a fixed rectangle,
+// The selection card (DESIGN.md §4.1–4.3, ARCHITECTURE §7.10): a fixed rectangle,
 // top right on desktop and across the top on a phone, its place set by the
 // layout (layout.ts, `place`). There is always a selection, so the card
 // never closes. Nothing in it scrolls: under its head it has tabs
@@ -79,20 +79,20 @@ export function contextAncestor(node: NodeInfo): LineageEntry | null {
  * "1 species · 0 direct descendants", "412 species · 412 direct descendants ·
  * relationships unresolved"; a species with subspecies: "7 subspecies".
  */
-export function countsLine(node: NodeInfo): string {
+function countsLine(node: NodeInfo): string {
   const kids = node.children.total;
   if (node.rank === 'species' && kids > 0) return `${nf.format(node.leafCount)} subspecies`;
   const parts = [
     `${nf.format(node.leafCount)} species`,
     `${nf.format(kids)} direct ${kids === 1 ? 'descendant' : 'descendants'}`,
   ];
-  // More than two children is a polytomy: synth could not resolve them (PLAN §5.1).
+  // More than two children is a polytomy: synth could not resolve them (ARCHITECTURE §5.1).
   if (kids > 2) parts.push('relationships unresolved');
   return parts.join(' · ');
 }
 
 /** The two OTT ids an mrca node is named after (`mrcaott42ott4130`), or null. */
-export function mrcaPair(nodeId: string): [string, string] | null {
+function mrcaPair(nodeId: string): [string, string] | null {
   const m = /^mrca(ott\d+)(ott\d+)$/.exec(nodeId);
   return m && m[1] && m[2] ? [m[1], m[2]] : null;
 }
@@ -145,7 +145,7 @@ const SETTLE_TIMEOUT_MS = 20_000;
 /** A selection must stay this long before the card asks for its /about (wait.ts), ms. */
 export const ABOUT_SETTLE_MS = 500;
 /** After a Retry click, Retry buttons stay disabled this long, ms. */
-export const RETRY_HOLD_MS = 5000;
+const RETRY_HOLD_MS = 5000;
 /** Children listed at most at once in the Tree tab (fewer when they do not fit). */
 const CHILDREN_MAX = 8;
 

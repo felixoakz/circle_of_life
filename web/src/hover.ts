@@ -1,4 +1,4 @@
-// Hover (DESIGN.md §5, §8; PLAN §7.8): the node under the mouse gets its
+// Hover (DESIGN.md §5, §8; ARCHITECTURE §7.8): the node under the mouse gets its
 // root→node path drawn (2 px, text-1 at 60%), the rest of the tree dims to
 // 60%, and a small tooltip shows its name and rank. Mouse only: touch has
 // no hover (a tap selects, selection.ts).
@@ -23,13 +23,13 @@ import type { Meta, NodeInfo } from './types';
 const nf = new Intl.NumberFormat('en');
 
 /** `--text-1` as linear-ish sRGB floats for the path colour. */
-export const TEXT_1_RGB: readonly [number, number, number] = [0xe9 / 255, 0xe8 / 255, 0xe4 / 255];
+const TEXT_1_RGB: readonly [number, number, number] = [0xe9 / 255, 0xe8 / 255, 0xe4 / 255];
 
 /**
  * The tooltip's second line (DESIGN.md §8): "species · 1", "family · 3,214
  * species"; unranked clades just "3,214 species".
  */
-export function rankLine(rank: string | null, leafCount: number): string {
+function rankLine(rank: string | null, leafCount: number): string {
   const word = rank && !rank.startsWith('no rank') ? rank : null;
   if (leafCount === 1 || word === 'species') return `${word ?? 'tip'} · ${nf.format(leafCount)}`;
   const count = `${nf.format(leafCount)} species`;

@@ -1,4 +1,4 @@
-// Deep-link parameters (PLAN §7.11).
+// Deep-link parameters (ARCHITECTURE §7.11).
 //
 //   n = an OpenTree node id: ott770315 or mrcaott42ott4130 (the selection;
 //       without it the selection is Homo sapiens, the "You are here" node)
@@ -31,7 +31,7 @@
 //   still          no ambient turn, no fling, no idle tour (also implied by
 //                  `shot` and by reduced motion), so screenshots and tests
 //                  are deterministic
-//   tour=<s>       the idle tour's dwell in seconds (default 10); with
+//   tour=<s>       the idle tour's dwell in seconds (default 12); with
 //                  `still` or `shot` it turns the tour on by itself
 
 import { TWO_32, fromRad, toRad } from './angle';

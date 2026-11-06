@@ -1,4 +1,4 @@
-// Tile manager (PLAN §7.6): fetches wanted tiles in priority order (at most
+// Tile manager (ARCHITECTURE §7.6): fetches wanted tiles in priority order (at most
 // 6 at once), aborts requests that are no longer wanted, and keeps an LRU of
 // decoded tiles with their GPU objects. Levels ≤ 3 are never evicted, so the
 // coarse tree is always there to fall back on.
@@ -118,19 +118,6 @@ export class TileCache<G> {
     for (const entry of this.resident.values()) if (entry.gpu !== null) this.source.release(entry.gpu);
     this.resident.clear();
     this.failures.clear();
-  }
-
-  /**
-   * Re-uploads every resident tile from its CPU copy and releases the old
-   * GPU objects (after a device loss the old ones are dead anyway).
-   */
-  rebuild(): void {
-    for (const entry of this.resident.values()) {
-      if (entry.tile === null || entry.gpu === null) continue;
-      const old = entry.gpu;
-      entry.gpu = this.source.upload(entry.tile);
-      this.source.release(old);
-    }
   }
 
   private gaveUp(k: number): boolean {

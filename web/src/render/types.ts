@@ -1,8 +1,8 @@
-// The one interface both backends implement (docs/plan-webgpu.md §1), and
-// the frame types they draw from. Nothing here knows about WebGL or WebGPU.
+// The renderer interface the scene draws through, and the frame types it
+// draws from. Nothing here knows about WebGL: the frame plan
+// (render/plan.ts) and its tests work on these types alone.
 
 import type { CameraUniforms } from '../camera';
-import type { RunPalette } from '../palette';
 import type { Tile } from '../tiles/decode';
 
 /** Everything a frame needs besides the tiles. */
@@ -85,17 +85,14 @@ export interface FrameStats {
   drawCalls: number;
 }
 
-
-export type BackendKind = 'webgpu' | 'webgl2';
-
-/** Backend-owned GPU copy of one tile; backends narrow it with instanceof. */
+/** The renderer's GPU copy of one tile; gl/renderer.ts narrows it with instanceof. */
 export interface GpuTile {
   readonly level: number;
   readonly count: number;
   readonly internalCount: number;
 }
 
-/** Top-down RGBA8 pixels of the tree canvas (precision test, parity). */
+/** Top-down RGBA8 pixels of the tree canvas (precision test, smoke test). */
 export interface Pixels {
   width: number;
   height: number;
@@ -103,39 +100,15 @@ export interface Pixels {
 }
 
 export interface Renderer {
-  readonly kind: BackendKind;
   upload(tile: Tile): GpuTile;
   release(tile: GpuTile): void;
   setFans(data: Uint32Array): void;
   draw(tiles: readonly GpuTile[], p: FrameParams): FrameStats;
   /** Drawing-buffer size in device px. */
   size(): { width: number; height: number };
-  /** Resolves when the GPU has finished all submitted work. */
-  finish(): Promise<void>;
+  /** Returns once the GPU has finished all submitted work. */
+  finish(): void;
   /** The frame just drawn. Call in the same task as draw(). */
-  readPixels(): Promise<Pixels>;
-  /** Last GPU frame time in ms when timestamp-query is available, else null. */
-  gpuMs(): number | null;
-  /** Fired when the GPU was lost and the backend could not recover. */
-  onLost: (reason: string) => void;
-  /**
-   * Fired after the backend recovered from a GPU loss on a new device: every
-   * tile handle from before is dead and must be uploaded again.
-   */
-  onRestored: () => void;
-  /** `?debug` only: simulate a GPU loss (WebGPU; absent where it cannot happen this way). */
-  loseDevice?: () => void;
+  readPixels(): Pixels;
   destroy(): void;
 }
-
-export interface RendererOptions {
-  /** Accept a software adapter (`isFallbackAdapter`); only when the URL forces WebGPU. */
-  allowFallbackAdapter: boolean;
-}
-
-/** Builds one backend, or null when it is unavailable here (no adapter, no context). */
-export type RendererFactory = (
-  canvas: HTMLCanvasElement,
-  palette: RunPalette,
-  opts: RendererOptions,
-) => Promise<Renderer | null>;

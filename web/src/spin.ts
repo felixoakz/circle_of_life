@@ -32,7 +32,7 @@ export const FRICTION_MS = 400;
 export const RESUME_MS = 3000;
 export const RAMP_MS = 2000;
 /** The same after a block (flight, hover, search) ends, ms. */
-export const BLOCK_RESUME_MS = 800;
+const BLOCK_RESUME_MS = 800;
 
 /** The ambient angular velocity at `scale` device px per world unit (clockwise: negative). */
 export function ambientRate(scale: number, dpr: number): number {

@@ -1,4 +1,4 @@
-// Canvas sizing shared by both backends: backing-store size, the tree's
+// Canvas sizing: backing-store size, the tree's
 // device-pixel ratio under the pixel cap, and fitting the canvas to its CSS
 // box.
 
@@ -21,7 +21,7 @@ export function backingStoreSize(
 
 /**
  * Device pixels per CSS px for the tree canvas: the screen's DPR, lowered
- * so the backing store holds at most `maxPixels` (PLAN §7.12). A 5K screen
+ * so the backing store holds at most `maxPixels` (ARCHITECTURE §7.12). A 5K screen
  * (5120×2880 device px, 14.7 Mpx) took 11–13 ms per overview frame on an
  * integrated GPU, and the fill-bound passes (ring, fans, marks) scale with
  * the pixel count (measurements at `MAX_BACKING_PX`). Never below 1, so a

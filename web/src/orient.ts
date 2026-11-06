@@ -1,4 +1,4 @@
-// Auto-orient (PLAN §7.5): at deep zoom the rim turns vertical at the anchor
+// Auto-orient (ARCHITECTURE §7.5): at deep zoom the rim turns vertical at the anchor
 // so tip names read left to right (docs/reference/1.png).
 //
 // The turn itself is a function of zoom (rig.ts `focusAngle`): the focus

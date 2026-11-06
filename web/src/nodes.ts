@@ -1,4 +1,4 @@
-// A small shared cache of `/api/nodes/{ref}` answers (PLAN §5.1), used by
+// A small shared cache of `/api/nodes/{ref}` answers (ARCHITECTURE §5.1), used by
 // the breadcrumb, hover, the panel and keyboard navigation, so moving
 // between nodes that were already seen costs no request. Answers are keyed
 // by pre-order id and by OpenTree node id (`ott…`, `mrcaott…`); a request in

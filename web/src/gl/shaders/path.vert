@@ -1,4 +1,4 @@
-// Highlighted paths (PLAN §7.3 pass 5): the hover path and the selection
+// Highlighted paths (ARCHITECTURE §7.3 pass 5): the hover path and the selection
 // path, root → node, as 2 px quads. One instance per segment (path.ts): an
 // arc (span > 0, at radius r0) or a radial segment (span = 0, r0 → r1), cut
 // into uK steps; each step is a quad of 6 vertices between two points that

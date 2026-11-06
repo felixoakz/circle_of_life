@@ -1,4 +1,4 @@
-// Double-precision camera (PLAN §7.2): the view transform the renderer,
+// Double-precision camera (ARCHITECTURE §7.2): the view transform the renderer,
 // labels and picking share.
 //
 // World space: the tree's unit disc, x = r·cos θ, y = r·sin θ (y up, so angles
@@ -36,7 +36,7 @@ export interface CameraUniforms {
   halfH: number;
 }
 
-/** Tip spacing at maximum zoom, in CSS px (PLAN §7.5). */
+/** Tip spacing at maximum zoom, in CSS px (ARCHITECTURE §7.5). */
 const MAX_TIP_SPACING_CSS = 48;
 
 export class Camera {
@@ -116,7 +116,7 @@ export class Camera {
     return this.worldToScreen(r * Math.cos(theta), r * Math.sin(theta));
   }
 
-  /** λ (PLAN §3.6): log2 of rim circumference over P · 0.5 px. */
+  /** λ (ARCHITECTURE §3.6): log2 of rim circumference over P · 0.5 px. */
   lambda(tileP: number): number {
     return Math.log2((TAU * this.scale) / (tileP * 0.5));
   }

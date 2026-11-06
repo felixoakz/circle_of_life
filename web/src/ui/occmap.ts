@@ -1,6 +1,6 @@
 // The GBIF occurrence density mini-map in the panel (DESIGN.md §4.2 "Where
 // it lives"). No map library: a handful of absolutely positioned <img>
-// tiles, straight from GBIF (PLAN §6.3, no proxy).
+// tiles, straight from GBIF (ARCHITECTURE §6.3, no proxy).
 //
 // - Base map: GBIF's own dark OpenMapTiles style (`tile.gbif.org`, style
 //   `gbif-dark`): black land, near-black sea, no labels, no colour. Same
@@ -101,11 +101,11 @@ export function mapView(bbox: readonly [number, number, number, number] | null, 
   return { z, size, tiles };
 }
 
-export function baseTileUrl(t: MapTile, scale: 1 | 2): string {
+function baseTileUrl(t: MapTile, scale: 1 | 2): string {
   return `https://tile.gbif.org/3857/omt/${t.z}/${t.x}/${t.y}@${scale}x.png?style=gbif-dark`;
 }
 
-export function densityTileUrl(t: MapTile, scale: 1 | 2, taxonKey: number): string {
+function densityTileUrl(t: MapTile, scale: 1 | 2, taxonKey: number): string {
   // hexPerTile is per 512 px tile; ~ 9 px hexagons at full tile size.
   return (
     `https://api.gbif.org/v2/map/occurrence/density/${t.z}/${t.x}/${t.y}@${scale}x.png` +

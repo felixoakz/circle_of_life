@@ -1,8 +1,8 @@
-// Geometry of a highlighted root→node path (PLAN §7.3 pass 5), as the
+// Geometry of a highlighted root→node path (ARCHITECTURE §7.3 pass 5), as the
 // renderer draws it: for each step from a parent to its child, the parent's
 // arc from the parent's angle to the child's, then the child's radial
 // segment out to the child's radius. Arcs never wrap through angle 0
-// (PLAN §3.3), so an arc is just [min, max] of the two angles.
+// (ARCHITECTURE §3.3), so an arc is just [min, max] of the two angles.
 //
 // The points come from `/api/nodes` (lineage + the node: the whole way to
 // the root) or, while that is loading, from the loaded tiles' parent links
@@ -68,7 +68,7 @@ export function tilePoints(
   const points: PathPoint[] = [];
   let startR = 0;
   let cur = index.get(id);
-  // A lineage is at most ~110 deep (PLAN §2.2); the cap guards bad data.
+  // A lineage is at most ~110 deep (ARCHITECTURE §2.2); the cap guards bad data.
   for (let guard = 0; cur && guard < 512; guard++) {
     const { tile, index: i } = cur;
     const parent = tile.parent[i] ?? 0xffffffff;

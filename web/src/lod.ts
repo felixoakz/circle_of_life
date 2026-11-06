@@ -1,4 +1,4 @@
-// Level of detail (PLAN §3.6): continuous view level λ, integer level V, the
+// Level of detail (ARCHITECTURE §3.6): continuous view level λ, integer level V, the
 // angular range on screen, and which tiles to fetch, in priority order.
 
 import {
@@ -110,7 +110,7 @@ export function computeView(cam: Camera, tileP: number, maxLevel: number): View 
   const levels = range ? level : 0;
   const r = range ?? FULL_CIRCLE;
   for (let L = 0; L <= levels; L++) {
-    // A node's arc reaches less than W_L/P beyond its sector (PLAN §3.6).
+    // A node's arc reaches less than W_L/P beyond its sector (ARCHITECTURE §3.6).
     const sectors = sectorsIn(widen(r, Math.ceil(sectorWidth(L) / tileP)), L);
     if (sectors.length > MAX_SECTORS_PER_LEVEL) break;
     const w = sectorWidth(L);

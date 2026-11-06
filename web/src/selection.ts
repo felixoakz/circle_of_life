@@ -1,4 +1,4 @@
-// Selection (DESIGN.md §4, §5, §8; PLAN §7.10, §7.11): there is always
+// Selection (DESIGN.md §4, §5, §8; ARCHITECTURE §7.10, §7.11): there is always
 // exactly one selected node, a species or a clade, Homo sapiens to begin
 // with. It is shown four ways:
 //   - on the canvas, a white 2 px root→node path and a hairline ring;
@@ -30,7 +30,7 @@ import type { Meta, NodeInfo } from './types';
 import { Panel } from './ui/panel';
 import { type DeepLink, applyView, linkSearch, parseLink, rigView, viewPose } from './url';
 
-/** The URL's view is rewritten this long after the view stops (PLAN §7.11). */
+/** The URL's view is rewritten this long after the view stops (ARCHITECTURE §7.11). */
 const URL_DEBOUNCE_MS = 300;
 const WHITE: readonly [number, number, number] = [1, 1, 1];
 /** Zoom to suit: the node's tips fill this share of the free column through the anchor… */

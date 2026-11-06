@@ -1,4 +1,4 @@
-// "Species in view" (PLAN §7.10): tips are evenly spaced around the rim, so
+// "Species in view" (ARCHITECTURE §7.10): tips are evenly spaced around the rim, so
 // the count is exact and cheap: intersect the rim circle with the screen
 // rectangle, then count the tip angles inside the visible arcs.
 //

@@ -1,4 +1,4 @@
-// Keyboard tree navigation (DESIGN.md §8, PLAN §7.11), as plain functions:
+// Keyboard tree navigation (DESIGN.md §8, ARCHITECTURE §7.11), as plain functions:
 // with a node selected, ↑ (or Backspace) selects its nearest named ancestor
 // (unnamed mrca nodes and OTT placeholders are stepped over), ↓ its largest
 // child, ← and → its siblings. Siblings are taken in the order the panel

@@ -1,8 +1,8 @@
 // Canvas look: every tuning constant of lines, fans, glow, rim marks,
 // orientation and the intro, kept in one place (DESIGN.md §5–§6,
-// PLAN §7.3–§7.5). Pixel sizes are CSS px; the renderer multiplies by the DPR.
+// ARCHITECTURE §7.3–§7.5). Pixel sizes are CSS px; the renderer multiplies by the DPR.
 //
-// λ is the continuous view level (PLAN §3.6): about 3.4 for the whole wheel
+// λ is the continuous view level (ARCHITECTURE §3.6): about 3.4 for the whole wheel
 // on a 1440×900 screen, 12 where tips are 0.44 px apart, 15.2 at 4 px and
 // 18.8 at the 48 px maximum.
 
@@ -24,7 +24,7 @@ export const BRANCH_ALPHA = 0.35;
 /** …rising to this at deep zoom, so single terminal branches read clearly. */
 export const BRANCH_ALPHA_DEEP = 0.85;
 /** λ range over which branch alpha rises from overview to deep. */
-export const BRANCH_ALPHA_RAMP: readonly [number, number] = [12.5, 15.5];
+const BRANCH_ALPHA_RAMP: readonly [number, number] = [12.5, 15.5];
 /**
  * Line width (branches, arcs, tip bars, the home bar), CSS px: the hairline
  * thickens to LINE_DEEP_PX as tips spread over LINE_WIDTH_SPACING (px between
@@ -96,17 +96,17 @@ export const FAN_ALPHA = 0.32;
 export const FAN_LINE_PX = 2;
 export const FAN_MIN_PX = 1.5;
 /** Fans fade out over this λ range once tips resolve, as the ring does (no hatching between bars). */
-export const FAN_FADE: readonly [number, number] = [12.5, 13.5];
+const FAN_FADE: readonly [number, number] = [12.5, 13.5];
 
 /**
  * Glow strength over zoom: 1 up to λ GLOW_RAMP[0], then easing to
  * GLOW_DEEP by GLOW_RAMP[1]. Glow is loudest on the whole wheel.
  */
-export const GLOW_RAMP: readonly [number, number] = [4, 11];
+const GLOW_RAMP: readonly [number, number] = [4, 11];
 export const GLOW_DEEP = 0.45;
 
 /**
- * Rim ring (PLAN §7.3 pass 3): an analytic glow around r = 1 with a crisp
+ * Rim ring (ARCHITECTURE §7.3 pass 3): an analytic glow around r = 1 with a crisp
  * core (Gaussian, σ px), a halo decaying outward and a wider one inward (px),
  * and the "fur": short outward strokes, one per FUR_LINE_PX column, of
  * hashed length up to FUR_PX. The ring fades out as tips resolve.
@@ -124,10 +124,10 @@ export const RING_FUR_LINE_PX = 1.5;
 export const RING_REACH_IN_PX = 140;
 export const RING_REACH_OUT_PX = 48;
 /** λ over which the ring fades out as tip bars take over. */
-export const RING_FADE: readonly [number, number] = [11.5, 13];
+const RING_FADE: readonly [number, number] = [11.5, 13];
 
 /**
- * Clade spikes (PLAN §7.3 pass 4): outward from the rim for each frontier
+ * Clade spikes (ARCHITECTURE §7.3 pass 4): outward from the rim for each frontier
  * node, length clamp(3 + 2·log2(leaves), 3, 14) px, at most SPIKE_MAX_W wide.
  */
 export const SPIKE_ALPHA = 0.5;
@@ -143,7 +143,7 @@ export const SPIKE_MAX_W_PX = 2.5;
  * hairline rather than replacing it, hence the lower alpha.
  */
 export const TIP_BAR_RAMP: readonly [number, number] = [12, 13.5];
-export const TIP_BAR_FADE_SPACING: readonly [number, number] = [2, 6];
+const TIP_BAR_FADE_SPACING: readonly [number, number] = [2, 6];
 export const TIP_BAR_ALPHA = 0.6;
 export const TIP_BAR_MAX_LEN_PX = 120;
 
@@ -270,7 +270,7 @@ export const DIM_HUD = 0.85;
 export const DIM_PAD_PX = 8;
 export const DIM_SOFT_PX = 20;
 
-// ---- Labels (Canvas2D overlay, PLAN §7.7, DESIGN.md §3) ----
+// ---- Labels (Canvas2D overlay, ARCHITECTURE §7.7, DESIGN.md §3) ----
 
 /** Canvas text colours: `--text-1`, `--text-2` and the home white (DESIGN.md §2). */
 export const TEXT_1 = '#e9e8e4';
@@ -450,7 +450,7 @@ export function pathWidthPx(widthPx: number, lineWidth: number): number {
   return Math.max(widthPx, Math.min(PATH_LINE_RATIO * lineWidth, PATH_MAX_PX));
 }
 
-// ---- Hover, selection and picking (DESIGN.md §5, §8; PLAN §7.8) ----
+// ---- Hover, selection and picking (DESIGN.md §5, §8; ARCHITECTURE §7.8) ----
 
 /** Hover: the rest of the tree dims to 60%, the path is text-1 at 60%, 2 px. */
 export const HOVER_TREE_DIM = 0.4;
@@ -470,7 +470,7 @@ export const SELECT_RING_LINE_PX = 1.5;
 export const SELECT_DOT_PX = 2.25;
 export const SELECT_KNOCK_PX = 2.5;
 export const SELECT_KNOCK_ALPHA = 0.85;
-/** Pointer hit tolerance, CSS px (PLAN §7.8: 4 px; fingers get more). */
+/** Pointer hit tolerance, CSS px (ARCHITECTURE §7.8: 4 px; fingers get more). */
 export const PICK_TOL_MOUSE_PX = 4;
 export const PICK_TOL_TOUCH_PX = 12;
 /** The rim zone reaches past the rim over the spikes, and over the tip labels once shown. */
@@ -484,7 +484,7 @@ export const HOVER_FETCH_MS = 90;
 export const TOOLTIP_OFFSET_PX = 8;
 
 /**
- * Most device pixels the tree canvas's backing store may hold (PLAN §7.12).
+ * Most device pixels the tree canvas's backing store may hold (ARCHITECTURE §7.12).
  * Measured on the dev machine's AMD iGPU, 5K overview (2560×1440 CSS at
  * DPR 2): uncapped 14.7 Mpx 10.7–12.8 ms, 8.3 Mpx 8.5–9.5 ms, 7 Mpx
  * 7.6–8.4 ms, 6 Mpx 7.0–7.9 ms. Larger canvases render the tree at a lower

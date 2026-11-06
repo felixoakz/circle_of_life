@@ -1,5 +1,5 @@
 // Kingdom colours from DESIGN.md §2.2, and the angle → colour function the
-// shaders and labels share (PLAN §7.4). Colours are given in OKLCH and
+// shaders and labels share (ARCHITECTURE §7.4). Colours are given in OKLCH and
 // converted here, so DESIGN.md stays the single source of truth.
 //
 // Colour along the rim comes from the group runs: each run of tips spans
@@ -49,7 +49,7 @@ export function oklchToLinear([L, C, h]: Oklch): Rgb {
 }
 
 /** Linear-light channel → sRGB-encoded channel, both 0..1 (clamped). */
-export function encodeSrgb(c: number): number {
+function encodeSrgb(c: number): number {
   const x = Math.min(1, Math.max(0, c));
   return x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055;
 }

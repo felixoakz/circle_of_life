@@ -1,4 +1,4 @@
-// The pure half of the label overlay (PLAN §7.7): which labels win the
+// The pure half of the label overlay (ARCHITECTURE §7.7): which labels win the
 // screen space, how they fade, and where text goes outside the rim. No DOM
 // here, so it is unit-tested; labels.ts builds the candidates and draws.
 //

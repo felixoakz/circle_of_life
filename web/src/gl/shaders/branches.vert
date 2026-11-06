@@ -1,6 +1,6 @@
 // Radial branch segments, two lines per node:
 //   line 0: the node's own segment, parent_r → r
-//   line 1: the frontier extension, r → 1 (PLAN §3.5), shown while the node's
+//   line 1: the frontier extension, r → 1 (ARCHITECTURE §3.5), shown while the node's
 //           children are not drawn yet, so every lineage reaches the rim.
 // With uHalfW = 0 they are native 1-device-px LINES (4 vertices per node).
 // Once tips spread far enough to read as single lines, the plan sets uHalfW

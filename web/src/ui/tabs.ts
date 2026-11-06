@@ -9,7 +9,7 @@
 
 export type TabId = 'overview' | 'range' | 'tree';
 
-export const TAB_LABELS: Readonly<Record<TabId, string>> = {
+const TAB_LABELS: Readonly<Record<TabId, string>> = {
   overview: 'Overview',
   range: 'Range',
   tree: 'Tree',

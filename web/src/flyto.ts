@@ -1,4 +1,4 @@
-// Camera flights (PLAN §7.9, DESIGN.md §6). The view is a rotation and a
+// Camera flights (ARCHITECTURE §7.9, DESIGN.md §6). The view is a rotation and a
 // zoom (rig.ts), so a flight moves `theta`, the world angle at the anchor,
 // and `scale`.
 //
@@ -33,9 +33,9 @@ export interface FlightPath {
 }
 
 /** Zoom/pan trade-off: higher zooms out further on long pans (van Wijk & Nuij suggest √2). */
-export const RHO = 1.4;
-/** Duration per unit of path length S, and its bounds (PLAN §7.9). */
-export const MS_PER_S = 600;
+const RHO = 1.4;
+/** Duration per unit of path length S, and its bounds (ARCHITECTURE §7.9). */
+const MS_PER_S = 600;
 export const MIN_MS = 600;
 export const MAX_MS = 2000;
 /** Turn-only bounds. */
@@ -61,7 +61,7 @@ function nearAngle(from: number, to: number): number {
  * (any units, the same for all three): its length S, and at s ∈ [0, S]
  * how far along the pan it is (0 to u1) and the view width there.
  */
-export function zoomPan(w0: number, w1: number, u1: number): { S: number; at(s: number): { u: number; w: number } } {
+function zoomPan(w0: number, w1: number, u1: number): { S: number; at(s: number): { u: number; w: number } } {
   const rho2 = RHO * RHO;
   // No pan to speak of (far less than a pixel): a pure zoom, exponential
   // in s, with the pan moved along in step in case it differs at all.
