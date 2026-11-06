@@ -26,7 +26,6 @@ import type { Rig } from './rig';
 /** Wheel zoom: scale ×= exp(−dy · WHEEL_RATE), dy in px. */
 const WHEEL_RATE = 0.0015;
 const ZOOM_TWEEN_MS = 220;
-const KEY_ZOOM = 1.5;
 /** A press that moves less than this (CSS px) and lifts within TAP_MS is a tap (select), not a drag. */
 const TAP_SLOP_PX = 6;
 const TAP_MS = 500;
@@ -84,7 +83,6 @@ export class Input {
       this.onUserInput();
       this.zoomTo(2, this.rig.isFree() ? this.pos(e) : null);
     });
-    window.addEventListener('keydown', (e) => this.onKey(e));
   }
 
   /** True while one or more pointers are down. */
@@ -246,24 +244,6 @@ export class Input {
       this.onFling(this.velocity);
       this.onChange();
     }
-  }
-
-  private onKey(e: KeyboardEvent): void {
-    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
-    switch (e.key) {
-      case '+':
-      case '=':
-        this.zoomTo(KEY_ZOOM);
-        break;
-      case '-':
-      case '_':
-        this.zoomTo(1 / KEY_ZOOM);
-        break;
-      default:
-        return;
-    }
-    this.onUserInput();
-    e.preventDefault();
   }
 }
 

@@ -1,8 +1,7 @@
 // The free view switch (DESIGN.md §4.1): a small glass button beside the
 // zoom strip's reset button, a padlock that opens while the view is free.
-// A toggle button (aria-pressed), labelled "Free view"; `F` does the same
-// (main.ts). It follows the mode every frame, however it changed (the key,
-// Esc, a search flying back).
+// A toggle button (aria-pressed), labelled "Free view". It follows the mode
+// every frame, however it changed (Esc, a search flying back).
 
 const LOCK_PATH = 'M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2';
 const OPEN_PATH = 'M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0';

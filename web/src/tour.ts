@@ -12,8 +12,8 @@
 // pointer resting on the card, focus in the card, scrolling it, a text
 // selection, a flight, a loading selection, an open search or a hidden tab
 // hold the countdown (main.ts); a pointer resting on the wheel does not.
-// While it runs the readout says so with a Stop button, and the wordmark
-// menu switches it off and on (`setEnabled`). A deep link (?n=) starts stopped, so a shared
+// While it runs the readout says so ("Touring"); there is no switch: it is
+// always on, except as below. A deep link (?n=) starts stopped, so a shared
 // species stays put for RESUME_MS before the tour moves on. Tour steps
 // replace the URL instead of pushing history. Off under reduced motion
 // and `?still`, unless `?tour=<seconds>` asks for it (tests, screenshots),
@@ -108,17 +108,6 @@ export class Tour {
   /** True once it has moved the selection and nothing has stopped it since: the readout says "Touring". */
   touring(): boolean {
     return this.enabled && !this.stopped && this.hops > 0;
-  }
-
-  /** Switches the tour on (the next hop a dwell from now) or off (the wordmark menu, the readout's Stop). */
-  setEnabled(on: boolean, now: number): void {
-    this.enabled = on;
-    this.stopped = false;
-    this.hops = 0;
-    clearTimeout(this.timer);
-    if (!on) return;
-    this.nextAt = now + this.dwell;
-    this.arm(now);
   }
 
   /** A real input: stop, and start again after RESUME_DWELLS dwells with no input. */

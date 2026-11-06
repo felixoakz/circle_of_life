@@ -104,7 +104,6 @@ export class Hud {
   private readonly readout: HTMLElement;
   private readonly readoutCount: HTMLElement;
   private readonly readoutVersion: HTMLElement;
-  private readonly readoutStop: HTMLElement;
   private readonly progress: HTMLElement;
   private readonly store: NodeStore;
   private readonly version: string;
@@ -113,9 +112,8 @@ export class Hud {
   selected: () => NodeInfo | null = () => null;
   /** Selects a node and flies to it (set by main.ts from selection.ts). */
   select: (ref: number | string) => void = () => {};
-  /** Whether the idle tour is moving the selection (tour.ts), and how to stop it (main.ts). */
+  /** Whether the idle tour is moving the selection (tour.ts; main.ts). */
   touring: () => boolean = () => false;
-  stopTour: () => void = () => {};
   /** Whether the view is free (freeview.ts), and the way back's wording ("Esc to return"; main.ts). */
   free: () => boolean = () => false;
   freeReturn = 'Esc to return';
@@ -143,13 +141,7 @@ export class Hud {
     // The version is dropped on narrow screens (styles.css), so the count stays on one line.
     this.readoutCount = el('span');
     this.readoutVersion = el('span', { className: 'readout-version', text: ` · ${this.version}` });
-    // While the tour runs: "Touring · 864,899 species in view · Stop".
-    const stop = el('button', { className: 'text-button readout-stop', text: 'Stop', title: 'Stop the tour' });
-    stop.type = 'button';
-    stop.addEventListener('click', () => this.stopTour());
-    this.readoutStop = el('span', { className: 'readout-tour' }, [' · ', stop]);
-    this.readoutStop.hidden = true;
-    this.readout.replaceChildren(this.readoutCount, this.readoutVersion, this.readoutStop);
+    this.readout.replaceChildren(this.readoutCount, this.readoutVersion);
     this.progress = el('div', { className: 'progress' });
     this.progress.setAttribute('aria-hidden', 'true');
     document.body.append(this.progress);
@@ -169,7 +161,6 @@ export class Hud {
     const add = (box: ReturnType<typeof textBox>): void => {
       if (box) out.push({ box, keepClear: true, toEdge: true, dim: DIM_HUD });
     };
-    add(textBox(document.querySelector('.wordmark')));
     add(union(textBox(this.crumbs), textBox(this.readout)));
     add(elementBox(document.querySelector('.hud-controls')));
     return out;
@@ -218,7 +209,6 @@ export class Hud {
       this.readoutText = key;
       this.readoutCount.textContent = text;
       this.readoutVersion.hidden = !plain && !touring;
-      this.readoutStop.hidden = !touring;
       this.scene.obstacles.changed();
     }
     // The 1 px progress line, for loads that take a moment.
@@ -298,7 +288,7 @@ export class Hud {
     ul.replaceChildren(...items);
   }
 
-  /** Selects a group's largest root clade and flies there (the key; the wordmark menu's kingdom rows on a phone). */
+  /** Selects a group's largest root clade and flies there (the kingdom key). */
   goToGroup(group: number): void {
     void this.flyToGroup(group);
   }

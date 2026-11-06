@@ -1,8 +1,8 @@
 // Free view (DESIGN.md §4.1, §8): an opt-in mode that lets go of the locked
 // composition, so any part of the wheel (the inner branches too) can be
 // panned to and zoomed into. The rig does the maths (rig.ts `free`); this
-// module only switches the mode, from the button beside the zoom strip, `F`
-// and `Esc`.
+// module only switches the mode, from the button beside the zoom strip and
+// `Esc`.
 //
 // Entering keeps the picture exactly where it is (the free pose is the
 // camera's) and stops the wheel's own motion: no ambient turn, no tour, no

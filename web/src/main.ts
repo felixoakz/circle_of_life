@@ -39,9 +39,8 @@ import { Hover, pickAt } from './hover';
 import { NodeStore } from './nodes';
 import { TileIndex } from './picking';
 import { Selection, atRim, suitPose } from './selection';
-import { Credits, type MenuItem, mountWordmarkMenu } from './ui/credits';
-import { Hud, groupSwatch } from './ui/hud';
-import { KeysDialog } from './ui/keys';
+import { Credits } from './ui/credits';
+import { Hud } from './ui/hud';
 import { ZoomStrip } from './ui/zoomstrip';
 import { FreeButton } from './ui/freebutton';
 import { SearchPalette, suggestion } from './ui/search';
@@ -101,7 +100,6 @@ async function main(): Promise<void> {
   scene.cache.onStale = () => location.reload(); // re-ingested: start over with new meta
   const reduced = params.has('reduced') || matchMedia('(prefers-reduced-motion: reduce)').matches;
   scene.input.reducedMotion = reduced;
-  scene.orient.reducedMotion = reduced;
   scene.flight.reducedMotion = reduced;
   // The wheel's own motion (spin.ts, tour.ts): never under reduced motion;
   // `?still` (and `?shot`) keep screenshots and tests deterministic.
@@ -136,26 +134,15 @@ async function main(): Promise<void> {
   if (view) applyView(scene.rig, view);
   else scene.rig.set({ theta: toRad(meta.home?.angle ?? 0), scale: scene.rig.minScale() });
   if (debug === 'precision') dbg?.precisionCamera(scene, meta);
-  // Free view (freeview.ts): F, Esc and the button beside the zoom strip.
+  // Free view (freeview.ts): the padlock beside the zoom strip, and Esc back.
   const freeView = new FreeView(scene);
   window.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key !== 'Escape' || e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
-    if (e.key === 'Escape') {
-      // Only once nothing else is open: search, a dialog and the menu close first.
-      const layer = document.querySelector('.search-layer.open, .wordmark-menu:not([hidden])');
-      if (!e.defaultPrevented && !layer && freeView.on()) {
-        freeView.leave();
-        e.preventDefault();
-      }
-    } else if (e.key === 'f' || e.key === 'F') {
-      freeView.toggle();
-    } else if (e.key === 'r' || e.key === 'R') {
-      scene.orient.toggle(performance.now());
-      scene.requestRender();
-    } else if ((e.key === 'h' || e.key === 'H') && meta.home) {
-      // "You are here" (DESIGN.md §8): back to Homo sapiens.
-      void selection.select(meta.home.nodeId, { motion: 'fly', history: 'push' });
+    // Only once nothing else is open: search closes first.
+    if (!e.defaultPrevented && !document.querySelector('.search-layer.open') && freeView.on()) {
+      freeView.leave();
+      e.preventDefault();
     }
   });
 
@@ -167,7 +154,7 @@ async function main(): Promise<void> {
   // Hover (mouse only) and selection: click or tap selects and turns it onto the anchor.
   const index = new TileIndex();
   const hover = new Hover(scene, meta, store, index, treeCanvas);
-  // Data & credits: from the wordmark menu and the card's footer.
+  // Data & credits: from the card's "i" button and its footer.
   const credits = new Credits(meta);
   const selection = new Selection(
     scene,
@@ -313,39 +300,6 @@ async function main(): Promise<void> {
   tour.wake = () => scene.requestRender();
   scene.tour = tour;
   hud.touring = () => tour.touring();
-  hud.stopTour = () => {
-    tour.setEnabled(false, performance.now());
-    scene.requestRender();
-  };
-
-  // The wordmark menu (DESIGN.md §4.1): Data & credits, Keyboard,
-  // Auto-orient, the tour, and on a phone the kingdoms (the key's place).
-  const keys = new KeysDialog();
-  const menu: MenuItem[] = [
-    { label: () => 'Keyboard', run: () => keys.open() },
-    {
-      label: () => `Auto-orient: ${scene.orient.enabled ? 'on' : 'off'}`,
-      run: () => {
-        scene.orient.toggle(performance.now());
-        scene.requestRender();
-      },
-    },
-  ];
-  if (!reduced) {
-    menu.push({
-      label: () => `Tour: ${tour.enabled ? 'on' : 'off'}`,
-      run: () => {
-        tour.setEnabled(!tour.enabled, performance.now());
-        scene.requestRender();
-      },
-    });
-  }
-  for (const g of meta.groups) {
-    const swatch = groupSwatch(g.id);
-    menu.push({ label: () => g.name, run: () => hud.goToGroup(g.id), compactOnly: true, ...(swatch ? { swatch } : {}) });
-  }
-  mountWordmarkMenu(byId('wordmark', HTMLElement), credits, menu);
-
   // A first visit's hint, in the readout until the first input (DESIGN.md §4.1).
   const store2 = sessionStore();
   const touch = matchMedia('(pointer: coarse)').matches;

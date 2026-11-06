@@ -11,7 +11,6 @@ import { Flight } from './flyto';
 import { type Dim, type GpuTile, type Highlight, NO_HIGHLIGHT, type Renderer } from './render/types';
 import { Input } from './input';
 import { type View, computeView, levelFade, radialWindow, rangeUniforms } from './lod';
-import { AutoOrient } from './orient';
 import { Rig } from './rig';
 import { Spin } from './spin';
 import type { Tour } from './tour';
@@ -57,7 +56,6 @@ export class Scene {
   readonly rig: Rig;
   readonly input: Input;
   readonly cache: TileCache<GpuTile>;
-  readonly orient: AutoOrient;
   readonly flight: Flight;
   /** The wheel's ambient turn and fling inertia (spin.ts). */
   readonly spin: Spin;
@@ -134,7 +132,6 @@ export class Scene {
     this.cache.onChange = () => this.requestRender();
     this.rig = new Rig(this.camera);
     this.input = new Input(canvas, this.rig, () => this.requestRender());
-    this.orient = new AutoOrient(this.rig);
     this.flight = new Flight(this.rig);
     this.flight.onEnd = () => this.requestRender();
     this.spin = new Spin(this.rig);
@@ -315,14 +312,12 @@ export class Scene {
     this.dirty = false;
     this.input.step(now);
     const flying = this.flight.step(now);
-    const orienting = this.orient.step(now);
     const spinning = this.spin.step(now);
     this.tour?.step(now);
     const revealing = this.stepIntro(now);
     const animating =
       this.input.animating() ||
       flying ||
-      orienting ||
       spinning ||
       revealing ||
       this.highlightAnimating ||

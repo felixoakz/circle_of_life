@@ -202,10 +202,9 @@ export const HOME_LINE_ALPHA = 1;
 /**
  * Auto-orient (rig.ts): the focus angle eases to 0° (the rim vertical at the
  * anchor) as tips spread over this range of spacing, CSS px (log scale).
- * Toggling it (R) eases over ORIENT_MS.
+ * It is always on.
  */
 export const TURN_SPACING: readonly [number, number] = [0.25, 4];
-export const ORIENT_MS = 400;
 
 /** Intro reveal (DESIGN.md §6): 900 ms, cubic-bezier(0.2, 0, 0, 1), r 0 → REVEAL_END. */
 export const INTRO_MS = 900;

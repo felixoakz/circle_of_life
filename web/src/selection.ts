@@ -9,15 +9,13 @@
 //     it settles.
 // A click or tap selects and turns the wheel so the node lands on the anchor
 // (rig.ts), keeping the zoom. Search, the lineage, the breadcrumb, the
-// kingdom key and the keys fly there: turn and zoom to suit the node. With
-// ↑ / Backspace, ↓, ← / → the keys walk the tree (nav.ts). Each selection is
+// kingdom key fly there: turn and zoom to suit the node. Each selection is
 // announced through the aria-live region. Nothing clears the selection.
 
 import { fetchAbout } from './api';
 import { TAU, toRad } from './angle';
 import type { Point } from './camera';
 import { nodePath } from './hover';
-import { navMove, navTarget } from './nav';
 import type { NodeStore } from './nodes';
 import { encodePath, pathSegments } from './path';
 import type { PathDraw, RingDraw } from './render/types';
@@ -147,7 +145,6 @@ export class Selection {
   private node: NodeInfo | null = null;
   private draws: { path: PathDraw; ring: RingDraw } | null = null;
   private ctl: AbortController | null = null;
-  private loadingId: number | string | null = null;
   private urlTimer = 0;
   private viewKey = '';
   /** The URL had a view, or the view has moved since load: keep `v` in it. */
@@ -181,7 +178,6 @@ export class Selection {
       credits,
       home: (n) => (n.flags & FLAG_HOME) !== 0,
     });
-    window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('popstate', () => this.onPopState());
     this.trackView = parseLink(location.search).v !== null;
   }
@@ -247,7 +243,6 @@ export class Selection {
     this.ctl?.abort();
     const ctl = new AbortController();
     this.ctl = ctl;
-    this.loadingId = ref;
     this.panel.loading(true);
     this.scene.requestOverlay();
     try {
@@ -272,7 +267,6 @@ export class Selection {
     } finally {
       if (this.ctl === ctl) {
         this.ctl = null;
-        this.loadingId = null;
         this.panel.loading(this.pending !== null);
         this.scene.requestOverlay();
       }
@@ -359,46 +353,6 @@ export class Selection {
       rig.set(suitPose(rig, n, this.meta.tipCount));
     }
     scene.requestRender();
-  }
-
-  private onKey(e: KeyboardEvent): void {
-    const t = e.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable)) return;
-    // A slider (the zoom strip) keeps its own arrow keys.
-    if (t instanceof HTMLElement && t.getAttribute('role') === 'slider') return;
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    // A modal dialog (Data & credits) handles its own keys.
-    if (document.querySelector('dialog[open]')) return;
-    const move = navMove(e.key);
-    // A selection still waiting for its flight counts: the keys walk on from it.
-    const node = this.pending?.n ?? this.node;
-    if (!move || !node) return;
-    // Buttons and links keep their own keys (Space/Enter); arrows walk the tree.
-    e.preventDefault();
-    void this.navigate(move, node);
-  }
-
-  private async navigate(move: ReturnType<typeof navMove>, node: NodeInfo): Promise<void> {
-    if (!move) return;
-    let parent: NodeInfo | null = null;
-    if (move === 'prev' || move === 'next') {
-      const pid = node.lineage[node.lineage.length - 1]?.id;
-      if (pid === undefined) return;
-      try {
-        parent = await this.store.get(pid);
-      } catch (err) {
-        console.warn('siblings', err);
-        return;
-      }
-    }
-    const target = navTarget(move, node, parent);
-    if (target === null) {
-      this.announcer.textContent =
-        move === 'parent' ? 'This is the root' : move === 'child' ? 'No children: this is a tip' : 'No siblings';
-      return;
-    }
-    if ((this.pending?.n ?? this.node) !== node || this.loadingId !== null) return;
-    await this.select(target, { motion: 'fly', history: 'push' });
   }
 
   /** Back / Forward: restore that entry's selection and view. */

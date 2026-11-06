@@ -16,7 +16,7 @@
 // Rotating changes `theta` alone, which turns the wheel about its centre.
 //
 // φ eases from the layout's focus angle (30° desktop, 60° phone) to 0° as
-// tips resolve (`turn`, orient.ts), so at deep zoom the rim runs vertically
+// tips resolve (`turn`, always 1: auto-orient is always on), so at deep zoom the rim runs vertically
 // through the anchor and tip names read left to right (docs/reference/1.png).
 // The anchor itself drifts left over the whole zoom, from the layout's
 // anchor at minimum zoom to `deepX` where the turn completes, so at deep
