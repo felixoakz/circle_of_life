@@ -30,7 +30,7 @@ import (
 // `species version`.
 const Version = "0.1.0"
 
-// Ingest holds the options of `species ingest` (PLAN §3).
+// Ingest holds the options of `species ingest` (ARCHITECTURE §3).
 type Ingest struct {
 	// Tree is the Newick synth tree (labelled_supertree.tre).
 	Tree string
@@ -48,7 +48,7 @@ type Ingest struct {
 	DryRun bool
 }
 
-// Serve holds the options of `species serve` (PLAN §5, §11).
+// Serve holds the options of `species serve` (ARCHITECTURE §5, §10).
 type Serve struct {
 	// DataDir holds tree.db and cache.db. Flag --data, env SPECIES_DATA_DIR,
 	// default "data".
@@ -269,7 +269,7 @@ func (s Serve) UserAgent() string {
 }
 
 // UserAgent builds `species-circle/0.1.0 (+https://example.org; contact)`
-// (PLAN §6.2). Blank parts are left out; with neither, the agent still says
+// (ARCHITECTURE §6.2). Blank parts are left out; with neither, the agent still says
 // what it is ("Circle of Life tree viewer, local development").
 func UserAgent(publicURL, contact string) string {
 	// Both parts come from the environment or flags and are never
@@ -289,7 +289,7 @@ func UserAgent(publicURL, contact string) string {
 }
 
 // Endpoints are the base URLs of the upstream APIs used by enrichment
-// (PLAN §6). Tests point them all at a local mock server.
+// (ARCHITECTURE §6). Tests point them all at a local mock server.
 type Endpoints struct {
 	// Wikidata Action API (…/w/api.php).
 	Wikidata string

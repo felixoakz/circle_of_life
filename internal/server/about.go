@@ -1,4 +1,4 @@
-// GET /api/nodes/{ref}/about[?retry=1] (PLAN §6): the enrichment document
+// GET /api/nodes/{ref}/about[?retry=1] (ARCHITECTURE §6): the enrichment document
 // for one node.
 //
 //   - Unnamed (mrca) nodes get a minimal document at once: never enriched,

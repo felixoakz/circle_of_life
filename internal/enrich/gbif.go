@@ -1,4 +1,4 @@
-// GBIF (PLAN §6.1): the species record (authorship, where it was published,
+// GBIF (ARCHITECTURE §6.1): the species record (authorship, where it was published,
 // a common name), occurrence counts per country, the extent of the density
 // map, and, when Wikidata has no conservation status, the IUCN category
 // from GBIF's name matcher. All GBIF data is CC BY 4.0.

@@ -1,4 +1,4 @@
--- cache.db: the enrichment cache (PLAN §4, §6). Created by `species serve`
+-- cache.db: the enrichment cache (ARCHITECTURE §4, §6). Created by `species serve`
 -- if missing; safe to delete at any time (it refills on demand).
 
 -- One JSON document per node: the body of GET /api/nodes/{ref}/about.

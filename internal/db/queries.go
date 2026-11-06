@@ -1,4 +1,4 @@
-// The read side of tree.db behind the API (PLAN §4, §5): meta, tiles and
+// The read side of tree.db behind the API (ARCHITECTURE §4, §5): meta, tiles and
 // node details. Search is in search.go.
 //
 // Every function takes a context (the request's, so a client that goes away
@@ -64,7 +64,7 @@ const (
 	RefMrca
 )
 
-// NodeRef is how a client names a node in /api/nodes/{ref} (PLAN §5.1).
+// NodeRef is how a client names a node in /api/nodes/{ref} (ARCHITECTURE §5.1).
 type NodeRef struct {
 	Kind RefKind
 	// Num is the id (RefID) or the OTT id (RefOtt).

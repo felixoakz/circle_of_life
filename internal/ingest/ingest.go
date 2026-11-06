@@ -1,5 +1,5 @@
 // Package ingest is `species ingest`: it turns the raw synth tree and
-// taxonomy into tree.db (PLAN §3).
+// taxonomy into tree.db (ARCHITECTURE §3).
 //
 // The steps: parse the tree, read the taxonomy, compute the layout, groups
 // and LOD levels, read the GBIF common names (with --vernacular, P11), cut
@@ -29,7 +29,7 @@ import (
 	"species/internal/vernacular"
 )
 
-// MaxTileGz is the largest gzipped tile we accept (PLAN §3.6): above it,
+// MaxTileGz is the largest gzipped tile we accept (ARCHITECTURE §3.6): above it,
 // tree.P should be lowered to 256.
 const MaxTileGz = 120 * 1024
 
@@ -188,7 +188,7 @@ func printTiles(out io.Writer, set *tiles.Set) {
 		largest.Level, largest.Sector)
 	fmt.Fprintf(out, "most nodes/tile   %10s\n", thousands(int(mostNodes)))
 	if len(largest.Gz) > MaxTileGz {
-		fmt.Fprintf(out, "WARNING: largest tile exceeds %d KB gz; lower lod::P to 256 (PLAN §3.6)\n", MaxTileGz/1024)
+		fmt.Fprintf(out, "WARNING: largest tile exceeds %d KB gz; lower lod::P to 256 (ARCHITECTURE §3.6)\n", MaxTileGz/1024)
 	}
 }
 
@@ -244,7 +244,7 @@ func printLayout(out io.Writer, t *tree.Tree, l *tree.Layout) {
 }
 
 // thousands formats 2725682 as "2,725,682", so the counts are easy to
-// compare with PLAN §2.2.
+// compare with ARCHITECTURE §2.2.
 func thousands(n int) string {
 	digits := strconv.Itoa(n)
 	var out strings.Builder

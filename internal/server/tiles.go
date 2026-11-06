@@ -1,4 +1,4 @@
-// GET /api/v/{ver}/tiles/{level}/{sector} (PLAN §5.1, docs/tile-format.md):
+// GET /api/v/{ver}/tiles/{level}/{sector} (ARCHITECTURE §5.1, docs/tile-format.md):
 // the gzipped tile blob exactly as ingest stored it, with
 // Content-Encoding: gzip (so the gzip middleware leaves it alone). A wrong
 // version is a 404, a bad number a 400, an empty tile a 204.

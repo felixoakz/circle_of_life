@@ -1,5 +1,5 @@
 // The OTT taxonomy (taxonomy.tsv): name, rank and source ids for the nodes
-// of our tree (PLAN §2.2, §3.1). Only rows whose uid is in the tree are
+// of our tree (ARCHITECTURE §2.2, §3.1). Only rows whose uid is in the tree are
 // kept; the ~2M others are skipped without allocating.
 //
 // Memory layout: every kept name is appended

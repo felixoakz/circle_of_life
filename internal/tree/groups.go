@@ -1,5 +1,5 @@
 // Major groups: Animals, Fungi, Plants, Protists, Bacteria, Archaea
-// (PLAN §2.2, §3.2 step 4). The group picks a node's colour on the wheel.
+// (ARCHITECTURE §2.2, §3.2 step 4). The group picks a node's colour on the wheel.
 //
 // Groups are defined by the OTT ids of their root clades, never by name
 // (there is a genus called "Archaea" too). A forward pass inherits the
@@ -36,7 +36,7 @@ type Root struct {
 	Group uint8
 }
 
-// Roots maps root clade OTT ids to groups (PLAN §2.2). Archaeplastida
+// Roots maps root clade OTT ids to groups (ARCHITECTURE §2.2). Archaeplastida
 // (5268475) is broken in the synth tree, so Plants has three roots.
 // Treat it as read-only.
 var Roots = [8]Root{
@@ -99,7 +99,7 @@ func AssignGroups(t *Tree) ([]uint8, error) {
 	}
 	for i, root := range Roots {
 		if !found[i] {
-			return nil, fmt.Errorf("group root ott%d (%s) is not in the tree; PLAN §2.2 lists the root ids",
+			return nil, fmt.Errorf("group root ott%d (%s) is not in the tree; ARCHITECTURE §2.2 lists the root ids",
 				root.Ott, GroupName(root.Group))
 		}
 	}

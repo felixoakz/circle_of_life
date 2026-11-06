@@ -162,7 +162,7 @@ func apiNotFound(w http.ResponseWriter, r *http.Request) error {
 // SIGTERM; in-flight requests then finish before it returns.
 func Run(ctx context.Context, cfg config.Serve) error {
 	// A missing or broken tree.db stops the server right here, with the
-	// path in the message (PLAN §11).
+	// path in the message (ARCHITECTURE §10).
 	treePath := cfg.TreeDBPath()
 	state, err := Open(treePath)
 	if err != nil {

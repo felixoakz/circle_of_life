@@ -1,5 +1,5 @@
 // The server's one error type, httpError, and how it becomes an HTTP
-// response: a JSON body {"error": "…"} with the right status code (PLAN
+// response: a JSON body {"error": "…"} with the right status code (ARCHITECTURE
 // §5). Server faults (database errors) are logged and answered with a
 // plain "internal error"; the details never reach the client.
 //

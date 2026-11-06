@@ -1,4 +1,4 @@
-// GET /api/nodes/{ref} (PLAN §5.1): one node with its lineage and largest
+// GET /api/nodes/{ref} (ARCHITECTURE §5.1): one node with its lineage and largest
 // children. ref is a pre-order id, ott… or mrcaott… (db.ParseNodeRef). A
 // malformed ref is a 400; one that matches nothing is a 404.
 //

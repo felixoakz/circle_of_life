@@ -1,4 +1,4 @@
-// Wikidata (PLAN §6.1 stage A): find the item for a taxon and read the few
+// Wikidata (ARCHITECTURE §6.1 stage A): find the item for a taxon and read the few
 // statements we use.
 //
 // Two Action API calls: a search for items carrying the OTT id (property

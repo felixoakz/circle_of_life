@@ -1,4 +1,4 @@
-// The /about document (PLAN §6.3): the JSON body of
+// The /about document (ARCHITECTURE §6.3): the JSON body of
 // GET /api/nodes/{ref}/about. It is written to the client and read back
 // from cache.db, so the same types serve both directions.
 //

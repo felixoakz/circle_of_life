@@ -1,4 +1,4 @@
-// cache.db, the enrichment cache (PLAN §4, §6.1): one JSON document per
+// cache.db, the enrichment cache (ARCHITECTURE §4, §6.1): one JSON document per
 // node, with when it was fetched and whether every source answered.
 //
 // Unlike tree.db this file is written while the server runs, so it uses
@@ -25,7 +25,7 @@ import (
 //go:embed cache.sql
 var CacheSchema string
 
-// A complete document is fresh for 30 days (PLAN §6.1); a partial one (some
+// A complete document is fresh for 30 days (ARCHITECTURE §6.1); a partial one (some
 // source failed) only for a day, so it is retried soon; one that is
 // partial because a source rate limited us for ten minutes, by when the
 // limit has most likely passed.

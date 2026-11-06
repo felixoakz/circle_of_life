@@ -1,4 +1,4 @@
-// GET /api/search?q=homo%20sap&limit=8 (PLAN §5.2). The ranking itself is
+// GET /api/search?q=homo%20sap&limit=8 (ARCHITECTURE §5.2). The ranking itself is
 // db.Search. limit defaults to 8 and is clamped to 1..50; a malformed limit
 // (abc, -1) is a JSON 400 naming "limit".
 //

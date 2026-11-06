@@ -40,7 +40,7 @@ import (
 var Schema string
 
 // Sources names the source data versions, the first part of dataVersion
-// (PLAN §5.1).
+// (ARCHITECTURE §5.1).
 const Sources = "otl16.1-ott3.7.3"
 
 // kind values in names_fts.
@@ -279,7 +279,7 @@ func insertTiles(tx *sql.Tx, set *tiles.Set) error {
 	return nil
 }
 
-// Meta is the body of GET /api/meta (PLAN §5.1), stored once in the meta
+// Meta is the body of GET /api/meta (ARCHITECTURE §5.1), stored once in the meta
 // table so the server sends it verbatim.
 //
 // Its keys are sorted at every level, so every meta struct declares its

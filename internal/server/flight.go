@@ -1,4 +1,4 @@
-// One upstream fetch per node at a time (PLAN §6.1). Two people opening
+// One upstream fetch per node at a time (ARCHITECTURE §6.1). Two people opening
 // the same uncached species, a background refresh and a click, or a click
 // and its own retry all share one fetch: the first starts it, the rest
 // wait for its document.

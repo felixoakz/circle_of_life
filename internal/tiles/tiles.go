@@ -1,4 +1,4 @@
-// Package tiles builds the binary blobs the browser draws from (PLAN
+// Package tiles builds the binary blobs the browser draws from (ARCHITECTURE
 // §3.6–3.7; docs/tile-format.md gives every byte offset).
 //
 // Every node lives in exactly one tile, keyed by (level, sector): its LOD
@@ -46,7 +46,7 @@ const u32Columns = 9
 // real tree (it has two subspecies), so the flag is on the species node.
 const HomeOtt uint32 = 770315
 
-// Flag bits (PLAN §3.7). Bits 4–7 are reserved and always 0.
+// Flag bits (ARCHITECTURE §3.7). Bits 4–7 are reserved and always 0.
 const (
 	FlagTip     uint8 = 1 << 0
 	FlagNamed   uint8 = 1 << 1

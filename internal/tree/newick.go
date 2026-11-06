@@ -1,4 +1,4 @@
-// Newick parser for the OpenTree synth tree (PLAN §3.1): one pass over the
+// Newick parser for the OpenTree synth tree (ARCHITECTURE §3.1): one pass over the
 // bytes with an explicit stack of open parentheses, no recursion, so a
 // 2.7M-node tree cannot overflow the call stack. Labels are "ottN",
 // "mrcaottNottM" or empty, optionally single-quoted ('' is a quote).

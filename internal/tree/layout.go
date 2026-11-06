@@ -1,4 +1,4 @@
-// The radial layout: where every node sits on the wheel (PLAN §3.2 steps
+// The radial layout: where every node sits on the wheel (ARCHITECTURE §3.2 steps
 // 3–6, §3.3, §3.4), plus its group and LOD level.
 //
 // ComputeLayout takes the parsed Tree and returns a Layout. Leaf counts and

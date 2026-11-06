@@ -1,4 +1,4 @@
-// Search over scientific and common names (PLAN §5.2): FTS5 picks
+// Search over scientific and common names (ARCHITECTURE §5.2): FTS5 picks
 // candidates by bm25, then our own score orders them.
 //
 // The steps: a whole-word pass, then a prefix
@@ -41,7 +41,7 @@ var atOrBelowGenus = [16]string{
 	"infraspecificname",
 }
 
-// SearchHit is one search result (PLAN §5.1).
+// SearchHit is one search result (ARCHITECTURE §5.1).
 type SearchHit struct {
 	NodeRow
 	// Matched is the name that matched: scientific or common.
@@ -80,7 +80,7 @@ func FTSQuery(query string, prefix bool) (string, bool) {
 	return strings.Join(parts, " AND "), true
 }
 
-// Score is the ranking of PLAN §5.2. query is already folded
+// Score is the ranking of ARCHITECTURE §5.2. query is already folded
 // (names.Fold); kind is KindScientific or KindVernacular.
 func Score(query, matched string, kind uint8, node NodeRow) float64 {
 	// Folded like the query, so "onça" equals GBIF's "Onca" and

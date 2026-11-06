@@ -1,4 +1,4 @@
-// The Wikimedia gate (PLAN §6.2): every Wikidata, Wikipedia and Commons
+// The Wikimedia gate (ARCHITECTURE §6.2): every Wikidata, Wikipedia and Commons
 // request passes it first. Two rules, both shared by the whole server:
 //
 //   - A token bucket keeps us at WikimediaRate requests a second on

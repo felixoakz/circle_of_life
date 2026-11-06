@@ -1,5 +1,5 @@
 // Level of detail: which zoom level a node first appears at, and which tile
-// (sector) stores it (PLAN §3.6).
+// (sector) stores it (ARCHITECTURE §3.6).
 //
 // At level L the circle is cut into 2^L equal sectors. A node is introduced
 // at the smallest level where `leafCount · P · 2^L ≥ N`, with N the number

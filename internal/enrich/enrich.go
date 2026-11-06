@@ -1,6 +1,6 @@
 // Package enrich fetches what Wikidata, Wikipedia, Wikimedia Commons, GBIF
 // and iNaturalist know about a node when someone opens its panel, and
-// assembles one attributed /about document (PLAN §6). The server caches the
+// assembles one attributed /about document (ARCHITECTURE §6). The server caches the
 // document in cache.db (internal/server); this package only fetches.
 //
 // The flow, per node:
@@ -46,7 +46,7 @@ import (
 // Synth is the synthesis release, for Open Tree links.
 const Synth = "opentree16.1"
 
-// Timeout is how long each upstream request gets, start to finish (PLAN
+// Timeout is how long each upstream request gets, start to finish (ARCHITECTURE
 // §6.1).
 const Timeout = 4 * time.Second
 
@@ -92,7 +92,7 @@ type Ancestor struct {
 	CachedSummary *Summary
 }
 
-// FallbackRanks are the ranks an article may be borrowed from (PLAN §6.1).
+// FallbackRanks are the ranks an article may be borrowed from (ARCHITECTURE §6.1).
 var FallbackRanks = [3]string{"genus", "family", "order"}
 
 // FallbackTries is how many ancestors to try for an article.
@@ -175,7 +175,7 @@ func (r *Report) Failed() []string {
 	return failed
 }
 
-// Host is which per-host limit a request counts against (PLAN §6.2).
+// Host is which per-host limit a request counts against (ARCHITECTURE §6.2).
 type Host uint8
 
 const (
@@ -602,7 +602,7 @@ func (e *Enricher) ancestorSummary(ctx context.Context, report *Report, taxon Ta
 	return nil
 }
 
-// Minimal is the document for an unnamed (mrca) node: never enriched (PLAN
+// Minimal is the document for an unnamed (mrca) node: never enriched (ARCHITECTURE
 // §6.1), so it costs no upstream request and is not cached. within is the
 // nearest named ancestor's name, "" for none.
 func Minimal(nodeID, within string, leafCount uint32, now int64) About {
@@ -668,7 +668,7 @@ var speciesAndBelow = [5]string{"species", "subspecies", "variety", "form", "for
 
 // GeneratedSentence builds "Pselaphus heisei Herbst, 1791 is a species in
 // the family Staphylinidae. GBIF has 1,881 occurrence records of it from 24
-// countries." from structured data only, so every taxon has one (PLAN
+// countries." from structured data only, so every taxon has one (ARCHITECTURE
 // §6.3). species and occ may be nil.
 func GeneratedSentence(taxon Taxon, species *SpeciesInfo, occ *Occurrences) string {
 	text := taxon.Name

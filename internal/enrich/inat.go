@@ -1,4 +1,4 @@
-// iNaturalist (PLAN §6.1 stage B): a photo for taxa whose Wikidata item
+// iNaturalist (ARCHITECTURE §6.1 stage B): a photo for taxa whose Wikidata item
 // has no image, and the taxon page for the links.
 //
 // Only photos under an open licence we may show in a non-commercial

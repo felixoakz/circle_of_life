@@ -1,4 +1,4 @@
-// GET /api/meta (PLAN §5.1): the document the client loads first. Ingest
+// GET /api/meta (ARCHITECTURE §5.1): the document the client loads first. Ingest
 // stored it as JSON text, so it is sent verbatim, never re-encoded, with
 // Cache-Control: no-cache (a new ingest changes dataVersion).
 //

@@ -1,4 +1,4 @@
-// Wikipedia and Wikimedia Commons (PLAN §6.1 stage B): the article summary
+// Wikipedia and Wikimedia Commons (ARCHITECTURE §6.1 stage B): the article summary
 // (text CC BY-SA 4.0, always attributed and linked) and the licence and
 // author of the Wikidata image.
 //
