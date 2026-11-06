@@ -89,7 +89,7 @@ Everything that floats over the wheel is **smoked glass**: a dark neutral fill o
 | Taxon names | **Source Serif 4 Italic** (variable, wght axis; no optical sizing, see Loading) | 400, 600 for the card title | **italic only for genus, species and infraspecific names** (nomenclatural convention). Higher ranks (Felidae, Mammalia) and authorities (Linnaeus, 1758) are set in Hanken Grotesk roman |
 | Identifiers | **Spline Sans Mono** | 400 | **only** for real ids: OTT, GBIF, NCBI, and coordinates in the debug HUD |
 
-- **Loading.** Fonts are self-hosted via Fontsource (`@fontsource-variable/hanken-grotesk`, `@fontsource-variable/source-serif-4/wght-italic.css`, `@fontsource/spline-sans-mono/400.css`), subset to latin + latin-ext so Portuguese diacritics work. Source Serif uses the `wght-italic` file (about 52 KB latin) rather than `opsz-italic` (130 KB): optical sizing is dropped to keep fonts within the 120 KB budget (PLAN §7.12). `font-display: swap`. Canvas labels wait for `document.fonts.load()`.
+- **Loading.** Fonts are self-hosted via Fontsource (`@fontsource-variable/hanken-grotesk`, `@fontsource-variable/source-serif-4/wght-italic.css`, `@fontsource/spline-sans-mono/400.css`), subset to latin + latin-ext so Portuguese diacritics work. Source Serif uses the `wght-italic` file (about 52 KB latin) rather than `opsz-italic` (130 KB): optical sizing is dropped to keep fonts within the 120 KB budget (ARCHITECTURE §7.12). `font-display: swap`. Canvas labels wait for `document.fonts.load()`.
 - **Never** Inter, Geist, Space Grotesk, Roboto, JetBrains Mono, or system-ui as the design face.
 - **Scale (px):** 11 · 13 · 15 · 22 · 40.
   - 11: meta, credits, the readout
@@ -278,7 +278,7 @@ The empty space beyond the rim is not quite empty: a **polar graticule** in the 
 | Layering | drawn after the tree with the saturating blend, so it only fills light the tree left: it stays behind every branch and the rim's glow. The tree dim and the HUD plates darken it like the tree |
 | Motion | none of its own. It moves only with the wheel; under reduced motion and `?still` it simply follows the (still) wheel. It fades in at the end of the intro reveal |
 
-One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of the list hides it), shaded analytically per pixel (the blurred hue per vertex of a 64 px grid), identical in WebGPU and WebGL2. It costs about 1 ms of GPU time at 2000×1030 on an integrated GPU; spinning stays at 60 fps. All numbers are the `BACKDROP_*` constants in `web/src/style.ts`.
+One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of the list hides it), shaded analytically per pixel (the blurred hue per vertex of a 64 px grid). It costs about 1 ms of GPU time at 2000×1030 on an integrated GPU; spinning stays at 60 fps. All numbers are the `BACKDROP_*` constants in `web/src/style.ts`.
 
 ## 6. Motion
 | What | Duration | Easing |
@@ -322,7 +322,7 @@ One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of t
 - "Couldn’t reach Wikidata. Retry"
 - "Tile failed to load. Retrying…", retried automatically 3× with backoff.
 
-**No GPU drawing (neither WebGPU nor WebGL2):** a static fallback image of the wheel and the sentence "Your browser can’t draw the interactive tree (no WebGPU or WebGL2). Search still works.", with search and the card still functional (the card appears once a result is chosen).
+**No GPU drawing (no WebGL2):** a static fallback image of the wheel and the sentence "Your browser can’t draw the interactive tree (no WebGL2). Search still works.", with search and the card still functional (the card appears once a result is chosen).
 
 **Polytomy:** "412 direct descendants · relationships unresolved". This wording is honest about synth fans.
 
@@ -382,4 +382,4 @@ One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of t
    - **Per state** it opens `?shot&…`, awaits `window.__renderIdle === true`, and saves `screens/<state>@<w>x<h>.png`.
    - **States:** `overview`, `animals`, `mammals`, `deep-homo`, `panel-homo`, `search-open`, `mobile-overview`, `mobile-card`, `reduced`, and the locked-view set `locked-…` (minimum, mid and maximum zoom at 2000×1030, a clade, 1440×900, 1280×800, 390×844 at minimum and deep zoom).
 3. **Review rounds** after P6, P7 and P12. A separate reviewer agent compares the screens against `docs/reference/1-5.png` and §9, then lists concrete deltas such as "rim halo too weak at overview; tip labels too saturated; breadcrumb collides with key at 1280 px". The implementer fixes them. 2–3 rounds at most.
-4. **Optional:** `make lint-design` greps for banned CSS and font tokens (PLAN §10.2): gradients, `text-shadow`, the banned faces, `filter: blur`, radii over 16 px, and any `backdrop-filter` or `box-shadow` other than the glass tokens.
+4. **Optional:** `make lint-design` greps for banned CSS and font tokens (ARCHITECTURE §9.2): gradients, `text-shadow`, the banned faces, `filter: blur`, radii over 16 px, and any `backdrop-filter` or `box-shadow` other than the glass tokens.

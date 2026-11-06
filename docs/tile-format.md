@@ -1,6 +1,6 @@
 # Tile binary format v2
 
-Mirror of PLAN §3.7, with exact byte offsets. The encoder and a reference decoder are in `internal/tiles/tiles.go`; the TypeScript decoder (P5) must agree with them byte for byte on `tests/fixtures/golden_tile.bin`.
+Mirror of ARCHITECTURE §3.7, with exact byte offsets. The encoder and a reference decoder are in `internal/tiles/tiles.go`; the TypeScript decoder (P5) must agree with them byte for byte on `tests/fixtures/golden_tile.bin`.
 
 ## Container
 - One tile holds every node whose LOD level is `level` and whose angle lies in sector `sector` of that level (`sector = level == 0 ? 0 : angle >>> (32 - level)`). Each node is in exactly one tile.
@@ -43,7 +43,7 @@ The tile ends right after `names`: its length is exactly `O + 4(n+1) + names_len
 Records `0 .. internal_count` are internal nodes, records `internal_count .. n` are tips. Each run is sorted by `angle` ascending, ties by `id` ascending (a monotypic chain shares one angle). So the arc pass draws `instanceCount = internal_count`, and picking can binary-search the tips by angle.
 
 ## Tip extent (`first_tip`, new in v2)
-A clade's tips are contiguous on the rim, and tip `k` sits at `angle = ((2k + 1) · 2^31) / N` (PLAN §3.3). So a clade's exact extent on the rim is from the angle of tip `first_tip` to that of tip `first_tip + leaf_count − 1`, with no tile walk. `[arc_lo, arc_hi]` is not that: it runs between the first and last *children's* midpoints, which can stop well short (e.g. *Pan*, whose arc ends at *Pan troglodytes*' midpoint, the middle of its five subspecies). For a tip, `first_tip` is its own rank.
+A clade's tips are contiguous on the rim, and tip `k` sits at `angle = ((2k + 1) · 2^31) / N` (ARCHITECTURE §3.3). So a clade's exact extent on the rim is from the angle of tip `first_tip` to that of tip `first_tip + leaf_count − 1`, with no tile walk. `[arc_lo, arc_hi]` is not that: it runs between the first and last *children's* midpoints, which can stop well short (e.g. *Pan*, whose arc ends at *Pan troglodytes*' midpoint, the middle of its five subspecies). For a tip, `first_tip` is its own rank.
 
 ## Flags (u8)
 | Bit | Mask | Meaning |
@@ -52,7 +52,7 @@ A clade's tips are contiguous on the rim, and tip `k` sits at `angle = ((2k + 1)
 | 1 | 0x02 | named: the node has an OTT taxonomy name (every `ott…` node; never an `mrca…` node) |
 | 2 | 0x04 | species rank (OTT rank is exactly `species`) |
 | 3 | 0x08 | home: Homo sapiens, `ott770315`. In the real tree it has two subspecies, so it is an internal node; the flag sits on the species node itself, not on a tip. Exactly one node has it. |
-| 4–7 | | reserved, always 0. OTT's `extinct` flag is deliberately not carried (PLAN §2.2). |
+| 4–7 | | reserved, always 0. OTT's `extinct` flag is deliberately not carried (ARCHITECTURE §2.2). |
 
 ## Names
 - A named node's entry is its OTT scientific name, e.g. `Homo sapiens`.
