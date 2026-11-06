@@ -426,7 +426,6 @@ web/src/
   camera.ts          double-precision view transform, screen↔world↔polar, uniforms (hi/lo split)
   rig.ts             the locked view (zoom and rotation) and free view, written into the camera (§7.5)
   layout.ts          per-viewport composition: card rectangle, anchor, focus angle, wheel radius
-  orient.ts          auto-orient switch (R, the menu)
   freeview.ts        free view mode switch (F, Esc, the padlock)
   input.ts           pointer/wheel/pinch/keys → rig; drag turns the wheel; flings; double-click zoom
   spin.ts            the wheel's own motion: ambient turn and fling inertia
@@ -452,7 +451,6 @@ web/src/
   picking.ts         CPU hit testing over loaded tiles (doubles)
   hover.ts, path.ts  hover path and tooltip; lineage → arc + radial segments
   nodes.ts           shared cache of /api/nodes answers
-  nav.ts             keyboard tree navigation
   selection.ts       the selection: flights, card, leader, URL, announcements
   inview.ts          "species in view", analytically
   crossfade.ts       the reduced-motion cut's 120 ms crossfade
@@ -465,7 +463,7 @@ web/src/
   ui/search.ts       ⌘K / "/" palette, WAI-ARIA combobox
   ui/panel.ts        the selection card; ui/tabs.ts its tabs; ui/fit.ts fits a tab's content
   ui/about.ts        the card's about tabs (§6); ui/occmap.ts the GBIF density map
-  ui/credits.ts      Data & credits dialog and the wordmark menu; ui/keys.ts the Keyboard dialog
+  ui/credits.ts      Data & credits dialog (opened from the card's "i" button)
   ui/obstacles.ts    every screen area the canvas respects
   styles.css         tokens from DESIGN.md
   *.test.ts          vitest
@@ -520,7 +518,7 @@ Between the rim marks and the path overlay come the **backdrop** (a wheel-linked
 - The rim ring computes it per fragment; lines, fans and marks per vertex.
 
 ### 7.5 Camera, input and auto-orient
-The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** and a **rotation**, and there is no pan. The one exception is the opt-in **free view** (`freeview.ts`; `F` or the padlock beside the zoom strip, DESIGN.md §4.1 "Free view"): drag pans, zoom follows the cursor, and the padlock, `F` or `Esc` fly back to the locked view.
+The view is locked (`rig.ts`, layout in DESIGN.md §4): its state is a **zoom** and a **rotation**, and there is no pan. The one exception is the opt-in **free view** (`freeview.ts`; the padlock beside the zoom strip, DESIGN.md §4.1 "Free view"): drag pans, zoom follows the cursor, and the padlock or `Esc` fly back to the locked view.
 
 - **Composition** (`layout.ts`, per viewport, CSS px; numbers in DESIGN.md §4.1 and §4.3): the card's rectangle, the **anchor** (a screen point on the rim, just below and left of the card), the **focus angle** φ0 (the screen angle from the wheel's centre to the anchor: 30° on desktop, 60° on a phone) and the wheel's radius R0 at minimum zoom, R0 = (anchor.y − 64) / (1 − sin φ0) on desktop, so the rim's top sits under the header.
 - **State:** `scale` (device px per world unit, from R0 to 48 CSS px between tips) and `theta`, the world angle of the rim point on the anchor. The camera is derived: `rot = φ − theta`; the wheel's centre is at `anchor − scale·(cos φ, −sin φ)`; the world point under the screen centre is the anchor's rim point plus the anchor→centre offset turned back by `rot`, so it stays exact at any zoom.
@@ -574,7 +572,7 @@ Placement, sizes, copy and states are in DESIGN.md §4; this is how they are bui
 - **Search palette** (`ui/search.ts`): a WAI-ARIA combobox (input `role=combobox`, `aria-expanded`, `aria-controls`, `aria-activedescendant`; a listbox with `aria-selected`), focus kept in the input. 120 ms debounce, the previous request aborted, answers cached per query, and the active result's node prefetched so choosing starts the flight at once; Enter pressed before the answer takes the first result once it arrives. The tree dims to 50% through an obstacle plate, the label overlay through its opacity. Junk names sort last (`junkLast`); Homo sapiens and its subspecies get the white swatch (`isHomeHit`).
 - **Card** (`ui/panel.ts`): always present, since there is always a selection. A fixed box (`cardHeight`); the composition uses its nominal box, the leader its real one (`Panel.box`). Nothing scrolls: tabs (`ui/tabs.ts`, the ARIA tabs pattern) whose content is fitted to the tab area (`ui/fit.ts`). The head and Tree tab come from `/api/nodes` at once; Overview and Range from `/about` (`ui/about.ts`, `ui/occmap.ts`) after the settle wait (§6.2). A selection arriving by a flight longer than 600 ms switches the card, leader and breadcrumb at 60% of it (`selection.ts` `pending`). Loading is a truthful hairline progress bar, never a spinner.
 - **Leader** (`callout.ts`, on the label canvas): `leaderStart` picks the start on the selection's stem (the screen segment from its ring to the rim) inside the free area, sliding to the rim as a clade's node leaves the screen, or where the ray from the anchor leaves the free area, with an arrowhead; `afterName` moves it past the selection's name (or the name column) once names show; `columnLead` runs a tip's leader along its own row past the name column before it rises. Every step is continuous in the view. Its boxes are soft obstacles for clade text and hard ones for tip names.
-- **Wordmark menu** (`ui/credits.ts` `mountWordmarkMenu`): Data & credits, Keyboard (`ui/keys.ts`), Auto-orient and Tour toggles, and the kingdom key below 720 px.
+- **Data & credits** (`ui/credits.ts`): opened from the "i" at the right of the card's head (`ui/panel.ts`) and from the card's footer. There is no menu; auto-orient and the tour have no switches.
 
 ### 7.11 URL, keyboard, accessibility
 - **URL** (`url.ts`):
@@ -583,7 +581,7 @@ Placement, sizes, copy and states are in DESIGN.md §4; this is how they are bui
   - `&v=a,r,z,rot` is a free view: the polar angle and radius of the world point at the screen centre, the zoom, and the screen rotation in degrees. Links from before the locked view have this form, so they open in free view.
   - A plain visit always opens on Homo sapiens at minimum zoom; nothing is restored from storage.
 - **Flags:** `?shot` skips the intro and hides the cursor; `?reduced` forces reduced motion; `?still` stops the wheel's own motion; `?tour=<s>` sets the tour's dwell; `?debug` shows a HUD (frame time, tiles, instances, λ, V); `?debug=precision` runs the jitter test (§7.2). Renderer flags are in §7.13.
-- **Keys:** `/` or `⌘K` opens search; `Esc` closes the topmost layer (search, dialog, menu) or leaves free view, and never clears the selection; `+`/`-` zoom about the anchor; `↑` or `Backspace` selects the nearest named ancestor, `↓` the largest child, `←`/`→` siblings in the card's largest-first order, wrapping (`nav.ts`; only the 50 listed siblings are reachable in a polytomy); `H` flies back to Homo sapiens; `R` toggles auto-orient; `F` toggles free view.
+- **Keys:** `/` or `⌘K` opens search; `Esc` closes the topmost layer (search, dialog) or leaves free view, and never clears the selection. The zoom strip (a slider) and the card's tabs keep their ARIA keys. There are no other shortcuts.
 - **Accessibility:** the canvas has `role="img"` with a live `aria-label`; selection is announced through an `aria-live="polite"` region in words ("Felidae, family, 91 species."; tour steps are not); DOM order puts the card right after the header; search is a WAI-ARIA combobox; the card is an `<aside>` with real headings; focus rings are visible; contrast is AA.
 - **No WebGL2** (`fallback.ts`, forced with `?nowebgl`): a 1080² still of the default overview (`web/public/fallback.webp`, 96 KB, generated by the shot script) with the DESIGN §7 sentence; search, the card and Data & credits work without the scene.
 

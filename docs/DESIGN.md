@@ -64,11 +64,11 @@ Everything that floats over the wheel is **smoked glass**: a dark neutral fill o
 | Token | Value | Use |
 |---|---|---|
 | `--glass-fill` | `oklch(0.18 0 0 / 0.56)` | card, search bar, zoom reset |
-| `--glass-fill-dense` | `oklch(0.16 0 0 / 0.70)` | text-dense layers that open over anything: search palette, wordmark menu, dialogs, tooltip; the search bar and reset on hover |
+| `--glass-fill-dense` | `oklch(0.16 0 0 / 0.70)` | text-dense layers that open over anything: search palette, dialogs, tooltip; the search bar and reset on hover |
 | `--glass-filter` | `blur(24px) saturate(1.6) brightness(0.7)` | the backdrop of large surfaces |
 | `--glass-filter-small` | `blur(12px) saturate(1.6) brightness(0.7)` | the tooltip and the reset button |
 | `--glass-edge` | `oklch(1 0 0 / 0.11)` | the 1 px border of every glass surface |
-| `--glass-edge-strong` | `oklch(1 0 0 / 0.20)` | the search bar at rest (`/ 0.32` on hover), the reset button on hover, the tour's Stop |
+| `--glass-edge-strong` | `oklch(1 0 0 / 0.20)` | the search bar at rest (`/ 0.32` on hover), the reset button on hover |
 | `--glass-highlight` | `inset 0 1px 0 0 oklch(1 0 0 / 0.06)` | a 1 px inner top highlight: the only `box-shadow` allowed |
 | `--glass-hover` / `--glass-active` | `oklch(1 0 0 / 0.06)` / `/ 0.10` | hover rows and buttons / the active tab and search row |
 | `--glass-text-3` | `oklch(0.65 0 0)` | `--text-3` inside glass (set on each glass surface) |
@@ -76,7 +76,7 @@ Everything that floats over the wheel is **smoked glass**: a dark neutral fill o
 | `--radius-l` / `-m` / `-s` / `-media` | 14 / 10 / 6 / 8 px | card, palette, dialogs / search bar, menu, tooltip, tab track / rows, buttons, reset / the photo and the Range map |
 
 **Rules**
-- **One layer deep.** Glass never sits on glass, except the docked search palette over the card while it is open. HUD text (wordmark, breadcrumb, readout, key, zoom strip ticks) gets no plate: the renderer darkens the tree behind it instead (§4.1).
+- **One layer deep.** Glass never sits on glass, except the docked search palette over the card while it is open. HUD text (breadcrumb, readout, key, zoom strip ticks) gets no plate: the renderer darkens the tree behind it instead (§4.1).
 - **Few blurred boxes.** `backdrop-filter` re-blurs its area every frame the canvas changes (the wheel turns all the time), so it goes only on the card, the search bar, the palette, the menu, the dialogs, the tooltip and the reset button: at most three at once in practice. Blur radii stay at 24 px and 12 px.
 - **Legibility.** The fill and the backdrop's `brightness(0.7)` keep text over the brightest blurred rim at AA: `--text-1` and `--text-2` comfortably; `--text-3` is lifted to `--glass-text-3` on glass so 11 px meta stays at about 4.5:1 there too.
 - **Fallbacks.** Without `backdrop-filter` (`@supports not`), under `prefers-reduced-transparency: reduce` and under `prefers-contrast: more` the fills become opaque `--surface`; more contrast also brightens the edges to `--text-3` / `--text-2`. Shapes and radii stay.
@@ -130,15 +130,15 @@ Everything that floats over the wheel is **smoked glass**: a dark neutral fill o
 - **Zooming in, the wheel slides left.** Over the whole zoom, from minimum zoom to the point where tips are 4 px apart, the anchor drifts left, slowly and evenly (smoothstep in log zoom; about 15 px per wheel notch at most on a 2000 px screen), from its minimum-zoom place to at most 33% of the width and at least 360 px left of the card. By mid zoom it has already moved a little; at deep zoom the rim sits at about a third of the width. What sits at the anchor stays on it while the anchor glides.
 - **Deep zoom:** as tips spread from 0.25 to 4 px apart the focus angle eases from 30° to 0°, so the rim runs vertically through the anchor, each branch runs into its species name and names read left to right (1.png). The column of names ends well clear of the card: the rows beside the card keep their full names (a genus is abbreviated, "P. leo", only as a last resort).
 
-**Free view** (opt-in; the locked view stays the default). The padlock beside the zoom strip's reset button, or `F`, lets go of the composition so any part of the wheel, the inner branches too, can be reached (`freeview.ts`, `rig.ts`):
+**Free view** (opt-in; the locked view stays the default). The padlock beside the zoom strip's reset button lets go of the composition so any part of the wheel, the inner branches too, can be reached (`freeview.ts`, `rig.ts`):
 - Nothing moves on the way in: the free view starts from the picture as it is. Drag pans (the point under the pointer stays under it; no fling). The wheel, a pinch and double-click zoom about the cursor or the fingers' midpoint, to the same maximum zoom; `+`/`-` and the strip zoom about the screen centre. Shift + drag turns the picture about the point where the drag began (right is clockwise); two fingers twisting turn it about their midpoint. The screen centre stays within half a screen of the rim, so the wheel cannot be lost.
 - No anchor and no motion of its own: the ambient turn, the idle tour, auto-orient's easing and the anchor's drift are all off. Hover, click to select (the view stays put), the card, labels and the leader work as ever; an off-screen selection's leader points from the screen centre.
-- The way back: the padlock again, `Esc` (once no search, dialog or menu is open: they close first) or `F` fly back to the locked view (the fly-to path; a cut under reduced motion). With the selection free view began with, it returns to the very pose it left; with a new one, to the zoom that suits it, as search would. Search, the breadcrumb, the key, the arrow keys, `H` and reset fly back the same way. Any input during the flight back stops it, still free.
-- The padlock: the reset button's glass, 28 px (40 px on a phone), 4 px to its right; shut while locked, open in `--text-1` with the `--glass-edge-strong` edge while free. A toggle button labelled "Free view" (`aria-pressed`). On the canvas the cursor is the move cursor while free.
+- The way back: the padlock again, or `Esc` (once no search or dialog is open: they close first) flies back to the locked view (the fly-to path; a cut under reduced motion). With the selection free view began with, it returns to the very pose it left; with a new one, to the zoom that suits it, as search would. Search, the breadcrumb, the key, the arrow keys, `H` and reset fly back the same way. Any input during the flight back stops it, still free.
+- The padlock: the reset button's glass, 40 px with a 20 px icon, 4 px to its right; shut while locked, open in `--text-1` with the `--glass-edge-strong` edge while free. A toggle button labelled "Free view" (`aria-pressed`). On the canvas the cursor is the move cursor while free.
 
 **Placement**
 - **Margins** are 16 px at the edges, on an 8 px grid.
-- **Top-left: the wordmark** "Circle of Life", Hanken Grotesk 500 at 13 px in `--text-1`. Clicking it opens a glass menu (§2.3; dense fill, radius 10 px, rows as 6 px-radius plates on hover; ↑/↓ move, Esc closes): "Data & credits", "Keyboard" (a dialog listing §8's keys in two columns), "Auto-orient: on", "Tour: on" (not under reduced motion) and, below 720 px, the six kingdoms (6 px swatch + name), which are the key's place on a phone.
+- **No wordmark or menu.** The name is the page's `h1`, visually hidden (screen readers keep it); the top-left corner is empty. Data & credits opens from an "i" button at the right of the card's head (24 px target, a 16 px circled-i icon in 1 px strokes, `--text-3`, `--text-1` on hover), the copy button sitting beside the title. The dialog is a dense-glass sheet up to 960 px wide (88% of the height at most): a 22 px title with a one-line subtitle, a row of three figures between hairlines (tips, species, the OpenTree release; 26 px tabular numbers over 11 px `--text-3` labels), then the sources in two columns at 14 px `--text-2` under 11 px uppercase tracked headings (one column, 13 px, on a phone). Links are `--text-1`, underlined in `--text-3`. Auto-orient and the idle tour are always on (the tour off under reduced motion and `?still`); there are no switches for them.
 - **Top-right: the search bar**, the way in that newcomers must not miss: exactly as wide as the card and aligned to its edges, 40 px tall, 8 px above it (12 px from the top). A glass field (§2.3) with a 1 px `--glass-edge-strong` border, radius 10 px: a 16 px magnifier, "Search 2.3M species" at 15 px in `--text-2`, and the `/` key hint (a 4 px-radius hairline keycap) at the right. Hover and focus brighten the border, densen the fill and turn the text `--text-1` (plus the focus ring).
 - **Right: the card**, from 62% of the width to the 16 px gutter, its top at 60 px (under the search bar). A fixed box, down to min(60% of the height, height − 152 px, top + 560 px). The composition (the anchor) is built round its nominal box, down to 40% of the height (at least 340 × 240 px); the leader and the labels follow the card's real box. **Nothing in it scrolls:** under its head are tabs, and each tab's content is fitted to the tab area (§4.2).
   - Glass (§2.3): `--glass-fill`, a 1 px `--glass-edge` border, the inner top highlight, radius 14 px, no drop shadow. It fades in once (200 ms) with the first selection and never closes: there is always a selection, *Homo sapiens* to begin with, and no close button. The leader meets its straight left (or bottom) edge at least 24 px from a corner, clear of the rounding.
@@ -152,17 +152,17 @@ Everything that floats over the wheel is **smoked glass**: a dark neutral fill o
   - Line 2 is the readout, at 11 px in `--text-3` with tabular numbers: "6,495 species in view · OpenTree 16.1" (below 720 px just the count). The LOD level is debug information and lives in `?debug`. In its place, in this order:
     - while the first view loads: "Loading tree · 9 / 15 tiles", with " · slow connection" after 8 s;
     - in free view: "Free view · 6,495 species in view · Esc to return" (the count only while some of the rim is on screen; no "Esc to return" on touch screens, where the open padlock is the way back);
-    - while the idle tour runs: "Touring · 6,495 species in view · Stop", "Stop" a small rounded button (`--text-1` on `--glass-hover`, a 1 px `--glass-edge-strong` border, radius 10 px, no blur) that switches the tour off (the wordmark menu switches it on again);
+    - while the idle tour runs: "Touring · 6,495 species in view" (any input stops it);
     - on a first visit (once per session, not for `?shot`), until the first input: "Drag to turn · scroll or use the strip to zoom · click a branch" ("pinch … tap" on touch screens).
   - Breadcrumb segments and key entries are at least 24 px tall to hit (WCAG 2.5.8), with no change to the text.
-- **No plates.** HUD text and its text controls are flat DOM with no background (the zoom reset is the one glass button, and the tour's Stop a small rounded button). The renderer darkens the tree behind each HUD box (85%, 8 px padding, a 20 px soft edge), so the text reads over bright bars without boxes cutting the glow. The boxes come from one shared registry (`ui/obstacles.ts`) that the card and search use too.
-- **Left edge: the zoom strip.** A slim vertical scale, 16 px from the left edge, two thirds of the window's height, centred on it (or as near as the header and the bottom HUD allow, with room for the "+" above and the "−" and reset button below), like the side of a scroll wheel: 1 px ticks every 8 px in `--hairline-solid`, every fifth one longer in `--text-3`; a 2 px `--text-1` thumb; the reading beside it at 11 px in `--text-2`, tabular, shown only while the strip is hovered, focused or dragged (150 ms fade; the focus ring goes round the reading, not the whole scale). A "+" above the top tick and a "−" below the bottom one (11 px `--text-3`, `--text-1` on hover) step it by 20% and say which end is which. The tree behind it darkens to 60% (lighter than the text's 85%: it is mostly ticks). The top is 100% (maximum zoom), the bottom 2% (minimum zoom, the composition a plain visit opens on); in between it is logarithmic in zoom, so every step feels the same. Drag it to zoom about the anchor, click a point to fly there, scroll over it to zoom; it is a slider for the keyboard (↑/↓ 5%, Page Up/Down 20%, Home/End). It follows every other zoom live. The reset button (28 px, glass with the small blur, radius 6 px, the ⟲ icon) sits under it and returns to minimum zoom, keeping the selection (from free view, in the locked view); the free view padlock sits beside it (§4.1 "Free view"). Its value text reads "2%, minimum zoom" at the bottom. Flat, no plate: the tree is darkened behind it like the rest of the HUD.
+- **No plates.** HUD text and its text controls are flat DOM with no background (the zoom strip's reset and padlock are the glass buttons). The renderer darkens the tree behind each HUD box (85%, 8 px padding, a 20 px soft edge), so the text reads over bright bars without boxes cutting the glow. The boxes come from one shared registry (`ui/obstacles.ts`) that the card and search use too.
+- **Left edge: the zoom strip.** A slim vertical scale, 16 px from the left edge, two thirds of the window's height, centred on it (or as near as the header and the bottom HUD allow, with room for the "+" above and the "−" and reset button below), like the side of a scroll wheel: 1 px ticks every 8 px in `--hairline-solid`, every fifth one longer in `--text-3`; a 2 px `--text-1` thumb; the reading beside it at 11 px in `--text-2`, tabular, shown only while the strip is hovered, focused or dragged (150 ms fade; the focus ring goes round the reading, not the whole scale). A "+" above the top tick and a "−" below the bottom one (11 px `--text-3`, `--text-1` on hover) step it by 20% and say which end is which. The tree behind it darkens to 60% (lighter than the text's 85%: it is mostly ticks). The top is 100% (maximum zoom), the bottom 2% (minimum zoom, the composition a plain visit opens on); in between it is logarithmic in zoom, so every step feels the same. Drag it to zoom about the anchor, click a point to fly there, scroll over it to zoom; it is a slider for the keyboard (↑/↓ 5%, Page Up/Down 20%, Home/End). It follows every other zoom live. The reset button (40 px with a 20 px icon, glass with the small blur, radius 6 px, the ⟲ icon) sits under it and returns to minimum zoom, keeping the selection (from free view, in the locked view); the free view padlock sits beside it (§4.1 "Free view"). Its value text reads "2%, minimum zoom" at the bottom. Flat, no plate: the tree is darkened behind it like the rest of the HUD.
 - **Bottom-right: the kingdom key:** a 6 px swatch plus the name at 11 px, in clockwise order round the default view (Animals, Fungi, Plants, Protists, Bacteria, Archaea). Clicking an entry selects that group and flies to it.
 - **While dragging,** the chrome drops to 40% opacity over 150 ms.
 
 ### 4.2 Card content: a head and tabs
 ```
-Panthera onca ⧉                                          ← serif italic 22/600 (higher ranks: sans 22/600); ⧉ a 24 px button beside it, text-3
+Panthera onca ⧉                                          ← serif italic 22/600 (higher ranks: sans 22/600); ⧉ a 24 px button beside it, text-3: a 14 px icon of two offset squares in 1 px strokes, like the padlock
 Jaguar                                                   ← the common name, sentence case: 15 text-1 (13 on a phone); none, no line
 species · in Felidae · Linnaeus, 1758                    ← 13 text-2 (authority roman, once the about section loads)
 You are here                                             ← 13 text-2, Homo sapiens only
@@ -189,7 +189,7 @@ Tree:     Lineage  … › Mammalia › Carnivora › Felidae   ← the nearest 
 - An unnamed node is titled "Unnamed clade", with "within *Felidae*" underneath.
 - *Homo sapiens* carries a "You are here" line under its rank (13 px, `--text-2`); while it is the selection, its leader replaces the canvas callout.
 - The lead text is cut to whole sentences that fit the first screen beside the image (a long first sentence is kept whole up to half again that), so it ends on a full stop, not an ellipsis mid-line.
-- A source that failed says so where its part would be, in 13 px `--text-3` with "Retry" in `--text-2` (the image's place, under the text, under "Where it lives"). `--danger` is only for the whole about request failing. What is simply missing ("No photo on Wikimedia Commons or iNaturalist.") goes last, at 11 px `--text-3`.
+- A source that failed says so where its part would be, in 13 px `--text-3` with "Retry" in `--text-2` (the image's place, under the text, under "Where it lives"). `--danger` is only for the whole about request failing. What is simply missing ("No occurrence records on GBIF.") goes last, at 11 px `--text-3`; a missing image is simply left out, with no note.
 - A new selection's content fades in over 200 ms when it arrives part-way through a flight (§6).
 
 ### 4.3 Mobile (< 720 px, and any portrait window)
@@ -198,7 +198,7 @@ Tree:     Lineage  … › Mammalia › Carnivora › Felidae   ← the nearest 
 │ Circle of Life       [/] │
 │┌────────────────────────┐│
 ││ Homo sapiens         ⧉ ││  ← the card: full width less 12 px gutters,
-││ species · in Homininae ││    30% of the height (200–300 px), compact
+││ species · in Homininae ││    36% of the height (248–348 px), compact
 ││ summary …     [image]  ││
 │└────────┬───────────────┘│
 │         │  leader        │
@@ -210,12 +210,12 @@ Tree:     Lineage  … › Mammalia › Carnivora › Felidae   ← the nearest 
 │ 214 species in view      │
 └──────────────────────────┘
 ```
-- **The card spans the top**, under the header, full width less 12 px gutters, 30% of the height (200–300 px), a fixed box like the desktop one, with the same head and tabs. It is compact: 10/12 px padding, an 18 px title, 13 px body text with title line height in the head, a 32 px tab row whose tabs are 40 px to hit, the image at 36%, the Range map beside its lines.
-- **The search bar** takes the rest of the top row beside the wordmark (40 px tall, same style as desktop, no `/` hint): it is in line with the wordmark, so neither the card nor the wheel moves down for it, and it is the widest, most obvious thing at the top.
+- **The card spans the top**, under the header, full width less 12 px gutters, 36% of the height (248–348 px), a fixed box like the desktop one, with the same head and tabs. It is compact: 10/12 px padding, an 18 px title, 13 px body text with title line height in the head, a 32 px tab row whose tabs are 40 px to hit, the image as a 76 px square in the head beside the name (the tab area is too short for one beside the text), its credit a one-line "Image: licence · author" under the article's source line, the Range map beside its lines.
+- **The search bar** takes the whole top row (40 px tall, same style as desktop, no `/` hint), so neither the card nor the wheel moves down for it, and it is the widest, most obvious thing at the top.
 - **The wheel sits below.** The anchor is 88 px under the card, at 60° from the wheel's centre; the centre sits low near the left edge (86% of the height) and the rim's right edge stops 20 px inside the screen, so the rim fills the space under the card and its focus area is just below it. At deep zoom the rim turns vertical at the anchor, as on desktop, and the anchor drifts left to 30% of the width, so names running right fit without abbreviation.
 - **The leader** runs up at 60° from the selection to an elbow 20 px under the card, then vertically into the card's bottom edge.
-- The kingdom key is reachable from the wordmark menu (its kingdom rows). Touch targets are at least 40 px. The bottom HUD (breadcrumb, readout) stays at the bottom. The card never grows past its 30% box (the wheel's focus is right under it).
-- **The zoom strip** runs down the left edge, 20 px in (clear of the system's edge swipe), from 48 px under the card (room for the "+") down to the room the "−" and reset button need above the bottom HUD: all the space there is (about 36% of an 844 px phone; two thirds does not fit under the card), with a 40 px wide touch target, 40 × 24 px "+" and "−" steps and the 40 px reset button under it, clear of the bottom HUD. Touches on it zoom; the wheel's own drag and pinch work everywhere else.
+- There is no kingdom key on a phone. Touch targets are at least 40 px. The bottom HUD (breadcrumb, readout) stays at the bottom. The card never grows past its 36% box (the wheel's focus is right under it).
+- **The zoom strip** runs down the left edge, 20 px in (clear of the system's edge swipe), from 48 px under the card (room for the "+") down to the room the "−" and reset button need just above the breadcrumb (64 px from the bottom: a phone has no kingdom key): all the space there is (about 36% of an 844 px phone; two thirds does not fit under the card), with a 40 px wide touch target, 40 × 24 px "+" and "−" steps and the 40 px reset button under it, clear of the bottom HUD. Touches on it zoom; the wheel's own drag and pinch work everywhere else.
 
 ### 4.4 Search palette
 ```
@@ -286,13 +286,13 @@ One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of t
 | Intro radial reveal (once, only when landing on the default view (no `n`, no `v`); not for deep links, `?shot` or `?debug`) | 900 ms, starting once the coarse tiles are in, then labels/HUD fade 200 ms | `cubic-bezier(0.2, 0, 0, 1)` |
 | Fly-to (van Wijk–Nuij along the rim, ρ 1.4): search, lineage, keys | 600–2000 ms ∝ path length | built-in smooth; skippable by any input |
 | Turn to a clicked node (zoom kept) | 250–900 ms ∝ distance on screen | smoothstep; skippable by any input |
-| Auto-orient | follows the zoom (no tween); toggling it eases 400 ms | ease-in-out |
+| Auto-orient | follows the zoom (no tween; always on) | – |
 | Card (first show) / palette | 160–220 ms, opacity (palette + 8 px translate) | `cubic-bezier(0.2, 0, 0, 1)` |
 | Label fade | 150 ms | linear |
 | Chrome dim while dragging | 150 ms | linear |
 | Ambient turn (idle) | 20 CSS px/s at the anchor at every zoom, clockwise (about one turn in 4 min at minimum zoom); stops on any input, eases back in 3 s after the last one (0.8 s after a flight, card hover or search ends) over 2 s | friction, τ 400 ms |
 | Fling (release of a turning drag or a two-finger twist) | spins on at the release speed, decays into the ambient turn | friction, τ 400 ms |
-| Idle tour | 15 s after a plain visit, then after 12 s on each selection, the next species from a curated list (shuffled, no repeats until all are seen), a ≥ 2.4 s turn at the same zoom; any input stops it, it resumes after 36 s without input; pointer movement in the last 3 s, a touch in the last 30 s, the pointer resting on the card, focus in the card, scrolling it, a text selection, search, a dialog, a flight or a hidden tab hold its countdown (a pointer resting on the wheel does not). It runs on phones too. While it runs the readout says "Touring · … · Stop"; Stop and the wordmark menu's "Tour: on/off" switch it | fly-to path |
+| Idle tour | 15 s after a plain visit, then after 12 s on each selection, the next species from a curated list (shuffled, no repeats until all are seen), a ≥ 2.4 s turn at the same zoom; any input stops it, it resumes after 36 s without input; pointer movement in the last 3 s, a touch in the last 30 s, the pointer resting on the card, focus in the card, scrolling it, a text selection, search, a dialog, a flight or a hidden tab hold its countdown (a pointer resting on the wheel does not). It runs on phones too. While it runs the readout says "Touring · …"; there is no switch | fly-to path |
 | Card on a long flight | a selection whose flight lasts over 600 ms switches the card, the leader and the breadcrumb at 60% of the flight (the wheel mostly there), its content fading in over 200 ms; the leader stays on, following the old selection until then | `cubic-bezier(0.2, 0, 0, 1)` |
 | Wheel zoom | immediate, anchored at the anchor (not the cursor); in free view about the cursor | — |
 | −, + and double-click zoom | 220 ms, about the anchor (free view: the screen centre; double-click the cursor) | ease-out cubic |
@@ -307,13 +307,12 @@ One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of t
 ## 7. States and copy
 **Loading**
 - Shows the coarse tree first: level 0–3 tiles render as they arrive.
-- A 1 px hairline progress bar at the top, with a truthful label in the readout: "Loading tree · 9 / 15 tiles" (" · slow connection" after 8 s). The wordmark, the search trigger and the readout show from the first frame; only the breadcrumb, the key, the zoom strip and the card wait for the intro.
+- A 1 px hairline progress bar at the top, with a truthful label in the readout: "Loading tree · 9 / 15 tiles" (" · slow connection" after 8 s). The search trigger and the readout show from the first frame; only the breadcrumb, the key, the zoom strip and the card wait for the intro.
 - No spinners, no shimmer and no skeletons.
 
 **Panel about-section loading:** a hairline progress line under the title and the text "Fetching from Wikipedia, GBIF…". Core data shows immediately.
 
 **Missing data:**
-- "No photo on Wikimedia Commons or iNaturalist."
 - "No Wikipedia article. About the genus *X*:"
 - "No occurrence records on GBIF."
 
@@ -333,19 +332,16 @@ One pass over the screen (`?passes=backdrop` draws it alone; leaving it out of t
   - Tooltip content: the name in its correct style, then "species · 1" or "family · 3,214 species" in `--text-2`.
   - Tooltip style: glass (§2.3), dense fill, small blur, radius 10 px, 8 px offset.
 - **Click or tap** selects the node: the card shows it, the URL gets `?n=ott…`, and the wheel turns so the node lands on the anchor, at the same zoom. There is no empty state; nothing deselects.
-- **Left alone**, the wheel turns slowly and, after 15 s, the idle tour moves the selection to another species every 12 s (§6), saying so in the readout with a Stop button. Any input stops the tour for 36 s; a released drag flings the wheel.
-- **Drag** turns the wheel about its centre (never pans). **Wheel**, **pinch**, `+`/`-` and the buttons zoom about the anchor; **two fingers twisting** turn the wheel.
+- **Left alone**, the wheel turns slowly and, after 15 s, the idle tour moves the selection to another species every 12 s (§6), saying so in the readout. Any input stops the tour for 36 s; a released drag flings the wheel.
+- **Drag** turns the wheel about its centre (never pans). **Wheel**, **pinch** and the zoom strip zoom about the anchor; **two fingers twisting** turn the wheel.
 - **In free view** (§4.1) drag pans, the wheel and a pinch zoom about the cursor, shift + drag and a twist turn about the pointer, and a click selects without moving the view.
-- **Search, lineage, breadcrumb, kingdom key and the arrow keys** select and fly: turn the node onto the anchor and zoom to suit it (leaving free view).
+- **Search, lineage, breadcrumb and kingdom key** select and fly: turn the node onto the anchor and zoom to suit it (leaving free view).
 - **Keys:**
   - `/` or `⌘K` search
-  - `Esc` closes the topmost layer (search, dialog, menu); with none open, it leaves free view; it never clears the selection
-  - `↑`/`Backspace` parent (the nearest named one: unnamed clades are stepped over), `↓` largest child, `←`/`→` siblings
-  - `H` "You are here"
-  - `R` auto-orient
-  - `F` free view on and off
-  - `+`/`-` zoom; on the zoom strip, `↑`/`↓`, `Page Up`/`Page Down`, `Home`/`End`
-- **Focus:** a visible 1 px `--focus` ring with 2 px offset on every interactive element. No `outline: none` without a replacement. Tab goes wordmark, search, the card, then the breadcrumb, the key and the zoom strip.
+  - `Esc` closes the topmost layer (search, dialog); with none open, it leaves free view; it never clears the selection
+  - on the zoom strip (a slider), `↑`/`↓`, `Page Up`/`Page Down`, `Home`/`End`; in the card's tabs, `←`/`→`, `Home`/`End`
+  - nothing else: no single-letter shortcuts
+- **Focus:** a visible 1 px `--focus` ring with 2 px offset on every interactive element. No `outline: none` without a replacement. Tab goes search, the card, then the breadcrumb, the key and the zoom strip.
 - **Announcements** (the live region) say the selection in words: "Homo sapiens, species, 2 subspecies. You are here.", "Felidae, family, 91 species."
 - **Deep links** restore the selection (`n`, default *Homo sapiens*) and the view (`v=a,z`: rotation and zoom). Free view writes the pan too (`v=a,r,z,rot`: the screen centre's angle and radius, the zoom, the rotation in degrees), and such a link opens in free view; so do old links from before the locked view.
 

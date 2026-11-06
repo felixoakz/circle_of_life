@@ -150,15 +150,15 @@ Useful URL flags: `?n=ott770315` selects a node, `?debug` shows frame times, `?d
 
 ### Controls
 
-| Input | Locked view (default) | Free view (`F` or the padlock) |
+| Input | Locked view (default) | Free view (the padlock) |
 |---|---|---|
-| Scroll, pinch, `+`/`-` | zoom about the selection | zoom about the cursor (keys: the screen centre) |
+| Scroll, pinch | zoom about the selection | zoom about the cursor |
 | Drag | turn the wheel | pan; Shift + drag turns |
 | Click | select and turn it into place | select, the view stays put |
 | `/` or Ctrl+K | search | search (choosing a result flies back to the locked view) |
 | `Esc` | close search or dialogs | fly back to the locked view |
 
-Arrow keys walk the tree (parent, largest child, siblings), `H` returns to *Homo sapiens*, `R` toggles auto-orient.
+Data & credits opens from the "i" on the card. There are no other shortcuts or settings to learn.
 
 ### Settings
 
