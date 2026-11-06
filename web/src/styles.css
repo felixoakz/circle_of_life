@@ -183,7 +183,6 @@ button {
  * behind it with a soft edge (ui/obstacles.ts), so it stays legible over
  * bright tip bars without boxes cutting the glow.
  */
-.wordmark,
 .breadcrumb,
 .readout {
   width: fit-content;
@@ -203,7 +202,7 @@ button {
 
 /*
  * During the intro (and the loading before it) only the breadcrumb and the
- * kingdom key wait; the wordmark, the search trigger and the readout's
+ * kingdom key wait; the search trigger and the readout's
  * truthful "Loading tree · 9 / 15 tiles" show from the first frame.
  */
 .breadcrumb,
@@ -216,23 +215,6 @@ button {
   opacity: 0;
 }
 
-/* "Touring · … · Stop": the only control in the readout. */
-.readout .readout-stop {
-  padding: 1px 8px;
-  margin: -2px 0;
-  border: 1px solid var(--glass-edge-strong);
-  border-radius: var(--radius-m);
-  background: var(--glass-hover);
-  font-size: inherit;
-  color: var(--text-1);
-  pointer-events: auto;
-}
-
-.readout .readout-stop:hover {
-  background: var(--glass-active);
-}
-
-.readout-tour[hidden],
 .readout-version[hidden] {
   display: none;
 }
@@ -264,20 +246,12 @@ button {
 .hud-top {
   top: var(--edge);
   align-items: flex-start;
-  /* Its menu opens over the card (which comes later in the page, for Tab order). */
   z-index: 2;
 }
 
 .hud-bottom {
   bottom: var(--edge);
   align-items: flex-end;
-}
-
-.wordmark {
-  font-size: var(--fs-13);
-  font-weight: 500;
-  line-height: var(--lh-title);
-  color: var(--text-1);
 }
 
 /* While dragging, the chrome steps back (DESIGN.md §4.1). */
@@ -545,6 +519,19 @@ button {
   top: -26px;
 }
 
+/* Reset and the free view switch: 40 px with 20 px icons on every screen, so they read beside the strip. */
+.zoom-reset,
+.zoom-free {
+  width: 40px;
+  height: 40px;
+}
+
+.zoom-reset svg,
+.zoom-free svg {
+  width: 20px;
+  height: 20px;
+}
+
 .zoom-reset {
   position: absolute;
   left: -6px;
@@ -554,7 +541,7 @@ button {
 /* The free view switch (ui/freebutton.ts): beside the reset button, the same glass. */
 .zoom-free {
   position: absolute;
-  left: 26px;
+  left: 38px;
 }
 
 /* Pressed (free view): the open padlock in text-1, the edge brighter. */
@@ -591,7 +578,7 @@ button {
   opacity: 1;
 }
 
-/* Mobile: the kingdom key moves to the wordmark menu (DESIGN.md §4.3). */
+/* Mobile: no kingdom key, and no data version in the readout (DESIGN.md §4.3). */
 @media (max-width: 719px) {
   .kingdom-key,
   .readout-version {
@@ -822,7 +809,7 @@ button {
   cursor: default;
 }
 
-/* Copy the name: a 24 px target beside the title, the glyph in text-3. */
+/* Copy the name: a 24 px target beside the title, the icon in text-3. */
 .panel .copy {
   flex: none;
   width: 24px;
@@ -832,13 +819,32 @@ button {
   border-radius: var(--radius-s);
   background: none;
   color: var(--text-3);
-  font-family: var(--font-sans);
-  font-size: var(--fs-13);
-  line-height: 24px;
+  display: grid;
+  place-items: center;
   cursor: pointer;
 }
 
 .panel .copy:hover {
+  color: var(--text-1);
+}
+
+/* Data & credits: an "i" at the head's right, like the copy button (text-3, 24 px target). */
+.panel-info {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.panel-info:hover {
   color: var(--text-1);
 }
 
@@ -924,7 +930,7 @@ button {
   margin-top: 0;
 }
 
-/* What is simply missing ("No photo on …"), last and small. */
+/* What is simply missing ("No occurrence records on GBIF."), last and small. */
 .about-note {
   margin-top: 12px;
   font-size: var(--fs-11);
@@ -1284,6 +1290,10 @@ button {
   gap: 12px;
 }
 
+.panel.compact .ov-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .panel.compact .panel-tabs,
 .panel.compact .panel-tabbody {
   margin-top: 8px;
@@ -1313,6 +1323,40 @@ button {
   line-height: var(--lh-title);
 }
 
+/*
+ * Phone: the image is a square in the head, beside the name and its lines
+ * (the tab area is too short for one beside the text); its credit is a line
+ * of the Overview text, cut with an ellipsis.
+ */
+.panel.compact .panel-head.has-image {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+}
+
+.panel.compact .panel-head.has-image > * {
+  grid-column: 1;
+}
+
+.panel.compact .panel-head.has-image > .panel-head-image {
+  grid-column: 2;
+  grid-row: 1 / span 4;
+  align-self: start;
+  margin: 0;
+}
+
+.panel.compact .panel-head-image .about-image {
+  width: 76px;
+  height: 76px;
+  aspect-ratio: 1;
+}
+
+.panel.compact .about-image-source {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .panel.compact .panel-context,
 .panel.compact .panel-lead,
 .panel.compact .about-lead {
@@ -1329,6 +1373,8 @@ button {
 .search-slot {
   width: var(--search-w, auto);
   margin-top: -4px;
+  /* The only visible thing in the top row (the name is a hidden heading): to the right, over the card. */
+  margin-left: auto;
 }
 
 .search-trigger {
@@ -1614,11 +1660,10 @@ button {
 
 /* Mobile: the palette near the top (the keyboard takes the bottom), two-line rows, 40 px targets. */
 @media (max-width: 719px) {
-  /* The bar takes the rest of the top row, beside the wordmark. */
+  /* The bar takes the whole top row (the name is only the page's heading). */
   .search-slot {
     flex: 1 1 auto;
     min-width: 0;
-    margin-left: var(--space-2);
   }
 
   .search-key {
@@ -1751,90 +1796,12 @@ button {
   white-space: pre;
 }
 
-/* ---- Wordmark menu and Data & credits (ui/credits.ts; DESIGN.md §4.1, §7) ---- */
+/* ---- Data & credits (ui/credits.ts; DESIGN.md §7) ---- */
 
-.wordmark-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wordmark-menu {
-  position: absolute;
-  top: 24px;
-  left: 0;
-  min-width: 180px;
-  padding: 4px;
-}
-
-.wordmark-menu[hidden] {
-  display: none;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  width: 100%;
-  padding: 6px 12px;
-  border: 0;
-  background: none;
-  color: var(--text-1);
-  font-size: var(--fs-13);
-  text-align: left;
-  cursor: pointer;
-}
-
-.menu-item:hover {
-  background: var(--glass-hover);
-}
-
-.menu-item .swatch {
-  width: 6px;
-  height: 6px;
-  flex: none;
-}
-
-/* The kingdom rows: the key's place on a phone only (DESIGN.md §4.3). */
-.menu-compact {
-  display: none;
-}
-
-@media (max-width: 719px) {
-  .menu-compact {
-    display: flex;
-  }
-
-  .menu-item {
-    min-height: 40px;
-  }
-}
-
-/* The Keyboard dialog (ui/keys.ts): keys left, what they do right. */
-.keys-list {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 8px var(--space-2);
-  margin: var(--space-2) 0 0;
-}
-
-.keys-list dt {
-  color: var(--text-1);
-  white-space: pre;
-}
-
-.keys-list dd {
-  margin: 0;
-  color: var(--text-2);
-}
-
+/* Data & credits: wide, the figures up front, the sources in two columns (one on a phone). */
 .credits {
-  width: min(560px, calc(100% - 32px));
-  max-height: min(80vh, 720px);
+  width: min(960px, calc(100% - 32px));
+  max-height: min(88vh, 900px);
   padding: 0;
   color: var(--text-1);
 }
@@ -1847,37 +1814,116 @@ button {
 .credits-head {
   display: flex;
   flex: none;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 12px var(--space-2);
-  border-bottom: 1px solid var(--hairline);
+  gap: var(--space-2);
+  padding: 28px 32px 0;
 }
 
 .credits-title {
-  font-size: var(--fs-15);
+  font-size: 22px;
   font-weight: 600;
   line-height: var(--lh-title);
 }
 
-.credits-body {
-  overflow-y: auto;
-  padding: 0 var(--space-2) var(--space-2);
-  font-size: var(--fs-13);
-}
-
-.credits-heading {
-  margin: var(--space-2) 0 4px;
-  font-size: var(--fs-13);
-  font-weight: 500;
+.credits-sub {
+  margin-top: 6px;
+  font-size: var(--fs-15);
+  line-height: var(--lh-body);
   color: var(--text-2);
 }
 
+.credits-stats {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 24px 32px 0;
+  padding: 20px 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.credits-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.credits-stat-value {
+  font-size: 26px;
+  font-weight: 500;
+  line-height: var(--lh-title);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.credits-stat-label {
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.credits-body {
+  overflow-y: auto;
+  padding: 8px 32px 32px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-2);
+  columns: 2;
+  column-gap: 48px;
+}
+
+.credits-section {
+  break-inside: avoid;
+  padding-top: 20px;
+}
+
+.credits-heading {
+  margin: 0 0 8px;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
 .credits-section p + p {
-  margin-top: 6px;
+  margin-top: 8px;
+}
+
+@media (max-width: 719px) {
+  .credits-head {
+    padding: 20px 20px 0;
+  }
+
+  .credits-title {
+    font-size: 18px;
+  }
+
+  .credits-sub {
+    font-size: var(--fs-13);
+  }
+
+  .credits-stats {
+    margin: 16px 20px 0;
+    padding: 14px 0;
+    gap: 12px;
+  }
+
+  .credits-stat-value {
+    font-size: 17px;
+  }
+
+  .credits-body {
+    columns: 1;
+    padding: 0 20px 24px;
+    font-size: var(--fs-13);
+  }
 }
 
 .credits a {
-  color: inherit;
+  color: var(--text-1);
   text-decoration: underline;
   text-decoration-color: var(--text-3);
   text-underline-offset: 2px;
@@ -1899,7 +1945,6 @@ button {
 .panel,
 .search-trigger,
 .search,
-.wordmark-menu,
 .credits,
 .tooltip,
 .zoom-reset,
@@ -1914,7 +1959,6 @@ button {
 /* On glass the least text is a step lighter (the backdrop is never pure black). */
 .panel,
 .search,
-.wordmark-menu,
 .credits,
 .tooltip {
   --text-3: var(--glass-text-3);
@@ -1922,7 +1966,6 @@ button {
 
 /* Text-dense layers that open over anything: a denser fill. */
 .search,
-.wordmark-menu,
 .credits,
 .tooltip {
   background: var(--glass-fill-dense);
@@ -1943,7 +1986,6 @@ button {
 }
 
 .search-trigger,
-.wordmark-menu,
 .tooltip {
   border-radius: var(--radius-m);
 }
@@ -1975,11 +2017,6 @@ button {
 .zoom-free:hover {
   border-color: var(--glass-edge-strong);
   background: var(--glass-fill-dense);
-}
-
-/* Menu rows: inset plates inside the menu's padding. */
-.wordmark-menu .menu-item {
-  border-radius: var(--radius-s);
 }
 
 /* Dialogs dim the page flatly: a full-screen blur would cost a pass over the whole window. */

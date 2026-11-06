@@ -40,15 +40,16 @@ const WHEEL_RATE = 0.0015;
 /** A press that moves less than this (CSS px) is a click: fly there. */
 const CLICK_SLOP = 4;
 /**
- * Room under the scale for the "−" step and the reset button (28 px; 40 px
- * on a phone), and above the bottom HUD (breadcrumb, readout), CSS px. The
+ * Room under the scale for the "−" step and the reset button (40 px), and above the bottom HUD (breadcrumb, readout), CSS px. The
  * reset button's top is RESET_GAP under the scale.
  */
-const RESET_ROOM = 60;
+const RESET_ROOM = 72;
 const COMPACT_RESET_ROOM = 76;
 const RESET_GAP = 30;
 const COMPACT_RESET_GAP = 34;
 const BOTTOM_ROOM = 96;
+/** A phone's bottom HUD is only the breadcrumb and readout (no kingdom key): the buttons sit just above it. */
+const COMPACT_BOTTOM_ROOM = 64;
 /** Desktop: the scale's top at least this far down (under the header, the "+" above it). */
 const TOP_ROOM = 72;
 /** Tick spacing along the strip, CSS px, and a long tick every MAJOR_EVERY (calmer on the long scale). */
@@ -97,7 +98,7 @@ export function stripBox(l: Layout, h: number): Box {
   if (l.compact) {
     // Room above it for the "+" step, under the card.
     const top = l.card.y1 + COMPACT_TOP;
-    const bottom = h - BOTTOM_ROOM - COMPACT_RESET_ROOM;
+    const bottom = h - COMPACT_BOTTOM_ROOM - COMPACT_RESET_ROOM;
     const len = Math.max(MIN_LEN, Math.min(h * LEN_SHARE, bottom - top));
     return { x0, x1, y0: top, y1: top + len };
   }

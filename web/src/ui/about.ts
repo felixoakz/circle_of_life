@@ -11,8 +11,8 @@
 // facts list, and the per-source credits into the footer; the panel places
 // those parts (ui/panel.ts).
 //
-// Every missing part says so in DESIGN.md §7's words, quietly at the end
-// ("No photo on Wikimedia Commons or iNaturalist."). A source that failed
+// Every missing part says so in DESIGN.md §7's words, quietly at the end,
+// except a missing image, which is simply left out. A source that failed
 // gets "Couldn't reach X. Retry" in text-3 where its part would be (the
 // image, the text, the map) rather than pretending there is nothing; only
 // a whole failure (aboutError) is in --danger.
@@ -171,6 +171,11 @@ export interface AboutView {
   credits: Child[][];
   /** Whether a map is loading (the panel stays busy until `settled`). */
   map: boolean;
+  /**
+   * Phone only: the image, square, for the card's head (beside the name), or
+   * null. Its credit line is then in the Overview text instead.
+   */
+  headImage: HTMLElement | null;
 }
 
 /** Room under the map for the records, countries and credit lines, CSS px. */
@@ -207,6 +212,7 @@ export function aboutView(
   const section: HTMLElement[] = [];
   const text: HTMLElement[] = [];
   let figure: HTMLElement | null = null;
+  let imageCredit: HTMLElement | null = null;
   const credits: Child[][] = [];
   const failed = new Set(doc.failed);
   const notes: HTMLElement[] = [];
@@ -226,7 +232,7 @@ export function aboutView(
   if (img) {
     figure = el('figure', 'about-figure');
     const fig = figure;
-    if (img.about) figure.append(el('p', 'about-label', ['Image of ', ...aboutName(img.about), ':']));
+    if (img.about && !compact) figure.append(el('p', 'about-label', ['Image of ', ...aboutName(img.about), ':']));
     // Commons renders SVG diagrams (Human.svg) as PNGs with transparent
     // backgrounds: dark line art that would vanish on black. They go on a
     // light plate, whole (contain), like a herbarium sheet.
@@ -241,24 +247,34 @@ export function aboutView(
       pic.height = img.height;
     }
     // A broken image link leaves only the credit; better nothing at all.
-    pic.addEventListener('error', () => fig.remove(), { once: true });
+    pic.addEventListener('error', () => {
+      fig.remove();
+      imageCredit?.remove();
+    }, { once: true });
     // "Image", not "Photo": Commons files are often drawings or plates.
-    const credit = el('figcaption', 'about-credit', ['Image: ']);
-    if (img.credit) credit.append(link(img.pageUrl, img.credit), ' · ');
-    credit.append(img.licenseUrl ? link(img.licenseUrl, img.license) : img.license, ' · ');
-    credit.append(img.credit ? img.source : link(img.pageUrl, img.source));
-    figure.append(pic, credit);
+    const licence = img.licenseUrl ? link(img.licenseUrl, img.license) : img.license;
+    if (compact) {
+      // A phone's tab is too short for an image beside the text: it goes to
+      // the head as a square (panel.ts), and its credit is one line of the text.
+      imageCredit = el('p', 'about-source about-image-source', ['Image: ', licence, ' · ', link(img.pageUrl, img.credit || img.source)]);
+      figure.append(pic);
+    } else {
+      const credit = el('figcaption', 'about-credit', ['Image: ']);
+      if (img.credit) credit.append(link(img.pageUrl, img.credit), ' · ');
+      credit.append(licence, ' · ');
+      credit.append(img.credit ? img.source : link(img.pageUrl, img.source));
+      figure.append(pic, credit);
+    }
     credits.push([`Image: ${img.credit ? `${img.credit}, ` : ''}${img.license} via ${img.source}`]);
   } else if (imageFailed.length > 0) {
     text.push(notice(imageFailed, hooks.retry));
-  } else {
-    notes.push(el('p', 'about-note', ['No photo on Wikimedia Commons or iNaturalist.']));
   }
+  // No image and no failure: nothing at all, not even a note.
 
   // Text: the article, or the generated sentence plus a borrowed article.
   // Cut to whole sentences; the panel takes sentences off until it fits
   // (data-full keeps the whole extract for that).
-  const textWidth = img ? area.width * 0.6 - 16 : area.width;
+  const textWidth = img && !compact ? area.width * 0.6 - 16 : area.width;
   const perLine = textWidth * CHARS_PER_PX;
   const sum = doc.summary;
   if (sum && !sum.about) {
@@ -354,9 +370,16 @@ export function aboutView(
   const rest = doc.failed.filter((f) => !placed.has(f));
   if (rest.length > 0) text.push(notice(rest, hooks.retry));
   text.push(...notes);
-  // Overview: the text column, and the image beside it (no image, the text takes the width).
+  // A phone's image credit follows the article's source line.
+  if (imageCredit) {
+    const at = text.findIndex((t) => t.classList.contains('about-source'));
+    text.splice(at < 0 ? text.length : at + 1, 0, imageCredit);
+  }
+  // Overview: the text column, and the image beside it (no image, or a
+  // phone's image in the head: the text takes the width).
   const column = el('div', 'ov-text', text);
-  const overview = [el('div', figure ? 'ov' : 'ov ov-solo', figure ? [column, figure] : [column])];
+  const beside = figure && !compact ? figure : null;
+  const overview = [el('div', beside ? 'ov' : 'ov ov-solo', beside ? [column, beside] : [column])];
 
   // Links out (the facts list's "Links" row).
   const out: [string, string | null][] = [
@@ -381,6 +404,7 @@ export function aboutView(
     links: links.childNodes.length > 0 ? links : null,
     credits,
     map,
+    headImage: compact ? figure : null,
   };
 }
 

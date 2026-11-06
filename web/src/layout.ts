@@ -67,9 +67,9 @@ const CARD_MAX_BOTTOM = 0.6;
 const CARD_MAX_BOTTOM_ROOM = 152;
 const CARD_MAX_H = 560;
 /** Phone card height: this share of the height, within bounds. */
-const COMPACT_CARD_H = 0.3;
-const COMPACT_CARD_MIN_H = 200;
-const COMPACT_CARD_MAX_H = 300;
+const COMPACT_CARD_H = 0.36;
+const COMPACT_CARD_MIN_H = 248;
+const COMPACT_CARD_MAX_H = 348;
 /** Room between the anchor and the card: the leader runs here. */
 const ANCHOR_LEFT = 72;
 const ANCHOR_BELOW = 28;

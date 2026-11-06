@@ -50,6 +50,13 @@ export function rankWord(rank: string | null): string | null {
   return rank && !rank.startsWith('no rank') ? rank : null;
 }
 
+/** "i" in a circle, 1 px strokes on the 16 px grid the other icons use. */
+const INFO_ICON =
+  '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+  '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1"/>' +
+  '<path d="M8 7v4.5" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
+  '<circle cx="8" cy="4.9" r="0.75" fill="currentColor"/></svg>';
+
 /** The root ("cellular organisms") reads as Life, as in the breadcrumb. */
 function displayName(e: { id: number; name: string | null }): string | null {
   return e.id === 0 ? 'Life' : e.name;
@@ -296,7 +303,12 @@ export class Panel {
   private header(title: HTMLElement): HTMLElement {
     title.id = 'panel-title';
     title.tabIndex = -1;
-    return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title])]);
+    // Data & credits, at the head's right on every card: the only menu there is.
+    const info = el('button', { className: 'panel-info', title: 'Data & credits', label: 'Data & credits' });
+    info.type = 'button';
+    info.innerHTML = INFO_ICON;
+    info.addEventListener('click', () => this.hooks.credits());
+    return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title, info])]);
   }
 
   /** Fits tab `id`'s content to the tab area, if it is the one on show. */
@@ -322,15 +334,21 @@ export class Panel {
     const head = this.header(title);
     if (named) {
       // Beside the title, not inside it: the heading reads as the name alone.
-      const copy = el('button', { className: 'copy', title: 'Copy the name', label: 'Copy the name' }, ['⧉']);
+      const copy = el('button', { className: 'copy', title: 'Copy the name', label: 'Copy the name' });
       copy.type = 'button';
+      // Two offset squares, drawn like the padlock (1 px strokes on a 16 px grid):
+      // the ⧉ glyph rendered at text size read as a broken image.
+      copy.innerHTML =
+        '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
+        '<rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1"/>' +
+        '<path d="M10.5 3.5v-1h-8v8h1" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
       copy.addEventListener('click', () => {
         void navigator.clipboard?.writeText(n.name ?? n.nodeId).then(
           () => (copy.title = 'Copied'),
           () => (copy.title = 'Copy failed'),
         );
       });
-      head.querySelector('.panel-title-row')?.append(copy);
+      title.after(copy);
     }
 
     // The lead: the common name, what most visitors know it by (GBIF's from
@@ -484,6 +502,13 @@ export class Panel {
       overview.replaceChildren(...view.overview);
       range.replaceChildren(...(view.range ?? []));
       this.holdRetry(this.tabs.body);
+      // A phone's image sits in the head, beside the name (about.ts).
+      for (const old of slots.head.querySelectorAll('.panel-head-image')) old.remove();
+      slots.head.classList.toggle('has-image', view.headImage !== null);
+      if (view.headImage) {
+        view.headImage.classList.add('panel-head-image');
+        slots.head.append(view.headImage);
+      }
       const lead = slots.head.querySelector('.panel-lead');
       if (lead && view.common) lead.textContent = view.common;
       const meta = slots.head.querySelector('.panel-meta');
