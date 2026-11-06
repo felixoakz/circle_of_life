@@ -3,6 +3,8 @@
 // A toggle button (aria-pressed), labelled "Free view". It follows the mode
 // every frame, however it changed (Esc, a search flying back).
 
+import { track } from '../analytics';
+
 const LOCK_PATH = 'M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2';
 const OPEN_PATH = 'M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0';
 
@@ -24,7 +26,11 @@ export class FreeButton {
     b.type = 'button';
     b.className = 'ctl zoom-free';
     b.setAttribute('aria-label', 'Free view');
-    b.addEventListener('click', toggle);
+    b.addEventListener('click', () => {
+      // Counted when it opens free view, not when it closes it.
+      if (b.getAttribute('aria-pressed') !== 'true') track('free-view');
+      toggle();
+    });
     this.el = b;
     this.show(false);
   }

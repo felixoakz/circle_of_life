@@ -29,6 +29,7 @@
 // renderer (one more obstacle plate, ui/obstacles.ts) and the label overlay
 // with it; the palette itself is opaque, with no blur.
 
+import { track } from '../analytics';
 import { fetchSearch } from '../api';
 import { type NameRun, nameRuns } from '../names';
 import type { Obstacle, Obstacles } from './obstacles';
@@ -614,6 +615,7 @@ export class SearchPalette {
     const hit = this.rows[index];
     if (!hit) return;
     this.close(false);
+    track('search', { name: hit.name ?? hit.nodeId });
     this.opts.choose(hit);
   }
 

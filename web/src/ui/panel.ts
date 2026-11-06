@@ -19,6 +19,7 @@
 // The card is an obstacle (ui/obstacles.ts): labels keep clear of it. It
 // is opaque, so the tree is not darkened behind it.
 
+import { track } from '../analytics';
 import type { Box } from '../labelLayout';
 import { type NameRun, isPlaceholderName, nameRuns, nameSpans } from '../names';
 import type { About, ChildEntry, LineageEntry, NodeInfo } from '../types';
@@ -307,7 +308,10 @@ export class Panel {
     const info = el('button', { className: 'panel-info', title: 'Data & credits', label: 'Data & credits' });
     info.type = 'button';
     info.innerHTML = INFO_ICON;
-    info.addEventListener('click', () => this.hooks.credits());
+    info.addEventListener('click', () => {
+      track('credits');
+      this.hooks.credits();
+    });
     return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title, info])]);
   }
 
