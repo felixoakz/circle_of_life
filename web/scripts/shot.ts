@@ -144,10 +144,9 @@ function showTab(tab: 'overview' | 'range' | 'tree'): (page: Page) => Promise<vo
   };
 }
 
-/** Opens Data & credits from the wordmark menu. */
+/** Opens Data & credits from the card's "i" button. */
 async function openCredits(page: Page): Promise<void> {
-  await page.click('.wordmark-button');
-  await page.click('.menu-item');
+  await page.click('.panel-info');
   await page.waitForTimeout(300);
 }
 
@@ -323,7 +322,7 @@ const STATES: State[] = [
   // Free view (DESIGN.md §4.1): the padlock pressed on the default view, then
   // the inner tree round Rhabditophora (a class at r 0.71), turned so the rim
   // is up and at an arbitrary rotation, and deep zooms off and on the rim.
-  { name: 'free-button-2000', width: 2000, height: 1030, query: () => '', act: (page) => page.keyboard.press('f') },
+  { name: 'free-button-2000', width: 2000, height: 1030, query: () => '', act: (page) => page.click('.zoom-free') },
   { name: 'free-mobile', width: 390, height: 844, dpr: 2, query: () => '', act: (page) => page.click('.zoom-free') },
   {
     name: 'free-mid-rhabditophora-2000',
