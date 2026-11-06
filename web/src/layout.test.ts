@@ -38,7 +38,8 @@ describe('layoutFor', () => {
     expect(l.compact).toBe(true);
     expect(l.card.x0).toBe(12);
     expect(l.card.x1).toBe(378);
-    expect(l.card.y1).toBeLessThan(844 * 0.4);
+    // The card (36% of the height, at most 348 px) ends under 45% of it.
+    expect(l.card.y1).toBeLessThan(844 * 0.45);
     // Anchor under the card; the rim's right edge inside the screen.
     expect(l.anchor.y).toBeGreaterThan(l.card.y1);
     expect(l.anchor.x).toBeGreaterThan(0);

@@ -10,7 +10,7 @@
 //                       zooms, Esc keeps the selection, a click selects and
 //                       turns the node onto the anchor, an old pan link parses
 //   card and chrome     the card's head (common name lead, no copy glyph in
-//                       the heading), the wordmark menu's Keyboard dialog,
+//                       the heading), the "i" button's Data & credits,
 //                       the empty search palette's Try rows, the announcer
 //   boot failure        /api/meta failing shows "Couldn’t load the tree. Reload"
 //   card tabs           the tabs pattern (roles, roving tabindex, ←/→/Home/End
@@ -141,7 +141,7 @@ async function motionChecks(browser: Browser): Promise<void> {
     const hop = await cardTitle(page);
     assert.match(page.url(), /n=ott\d+/, 'the tour step is in the URL');
     assert.equal(await page.evaluate(() => history.length), historyBefore, 'tour steps replace history, not push');
-    console.log(`     tour: Homo sapiens → ${hop.replace(' ⧉', '')}`);
+    console.log(`     tour: Homo sapiens → ${hop}`);
 
     // An input stops it: nothing changes for well over a dwell.
     await page.keyboard.press('Shift');
@@ -287,9 +287,11 @@ async function freeViewChecks(page: Page): Promise<void> {
   assert.equal(await button.getAttribute('aria-label'), 'Free view');
   const p0 = await pose(page);
 
-  await page.keyboard.press('f');
+  await button.click();
   await page.waitForFunction(() => window.__scene?.rig.isFree() === true, null, { timeout: TIMEOUT });
-  assert.equal(await button.getAttribute('aria-pressed'), 'true', 'F opens the padlock');
+  // The padlock follows the mode on the next frame.
+  await page.waitForFunction(() => document.querySelector('.zoom-free')?.getAttribute('aria-pressed') === 'true', null, { timeout: TIMEOUT });
+  assert.equal(await button.getAttribute('aria-pressed'), 'true', 'the padlock opens');
   await page.waitForFunction(() => document.querySelector('.readout')?.textContent?.startsWith('Free view'), null, {
     timeout: TIMEOUT,
   });
@@ -370,14 +372,11 @@ async function chromeChecks(page: Page): Promise<void> {
   });
   assert.ok(order.card >= 0 && order.card < order.crumb, 'the card comes before the breadcrumb in Tab order');
 
-  // The wordmark menu: Keyboard opens a dialog, Esc closes it.
-  await page.click('.wordmark-button');
-  const labels = await page.locator('.menu-item').allTextContents();
-  for (const want of ['Data & credits', 'Keyboard', 'Auto-orient: on']) assert.ok(labels.includes(want), `menu has ${want}`);
-  await page.locator('.menu-item', { hasText: 'Keyboard' }).click();
-  await page.waitForSelector('dialog.keys[open]');
+  // The card's "i" opens Data & credits; Esc closes it.
+  await page.click('.panel-info');
+  await page.waitForSelector('dialog.credits[open]');
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !document.querySelector('dialog.keys[open]'));
+  await page.waitForFunction(() => !document.querySelector('dialog.credits[open]'));
 
   // The empty palette offers species to try.
   await page.keyboard.press('/');
@@ -513,14 +512,13 @@ async function cardTabChecks(browser: Browser): Promise<void> {
         }
       }
       if (w < 720) {
-        // Phone: the search bar fills the top row beside the wordmark.
+        // Phone: the search bar fills the top row.
         const row = await p.evaluate(() => {
           const t = document.querySelector('.search-trigger')?.getBoundingClientRect();
-          const m = document.querySelector('.wordmark')?.getBoundingClientRect();
           const c = document.querySelector('#panel')?.getBoundingClientRect();
-          return t && m && c ? { h: t.height, after: t.left - m.right, right: innerWidth - t.right, above: c.top - t.bottom } : null;
+          return t && c ? { h: t.height, left: t.left, right: innerWidth - t.right, above: c.top - t.bottom } : null;
         });
-        assert.ok(row && row.h >= 38 && row.after >= 8 && row.right <= 20 && row.above >= 4, `phone search bar ${JSON.stringify(row)}`);
+        assert.ok(row && row.h >= 38 && row.left <= 20 && row.right <= 20 && row.above >= 4, `phone search bar ${JSON.stringify(row)}`);
       }
     } finally {
       await p.close();
@@ -564,8 +562,8 @@ async function main(): Promise<void> {
       await drawnChecks(page);
     });
     await run(browser, 'interactions: zoom, turn, select', '?reduced&debug', interactionChecks, false);
-    await run(browser, 'free view: F, pan, zoom about the cursor, Esc, padlock', '?reduced&debug', freeViewChecks, false);
-    await run(browser, 'card head, menu, empty palette, live region', '?reduced', chromeChecks, false);
+    await run(browser, 'free view: padlock, pan, zoom about the cursor, Esc', '?reduced&debug', freeViewChecks, false);
+    await run(browser, 'card head, credits, empty palette, live region', '?reduced', chromeChecks, false);
     await bootFailureCheck(browser);
     await cardTabChecks(browser);
     await run(

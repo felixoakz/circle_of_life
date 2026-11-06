@@ -38,7 +38,7 @@ describe('zoom scale', () => {
       const b = stripBox(l, h);
       expect(b.y0).toBeGreaterThanOrEqual(l.compact ? l.card.y1 : 56);
       // Scale, "−" and the reset button stay above the breadcrumb band.
-      expect(b.y1 + (l.compact ? 76 : 60)).toBeLessThanOrEqual(h - 96);
+      expect(b.y1 + (l.compact ? 76 : 60)).toBeLessThanOrEqual(h - (l.compact ? 64 : 96));
       expect(b.y1 - b.y0).toBeGreaterThanOrEqual(80);
       // The "+" step above it stays under the header (desktop) or the card (phone).
       expect(b.y0 - 26).toBeGreaterThanOrEqual(l.compact ? l.card.y1 : 44);
@@ -53,8 +53,8 @@ describe('zoom scale', () => {
     ] as const) {
       const b = stripBox(layoutFor(w, h), h);
       expect(b.y1 - b.y0).toBeCloseTo((2 * h) / 3, 6);
-      // Centred, or as near as the bottom HUD allows.
-      expect(Math.abs((b.y0 + b.y1) / 2 - h / 2)).toBeLessThanOrEqual(10);
+      // Centred, or as near as the bottom HUD and the 40 px buttons under it allow.
+      expect(Math.abs((b.y0 + b.y1) / 2 - h / 2)).toBeLessThanOrEqual(20);
     }
     // A short window: as much as fits between the header and the HUD.
     const b = stripBox(layoutFor(1280, 720), 720);
@@ -65,6 +65,6 @@ describe('zoom scale', () => {
     const l = layoutFor(390, 844);
     const b = stripBox(l, 844);
     expect(b.y0).toBe(l.card.y1 + 48);
-    expect(b.y1).toBe(844 - 96 - 76);
+    expect(b.y1).toBe(844 - 64 - 76);
   });
 });

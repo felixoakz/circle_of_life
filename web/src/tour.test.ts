@@ -63,20 +63,6 @@ describe('tour state', () => {
     tour.interact(3100);
     expect(tour.touring()).toBe(false);
   });
-
-  it('switches off and on from the menu', () => {
-    const seen: string[] = [];
-    const tour = new Tour(0, 1000);
-    tour.go = (id) => seen.push(id);
-    tour.setEnabled(false, 0);
-    for (let t = 0; t < 5000; t += 100) tour.step(t);
-    expect(seen.length).toBe(0);
-    tour.setEnabled(true, 5000);
-    tour.step(5999);
-    expect(seen.length).toBe(0);
-    tour.step(6000);
-    expect(seen.length).toBe(1);
-  });
 });
 
 describe('tour list', () => {
