@@ -1,4 +1,4 @@
-# Project tasks (PLAN §10.1). Run `make help` for the list.
+# Project tasks (ARCHITECTURE §9.1). Run `make help` for the list.
 
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -18,7 +18,7 @@ RAW       := data/raw
 BIN := bin/species
 
 .PHONY: help fetch-data fetch-gbif ingest ingest-mini golden server server-mini web dev \
-        test check lint-design shot shot-parity smoke build bin docker
+        test check lint-design shot smoke build bin docker
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -28,7 +28,7 @@ fetch-data: ## Download the synth tree and OTT 3.7.3 into data/raw (skips existi
 	test -f $(RAW)/labelled_supertree.tre || curl -fL -o $(RAW)/labelled_supertree.tre $(SYNTH_URL)
 	test -f $(RAW)/ott3.7.3/taxonomy.tsv || { curl -fL -o $(RAW)/ott3.7.3.tgz $(OTT_URL) && tar -xzf $(RAW)/ott3.7.3.tgz -C $(RAW) && rm $(RAW)/ott3.7.3.tgz; }
 
-fetch-gbif: ## Download the GBIF backbone (971 MB) for common names (P11)
+fetch-gbif: ## Download the GBIF backbone (971 MB) for common names
 	mkdir -p $(RAW)
 	@# Download to a .part file and resume it (-C -) if interrupted; rename only when complete.
 	test -f $(RAW)/backbone.zip || { curl -fL -C - -o $(RAW)/backbone.zip.part $(GBIF_URL) && mv $(RAW)/backbone.zip.part $(RAW)/backbone.zip; }
@@ -36,7 +36,7 @@ fetch-gbif: ## Download the GBIF backbone (971 MB) for common names (P11)
 bin: ## Static Go binary bin/species (no cgo)
 	CGO_ENABLED=0 go build -o $(BIN) ./cmd/species
 
-# Common names come from backbone.zip when it is there (`make fetch-gbif`, P11).
+# Common names come from backbone.zip when it is there (`make fetch-gbif`).
 ingest: bin ## Build data/tree.db from the full data (+ common names if backbone.zip is present)
 	./$(BIN) ingest --tree $(RAW)/labelled_supertree.tre \
 		--taxonomy $(RAW)/ott3.7.3/taxonomy.tsv \
@@ -88,13 +88,6 @@ lint-design: ## Grep web/src for banned design tokens (DESIGN.md §9)
 
 shot: ## Playwright screenshots into screens/ (needs a fresh web build and the server running)
 	pnpm -C web shot
-
-# WebGPU against WebGL on the same states (docs/plan-webgpu.md §5): shots in
-# screens/{webgl,webgpu}/, heatmaps and report.json in screens/diff/, exit 1
-# over the thresholds. STATES="overview mammals" picks states.
-STATES ?=
-shot-parity: ## WebGL vs WebGPU screenshots and pixel diffs (server running, as for shot)
-	SHOT_RENDERER=both pnpm -C web shot $(STATES)
 
 # Starts its own server on SMOKE_PORT, so it is not part of `check`. Its data
 # dir is a fresh temporary one by default: data/$(SMOKE_DB) linked in (the

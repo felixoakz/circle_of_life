@@ -1,5 +1,5 @@
-// Per-pixel comparison of two screenshots for the renderer parity check
-// (docs/plan-webgpu.md §5). `diffImages` is pure; `decodePng` decodes a PNG
+// Per-pixel comparison of two screenshots (`SHOT_COMPARE`, scripts/shot.ts).
+// `diffImages` is pure; `decodePng` decodes a PNG
 // in a Playwright page (`<img>` → canvas → `getImageData`), so no image
 // library is needed.
 
