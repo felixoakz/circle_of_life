@@ -4,7 +4,7 @@ The complete tree of life on one zoomable wheel: every one of the 2.39 million t
 
 ![The opening view: the animal and fungal sides of the wheel, with Homo sapiens selected and its lineage traced from the centre to the rim](docs/images/overview.webp)
 
-<!-- live demo: TODO -->
+**Live: [lifecircle.fx-labs.tech](https://lifecircle.fx-labs.tech)**
 
 Every known lineage sits on one circle, about 2.3 million species from bacteria to blue whales. The centre is the common ancestor of all cellular life, each branch splits into the groups that descend from it, and every species ends on the rim. You start on your own species, *Homo sapiens*, and can scroll from the whole of life down to a single species, where the names read like a list.
 
@@ -18,33 +18,16 @@ Click any branch and a card shows what it is: a photo, a short description from 
 
 ## Technical highlights
 
-**Drawing 2.39 million tips at interactive frame rates.** The wheel cannot be sent to the browser whole, and most of it is sub-pixel at any given zoom. Ingest cuts the tree into *additive angular tiles*: level L splits the circle into 2^L sectors, and each node is stored exactly once, at the first level where its clade is wide enough to see. Lmax works out to 13; the full tree is 14,973 tiles, 48 MB gzipped. The client fetches only the levels and sectors in view (at most 6 in flight, coarse levels first, stale requests aborted), keeps an LRU of 400 tiles, and fades each level in over its zoom range so nothing pops. A proven bound on how far an arc can reach past its own sector means the client widens its range by a fixed margin and never misses a branch. Frame time on an integrated AMD GPU (WebGL2) ranges from 1.3 to 7.8 ms across the 14 benchmark views, inside an 8 ms budget.
-
-**A custom binary tile format.** Tiles are little-endian struct-of-arrays with every array 4-byte aligned, so the browser views them directly as `Uint32Array`/`Float32Array` and WebGL2 uploads each tile's bytes once as a single buffer, with every vertex attribute pointing at its array's byte offset, without copies. Angles are u32 fixed point (1.46e-9 rad resolution), so differences wrap correctly in unsigned arithmetic and a sector lookup is a bit shift. One golden tile is checked byte for byte by the Go encoder and the TypeScript decoder. Spec: [`docs/tile-format.md`](docs/tile-format.md).
-
-**Raw WebGL2, instanced drawing, a pure frame plan.** The renderer is raw WebGL2 with GLSL shaders, no library. The tree passes are instanced draws straight from the tile buffers (one instance per node for branches, arcs, rim marks and tip dots, one per fan for the frontier fans); the rim ring, the backdrop and the dim plates have no vertex data and compute their corners from `gl_VertexID`. What to draw is decided by a pure function, the frame plan (`render/plan.ts`): which tiles to skip at zero fade, how finely to subdivide arcs, where the fans split, which highlight paths to draw. The renderer only turns its commands into GL calls, so all of that logic is unit-tested without a GPU. Browsers without WebGL2 get a still image of the wheel, where search and the card still work.
-
-**Float precision at extreme zoom.** At maximum zoom tips are 48 px apart and the rim is about 115 million pixels around. Float32 world coordinates would shake by several pixels. The camera stays in JavaScript doubles; the shader gets the camera angle as a u32 and the camera radius as a hi/lo float pair, and computes each vertex relative to the camera, with `r·cos Δθ − R` rewritten as `(r − R) − 2r·sin²(Δθ/2)` to avoid catastrophic cancellation. A built-in test page (`?debug=precision`) pans at maximum zoom and measures how far lines move between frames: at most 0.22 px on the integrated GPU.
-
-**Ingest: three sources into one SQLite file in about 50 seconds.** `species ingest` reads the Newick synthesis tree (31 MB), the OTT taxonomy (417 MB, 4.5M rows) and, optionally, GBIF's 971 MB backbone for common names. It writes a single `tree.db` (650 MB) with the layout, the tiles, every node, and an FTS5 index of 2.85 million scientific and common names. Peak memory is about 1.2 GB. The tree is an arena: parallel slices indexed by `uint32` instead of pointer-linked nodes, which keeps 2.7 million nodes cheap for the garbage collector. The Newick parser is a hand-written byte scanner with an explicit stack instead of recursion; taxonomy lines are split with `bytes.Cut`, so the 2 million taxonomy rows not in the tree allocate nothing. Common names join through the integer GBIF ids OTT already carries, never by fuzzy name matching. Ingest is deterministic: a test builds the fixture database twice and compares every row and tile byte.
-
-**Search.** FTS5 with diacritic folding and prefix indexes returns candidates; Go re-ranks them by exact match, prefix match, clade size and how many common names a taxon has (a cheap fame signal), so "felidae" returns the family first, "human" finds *Homo sapiens*, and "onca" equals "onça". Two-character queries match whole words only, which keeps them under 2 ms.
-
-**On-demand species details from five services.** Clicking a species calls Wikidata (looked up by OTT id), Wikipedia, Wikimedia Commons, GBIF and iNaturalist in two parallel stages with per-call timeouts. The result is one cached JSON document per node in `cache.db`: 30 days when complete, 1 day when partial. The server is a good citizen: a semaphore per host family, a token bucket for Wikimedia (4 requests/s, bursts of 8) that shuts for the `Retry-After` after a 429, one shared fetch per node however many clients ask, and a 500 ms settle delay in the client so arrow-key walks cost nothing upstream. Every source is credited in the card.
-
-**Labels that fit.** Up to 300 labels per frame on a Canvas2D overlay, placed greedily by priority with screen-box collision tests and hysteresis, so labels neither flicker nor pop. Clade names go on their own arc when the arc can hold the text, otherwise on bracket bars outside the rim, as in printed phylogenies. Tip names fade into greeked bars when they are too small to read. The card's leader line routes round the column of names so it never hides one, and where a hairline does cross text it is cut around each glyph.
-
-**One static binary.** The server is Go with the standard library plus one dependency, `modernc.org/sqlite`, a pure-Go SQLite with FTS5. `CGO_ENABLED=0` gives a static binary, and the Docker image is distroless with no shell: about 7 MB compressed. Tile URLs carry the data version, so tiles and hashed assets are served `immutable` with a one-year max-age and re-ingesting invalidates them automatically. JSON and text are gzipped by a small hand-written middleware; tiles are stored pre-gzipped and sent as is.
-
-**Small frontend, no framework.** TypeScript in strict mode, plain DOM helpers, no UI or CSS framework and no d3. All the JavaScript, renderer and shaders included, is one 71 KB gzipped file (plus 9 KB of CSS); the debug HUD loads only with `?debug`. Fonts are self-hosted.
-
-**Motion and accessibility.** Fly-to uses van Wijk and Nuij's smooth zoom-and-pan path: far targets zoom out, glide round, and dive back in. `prefers-reduced-motion` replaces flights with cuts and turns off the ambient spin and idle tour. Search is a WAI-ARIA combobox, the card uses the ARIA tabs pattern, the zoom strip is a keyboard slider, selections are announced in words through a live region, and the canvas has a live text description.
-
-**Testing.** 135 Go test functions and 317 Vitest tests run in `make check`. Upstream services are mocked with `httptest` and fixtures captured from the live APIs, so no test touches the network. The server's JSON is pinned byte for byte with snapshots. Playwright adds:
-- a smoke test of the real app (search, selection, zoom, rotation, free view, deep links, old link formats, the fallback page);
-- a screenshot harness for visual QA that can diff every view pixel by pixel against an earlier set of shots, and records frame times and the precision test's result.
-
-**A port with byte-level continuity.** The server was first written in Rust, then ported to Go. The golden tile fixture from the Rust test suite is unchanged, and the Go encoder reproduces it byte for byte.
+- **2.39M tips at interactive frame rates.** Level-of-detail angular tiles (14,973 tiles, 48 MB gzipped): the client loads only what is in view and fades levels in. 1.3–7.8 ms per frame on an integrated GPU.
+- **Custom binary tile format.** 4-byte-aligned struct-of-arrays, uploaded to WebGL2 without copies; u32 fixed-point angles. A golden tile is checked byte for byte in Go and TypeScript ([spec](docs/tile-format.md)).
+- **Raw WebGL2 and a pure frame plan.** Instanced draws straight from the tile buffers. What to draw is a pure, unit-tested function, so the renderer only issues GL calls.
+- **Stable at extreme zoom.** Camera-relative maths in doubles, a hi/lo float split and a cancellation-free formula keep jitter under 0.22 px when the rim is 115 million px around.
+- **50-second ingest.** Newick tree, OTT taxonomy and GBIF names into one 650 MB SQLite file with an FTS5 index of 2.85M names. Arena tree, deterministic output.
+- **Search that ranks well.** "human" finds *Homo sapiens*, "onca" equals "onça", "felidae" puts the family first.
+- **Polite enrichment.** Five upstream APIs fetched on demand, cached per node, rate-limited per host, one shared fetch however many clients ask.
+- **One static binary.** Go standard library plus a pure-Go SQLite. Distroless image of about 7 MB; versioned tile URLs cached `immutable`.
+- **Small frontend.** Strict TypeScript, no framework: one 71 KB gzipped bundle. Accessible: ARIA combobox and tabs, live announcements, reduced motion.
+- **Tested.** Go tests, 300+ Vitest tests, a Playwright smoke test of the real app and a pixel-diff screenshot harness. Originally written in Rust, then ported to Go with byte-identical tiles.
 
 ## Stack
 
