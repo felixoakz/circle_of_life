@@ -438,7 +438,9 @@ async function cardTabChecks(browser: Browser): Promise<void> {
       };
     });
     assert.equal(aria.lists, 1, 'one tablist');
-    assert.deepEqual(aria.names, ['Overview', 'Range', 'Tree'], 'a species with a range has three tabs');
+    // Overview first, Links last; Image when there is a picture, Range when there is a map.
+    assert.ok(aria.names[0] === 'Overview' && aria.names.at(-1) === 'Links', `tab order ${aria.names.join(', ')}`);
+    assert.ok(aria.names.includes('Range') && aria.names.includes('Tree'), 'a species with a range has Range and Tree');
     assert.equal(aria.roving, 1, 'one tab in the Tab order');
     assert.ok(aria.panels, 'each tab controls a tabpanel');
     assert.deepEqual(aria.selected, ['Overview'], 'Overview first');
@@ -448,13 +450,13 @@ async function cardTabChecks(browser: Browser): Promise<void> {
     const at = async (): Promise<string | null> =>
       page.evaluate(() => (document.activeElement?.getAttribute('aria-selected') === 'true' ? document.activeElement.textContent : null));
     await page.keyboard.press('ArrowRight');
-    assert.equal(await at(), 'Range', '→ moves to and selects the next tab');
+    assert.equal(await at(), aria.names[1], '→ moves to and selects the next tab');
     await page.keyboard.press('End');
-    assert.equal(await at(), 'Tree', 'End: the last tab');
+    assert.equal(await at(), 'Links', 'End: the last tab');
     await page.keyboard.press('Home');
     assert.equal(await at(), 'Overview', 'Home: the first tab');
     await page.keyboard.press('ArrowLeft');
-    assert.equal(await at(), 'Tree', '← wraps round');
+    assert.equal(await at(), 'Links', '← wraps round');
     assert.equal(await page.evaluate(() => location.search), before, 'tab keys leave the selection alone');
     // The picked tab is kept for the next selection that has it.
     await page.click('#panel-tab-range');
