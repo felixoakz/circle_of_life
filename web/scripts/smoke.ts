@@ -373,7 +373,7 @@ async function chromeChecks(page: Page): Promise<void> {
   assert.ok(order.card >= 0 && order.card < order.crumb, 'the card comes before the breadcrumb in Tab order');
 
   // The card's "i" opens Data & credits; Esc closes it.
-  await page.click('.panel-info');
+  await page.click('.info-button');
   await page.waitForSelector('dialog.credits[open]');
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.querySelector('dialog.credits[open]'));
@@ -514,13 +514,14 @@ async function cardTabChecks(browser: Browser): Promise<void> {
         }
       }
       if (w < 720) {
-        // Phone: the search bar fills the top row.
+        // Phone: the "i" at the left, the search bar filling the rest of the top row.
         const row = await p.evaluate(() => {
           const t = document.querySelector('.search-trigger')?.getBoundingClientRect();
+          const i = document.querySelector('.info-button')?.getBoundingClientRect();
           const c = document.querySelector('#panel')?.getBoundingClientRect();
-          return t && c ? { h: t.height, left: t.left, right: innerWidth - t.right, above: c.top - t.bottom } : null;
+          return t && i && c ? { h: t.height, info: i.left, gap: t.left - i.right, right: innerWidth - t.right, above: c.top - t.bottom } : null;
         });
-        assert.ok(row && row.h >= 38 && row.left <= 20 && row.right <= 20 && row.above >= 4, `phone search bar ${JSON.stringify(row)}`);
+        assert.ok(row && row.h >= 38 && row.info <= 20 && row.gap <= 12 && row.right <= 20 && row.above >= 4, `phone search bar ${JSON.stringify(row)}`);
       }
     } finally {
       await p.close();

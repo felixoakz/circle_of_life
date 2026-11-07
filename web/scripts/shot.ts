@@ -144,9 +144,9 @@ function showTab(tab: 'overview' | 'range' | 'tree'): (page: Page) => Promise<vo
   };
 }
 
-/** Opens Data & credits from the card's "i" button. */
+/** Opens Data & credits from the "i" button. */
 async function openCredits(page: Page): Promise<void> {
-  await page.click('.panel-info');
+  await page.click('.info-button');
   await page.waitForTimeout(300);
 }
 
