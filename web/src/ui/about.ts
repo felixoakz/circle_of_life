@@ -153,6 +153,8 @@ export interface AboutHooks {
   credits: () => void;
   /** The map's tiles have all loaded or failed. */
   settled: () => void;
+  /** Shows the Image tab (the Overview thumbnail's click). */
+  showImage?: () => void;
 }
 
 /** The pieces of the about view, placed by the panel's tabs (ui/panel.ts). */
@@ -171,11 +173,8 @@ export interface AboutView {
   credits: Child[][];
   /** Whether a map is loading (the panel stays busy until `settled`). */
   map: boolean;
-  /**
-   * Phone only: the image, square, for the card's head (beside the name), or
-   * null. Its credit line is then in the Overview text instead.
-   */
-  headImage: HTMLElement | null;
+  /** The Image tab: the picture large and whole with its credit, or null without an image. */
+  image: HTMLElement | null;
 }
 
 /** Room under the map for the records, countries and credit lines, CSS px. */
@@ -212,7 +211,7 @@ export function aboutView(
   const section: HTMLElement[] = [];
   const text: HTMLElement[] = [];
   let figure: HTMLElement | null = null;
-  let imageCredit: HTMLElement | null = null;
+  let gallery: HTMLElement | null = null;
   const credits: Child[][] = [];
   const failed = new Set(doc.failed);
   const notes: HTMLElement[] = [];
@@ -230,41 +229,55 @@ export function aboutView(
   const img = doc.image;
   const imageFailed = doc.failed.filter((f) => IMAGE_SOURCES.has(f));
   if (img) {
-    figure = el('figure', 'about-figure');
-    const fig = figure;
-    if (img.about && !compact) figure.append(el('p', 'about-label', ['Image of ', ...aboutName(img.about), ':']));
     // Commons renders SVG diagrams (Human.svg) as PNGs with transparent
     // backgrounds: dark line art that would vanish on black. They go on a
     // light plate, whole (contain), like a herbarium sheet.
     const plate = /\.svg\.png$/i.test(img.url);
-    const pic = el('img', plate ? 'about-image about-plate' : 'about-image');
-    pic.src = img.url;
-    pic.alt = doc.summary?.description ?? `Image of ${node.name ?? 'this taxon'}`;
-    pic.decoding = 'async';
-    pic.loading = 'eager';
-    if (img.width && img.height) {
-      pic.width = img.width;
-      pic.height = img.height;
-    }
-    // A broken image link leaves only the credit; better nothing at all.
-    pic.addEventListener('error', () => {
-      fig.remove();
-      imageCredit?.remove();
-    }, { once: true });
     // "Image", not "Photo": Commons files are often drawings or plates.
-    const licence = img.licenseUrl ? link(img.licenseUrl, img.license) : img.license;
-    if (compact) {
-      // A phone's tab is too short for an image beside the text: it goes to
-      // the head as a square (panel.ts), and its credit is one line of the text.
-      imageCredit = el('p', 'about-source about-image-source', ['Image: ', licence, ' · ', link(img.pageUrl, img.credit || img.source)]);
-      figure.append(pic);
-    } else {
+    const creditLine = (): HTMLElement => {
       const credit = el('figcaption', 'about-credit', ['Image: ']);
+      const licence = img.licenseUrl ? link(img.licenseUrl, img.license) : img.license;
       if (img.credit) credit.append(link(img.pageUrl, img.credit), ' · ');
       credit.append(licence, ' · ');
       credit.append(img.credit ? img.source : link(img.pageUrl, img.source));
-      figure.append(pic, credit);
+      return credit;
+    };
+    const picture = (className: string): HTMLImageElement => {
+      const pic = el('img', `${className}${plate ? ' about-plate' : ''}`);
+      pic.src = img.url;
+      pic.alt = doc.summary?.description ?? `Image of ${node.name ?? 'this taxon'}`;
+      pic.decoding = 'async';
+      pic.loading = 'eager';
+      if (img.width && img.height) {
+        pic.width = img.width;
+        pic.height = img.height;
+      }
+      return pic;
+    };
+    // The Image tab: the picture as large as the tab allows, whole, with its full credit.
+    const big = el('figure', 'about-gallery');
+    if (img.about) big.append(el('p', 'about-label', ['Image of ', ...aboutName(img.about), ':']));
+    const bigPic = picture('about-gallery-image');
+    big.append(bigPic, creditLine());
+    gallery = big;
+    // Desktop Overview: a thumbnail beside the text that opens the Image tab.
+    // A phone's Overview is text only (its tab area is too short for both).
+    if (!compact) {
+      figure = el('figure', 'about-figure');
+      const fig = figure;
+      const thumb = el('button', 'about-thumb');
+      thumb.type = 'button';
+      thumb.title = 'Show the image';
+      thumb.setAttribute('aria-label', 'Show the image');
+      const pic = picture('about-image');
+      thumb.append(pic);
+      thumb.addEventListener('click', () => hooks.showImage?.());
+      if (img.about) figure.append(el('p', 'about-label', ['Image of ', ...aboutName(img.about), ':']));
+      figure.append(thumb, creditLine());
+      // A broken image link leaves only the credit; better nothing at all.
+      pic.addEventListener('error', () => fig.remove(), { once: true });
     }
+    bigPic.addEventListener('error', () => big.replaceChildren(), { once: true });
     credits.push([`Image: ${img.credit ? `${img.credit}, ` : ''}${img.license} via ${img.source}`]);
   } else if (imageFailed.length > 0) {
     text.push(notice(imageFailed, hooks.retry));
@@ -370,15 +383,10 @@ export function aboutView(
   const rest = doc.failed.filter((f) => !placed.has(f));
   if (rest.length > 0) text.push(notice(rest, hooks.retry));
   text.push(...notes);
-  // A phone's image credit follows the article's source line.
-  if (imageCredit) {
-    const at = text.findIndex((t) => t.classList.contains('about-source'));
-    text.splice(at < 0 ? text.length : at + 1, 0, imageCredit);
-  }
-  // Overview: the text column, and the image beside it (no image, or a
-  // phone's image in the head: the text takes the width).
+  // Overview: the text column, and on desktop the image beside it (no
+  // image, or a phone: the text takes the width).
   const column = el('div', 'ov-text', text);
-  const beside = figure && !compact ? figure : null;
+  const beside = figure;
   const overview = [el('div', beside ? 'ov' : 'ov ov-solo', beside ? [column, beside] : [column])];
 
   // Links out (the facts list's "Links" row).
@@ -404,7 +412,7 @@ export function aboutView(
     links: links.childNodes.length > 0 ? links : null,
     credits,
     map,
-    headImage: compact ? figure : null,
+    image: gallery,
   };
 }
 

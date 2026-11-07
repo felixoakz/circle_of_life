@@ -1324,37 +1324,65 @@ button {
 }
 
 /*
- * Phone: the image is a square in the head, beside the name and its lines
- * (the tab area is too short for one beside the text); its credit is a line
- * of the Overview text, cut with an ellipsis.
+ * The Image tab: the picture as large as the tab, whole (contain) on a faint
+ * plate, its credit under it. The Overview thumbnail (desktop) opens it.
  */
-.panel.compact .panel-head.has-image {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 12px;
-}
-
-.panel.compact .panel-head.has-image > * {
-  grid-column: 1;
-}
-
-.panel.compact .panel-head.has-image > .panel-head-image {
-  grid-column: 2;
-  grid-row: 1 / span 4;
-  align-self: start;
+.about-gallery {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   margin: 0;
 }
 
-.panel.compact .panel-head-image .about-image {
-  width: 76px;
-  height: 76px;
-  aspect-ratio: 1;
+.about-gallery .about-label {
+  flex: none;
 }
 
-.panel.compact .about-image-source {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.about-gallery-image {
+  display: block;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-media);
+  background: oklch(0 0 0 / 0.25);
+}
+
+.about-gallery-image.about-plate {
+  background: var(--text-1);
+}
+
+.panel-ids {
+  margin-top: 12px;
+}
+
+.about-gallery .about-credit {
+  flex: none;
+  margin-top: 8px;
+}
+
+/* Tall (a phone, Image open): over the zoom strip it now covers (under the search palette). */
+.panel.tall {
+  z-index: 1;
+}
+
+/* Phone: the card grows for Image (ui/panel.ts); a smooth step. */
+.panel.compact {
+  transition:
+    opacity 200ms var(--ease-out),
+    height 200ms var(--ease-out);
+}
+
+.about-thumb {
+  display: block;
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-media);
+  background: none;
+  cursor: zoom-in;
 }
 
 .panel.compact .panel-context,
@@ -1830,6 +1858,12 @@ button {
   margin-top: 6px;
   font-size: var(--fs-15);
   line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.credits-by {
+  margin-top: 10px;
+  font-size: var(--fs-13);
   color: var(--text-2);
 }
 

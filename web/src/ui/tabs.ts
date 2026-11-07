@@ -1,4 +1,4 @@
-// The card's tabs (DESIGN.md §4.2): Overview, Range and Tree, under the
+// The card's tabs (DESIGN.md §4.2): Overview, Image, Range, Tree and Links, under the
 // card's head. The WAI-ARIA tabs pattern: a `tablist` of `tab` buttons, each
 // controlling a `tabpanel`; one tab is in the Tab order at a time (roving
 // tabindex), ←/→ move between the shown tabs and activate them, Home and
@@ -7,15 +7,17 @@
 // The panels share one area of fixed size (`body`): only the active one is
 // shown, and nothing in it scrolls (ui/fit.ts makes the content fit).
 
-export type TabId = 'overview' | 'range' | 'tree';
+export type TabId = 'overview' | 'image' | 'range' | 'tree' | 'links';
 
 const TAB_LABELS: Readonly<Record<TabId, string>> = {
   overview: 'Overview',
+  image: 'Image',
   range: 'Range',
   tree: 'Tree',
+  links: 'Links',
 };
 
-const ORDER: readonly TabId[] = ['overview', 'range', 'tree'];
+const ORDER: readonly TabId[] = ['overview', 'image', 'range', 'tree', 'links'];
 
 /** The tab a key moves to among the `shown` ones (wrapping), or null for other keys. */
 export function tabAfterKey(shown: readonly TabId[], current: TabId, key: string): TabId | null {
@@ -120,6 +122,11 @@ export class Tabs {
     // A single tab is no choice: the row goes, the panel stays.
     this.list.hidden = this.shownIds.length < 2;
     this.select(active && this.shownIds.includes(active) ? active : (this.shownIds[0] ?? null), false);
+  }
+
+  /** Selects tab `id` as if the visitor picked it (the Overview thumbnail opens Image). */
+  open(id: TabId): void {
+    if (this.shownIds.includes(id)) this.pick(id, false);
   }
 
   private pick(id: TabId, focus: boolean): void {

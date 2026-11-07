@@ -51,6 +51,9 @@ export function rankWord(rank: string | null): string | null {
   return rank && !rank.startsWith('no rank') ? rank : null;
 }
 
+/** A phone's card grows to this share of the window while Image is open. */
+const TALL_SHARE = 0.62;
+
 /** "i" in a circle, 1 px strokes on the 16 px grid the other icons use. */
 const INFO_ICON =
   '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
@@ -191,6 +194,7 @@ export class Panel {
   private retryAt = -Infinity;
   private slots: Slots | null = null;
   private compact = false;
+  private nominalH = 0;
 
   constructor(root: HTMLElement, obstacles: Obstacles, dataVersion: string, hooks: PanelHooks) {
     this.root = root;
@@ -203,7 +207,10 @@ export class Panel {
     this.body = el('div', { className: 'panel-body' });
     root.replaceChildren(this.progress, this.body);
     this.tabs.onPick = (id) => (this.preferred = id);
-    this.tabs.onShow = (id) => this.fit(id);
+    this.tabs.onShow = (id) => {
+      this.applyHeight();
+      this.fit(id);
+    };
     obstacles.set('panel', () => {
       const box = this.box();
       // Out to the top edge: no label squeezes into the header strip above the card.
@@ -230,10 +237,27 @@ export class Panel {
     st.left = `${box.x0}px`;
     st.top = `${box.y0}px`;
     st.width = `${box.x1 - box.x0}px`;
-    st.height = `${height}px`;
+    this.nominalH = height;
+    const changed = this.compact !== compact;
     this.compact = compact;
+    this.applyHeight();
     this.root.classList.toggle('compact', compact);
+    // Phone and desktop lay the Overview out differently (about.ts): rebuild it.
+    if (changed && this.shown && this.tabs.shown().includes('overview')) void this.loadAbout(this.shown, false);
     this.obstacles.changed();
+  }
+
+  /**
+   * The card's height: its fixed box, except on a phone while Image is open
+   * (a picture needs more than a phone's short tab area): then it grows to TALL_SHARE of the window, over the wheel, and back when
+   * another tab is picked.
+   */
+  private applyHeight(): void {
+    const tab = this.tabs.active();
+    const tall = this.compact && tab === 'image';
+    const h = tall ? Math.max(this.nominalH, Math.round(window.innerHeight * TALL_SHARE)) : this.nominalH;
+    this.root.style.height = `${h}px`;
+    this.root.classList.toggle('tall', tall);
   }
 
   /** The card's box on screen, CSS px, or null before it first shows. */
@@ -396,10 +420,21 @@ export class Panel {
     row('Counts', el('span', { className: 'tabular', text: countsLine(n) }), 'fact-counts');
     const kids = this.children(n);
     row(n.children.total === 1 ? 'Child' : 'Children', kids?.node ?? null, 'fact-children');
-    row('IDs', this.ids(n), 'fact-ids');
+    tree.replaceChildren(facts);
+    // Links: out to the sources (once /about is in), the ids, and the credits.
+    const links = this.tabs.panel('links');
+    const linkFacts = el('dl', { className: 'panel-facts' });
+    linkFacts.append(el('div', { className: 'fact fact-ids' }, [el('dt', { text: 'IDs' }), el('dd', {}, [this.ids(n)])]));
     const credit = el('p', { className: 'panel-credit' });
-    tree.replaceChildren(facts, credit);
-    this.slots = { head, facts, credit };
+    // The credits before the ids: on a phone's short tab the ids are cut first.
+    const idsRow = linkFacts.querySelector('.fact-ids');
+    links.replaceChildren(linkFacts, credit);
+    if (idsRow) links.append(el('dl', { className: 'panel-facts panel-ids' }, [idsRow]));
+    this.fitters.set('links', () => {
+      unfit(links);
+      clipBlocks(links);
+    });
+    this.slots = { head, facts: linkFacts, credit };
     this.fillCredit([]);
     this.fitters.set('tree', () => {
       unfit(tree);
@@ -407,28 +442,27 @@ export class Panel {
       const over = (): boolean => overflows(tree);
       // Children first (down to a few), then the credit line (the tabs
       // credit their own sources), then children down to one, links, ids.
-      kids?.fit(over, 4);
-      dropUntilFits(tree, [credit]);
-      if (credit.hidden) kids?.fit(over, 1);
-      dropUntilFits(tree, [facts.querySelector('.fact-links'), facts.querySelector('.fact-ids')]);
+      kids?.fit(over, 1);
       clipBlocks(facts, tree);
     });
 
     // Overview and Range wait for /about; unnamed (mrca) nodes have neither.
     const overview = this.tabs.panel('overview');
     const range = this.tabs.panel('range');
+    const image = this.tabs.panel('image');
     overview.replaceChildren();
     range.replaceChildren();
+    image.replaceChildren();
     this.fitters.delete('overview');
     this.fitters.delete('range');
     this.body.replaceChildren(head, this.tabs.list, this.tabs.body);
     if (!named) {
       this.aboutCtl?.abort();
-      this.setTabs(['tree']);
+      this.setTabs(['tree', 'links']);
       return;
     }
     overview.append(aboutLoading());
-    const ids: TabId[] = ['overview', 'tree'];
+    const ids: TabId[] = ['overview', 'tree', 'links'];
     if (rangeLikely(n)) {
       range.append(aboutLoading('Fetching from GBIF…'));
       ids.splice(1, 0, 'range');
@@ -498,6 +532,7 @@ export class Panel {
           retry: () => this.retryAbout(n),
           credits: () => this.hooks.credits(),
           settled: settle,
+          showImage: () => this.tabs.open('image'),
         },
         6,
         this.compact,
@@ -505,14 +540,8 @@ export class Panel {
       if (view.map) open++;
       overview.replaceChildren(...view.overview);
       range.replaceChildren(...(view.range ?? []));
+      this.tabs.panel('image').replaceChildren(...(view.image ? [view.image] : []));
       this.holdRetry(this.tabs.body);
-      // A phone's image sits in the head, beside the name (about.ts).
-      for (const old of slots.head.querySelectorAll('.panel-head-image')) old.remove();
-      slots.head.classList.toggle('has-image', view.headImage !== null);
-      if (view.headImage) {
-        view.headImage.classList.add('panel-head-image');
-        slots.head.append(view.headImage);
-      }
       const lead = slots.head.querySelector('.panel-lead');
       if (lead && view.common) lead.textContent = view.common;
       const meta = slots.head.querySelector('.panel-meta');
@@ -523,17 +552,16 @@ export class Panel {
       }
       for (const old of slots.facts.querySelectorAll('.fact-links')) old.remove();
       if (view.links) {
-        const ids = slots.facts.querySelector('.fact-ids');
-        const r = el('div', { className: 'fact fact-links' }, [el('dt', { text: 'Links' }), el('dd', {}, [view.links])]);
-        if (ids) ids.before(r);
-        else slots.facts.append(r);
+        const r = el('div', { className: 'fact fact-links' }, [el('dt', { text: 'Sources' }), el('dd', {}, [view.links])]);
+        slots.facts.prepend(r);
       }
       this.fillCredit(view.credits);
       this.fitters.set('overview', () => {
         const col = overview.querySelector<HTMLElement>('.ov-text');
         if (!col) return;
         unfit(col);
-        fitExtracts(col, col, this.compact ? 4 : 6, 2);
+        // A phone's Overview is text only, so it keeps more of the article.
+        fitExtracts(col, col, this.compact ? 9 : 6, 2);
         dropUntilFits(col, [col.querySelector('.about-note')]);
         if (overflows(col)) fitExtracts(col, col, 1, 1);
         clipBlocks(col);
@@ -544,14 +572,18 @@ export class Panel {
         if (lines) clipBlocks(lines, range);
         clipBlocks(range);
       });
-      const img = overview.querySelector<HTMLImageElement>('.about-image');
+      const img = overview.querySelector<HTMLImageElement>('.about-image') ?? this.tabs.panel('image').querySelector<HTMLImageElement>('img');
       if (img && !img.complete) {
         open++;
         img.addEventListener('load', settle, { once: true });
         img.addEventListener('error', settle, { once: true });
         img.addEventListener('load', () => this.fit('overview'), { once: true });
       }
-      this.setTabs(view.range ? ['overview', 'range', 'tree'] : ['overview', 'tree']);
+      const shown: TabId[] = ['overview'];
+      if (view.image) shown.push('image');
+      if (view.range) shown.push('range');
+      shown.push('tree', 'links');
+      this.setTabs(shown);
       this.obstacles.changed();
     } catch (err) {
       if (ctl.signal.aborted || this.shown !== n) return;
