@@ -141,7 +141,7 @@ Useful URL flags: `?n=ott770315` selects a node, `?debug` shows frame times, `?d
 | `/` or Ctrl+K | search | search (choosing a result flies back to the locked view) |
 | `Esc` | close search or dialogs | fly back to the locked view |
 
-Data & credits opens from the "i" on the card. There are no other shortcuts or settings to learn.
+Data & credits opens from the "i" next to the search bar. There are no other shortcuts or settings to learn.
 
 ### Settings
 
