@@ -27,6 +27,13 @@ function link(href: string, text: string): HTMLAnchorElement {
   return a;
 }
 
+/** A mailto link (the author's contact; the upstream User-Agent contact is SPECIES_CONTACT). */
+function mail(address: string): HTMLAnchorElement {
+  const a = el('a', '', [address]);
+  a.href = `mailto:${address}`;
+  return a;
+}
+
 function doi(id: string): HTMLAnchorElement {
   return link(`https://doi.org/${id}`, `doi:${id}`);
 }
@@ -65,6 +72,14 @@ export class Credits {
         el('div', 'credits-titles', [
           el('h2', 'credits-title', ['Data & credits']),
           el('p', 'credits-sub', ['Where every branch, name, photo and map on the wheel comes from.']),
+          el('p', 'credits-by', [
+            'Made by Felix · ',
+            mail('felix@oakz.org'),
+            ' · ',
+            link('https://www.linkedin.com/in/felixoakz/', 'LinkedIn'),
+            ' · ',
+            link('https://github.com/felixoakz/circle_of_life', 'Source on GitHub'),
+          ]),
         ]),
         close,
       ]),
