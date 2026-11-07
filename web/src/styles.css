@@ -828,26 +828,6 @@ button {
   color: var(--text-1);
 }
 
-/* Data & credits: an "i" at the head's right, like the copy button (text-3, 24 px target). */
-.panel-info {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  color: var(--text-3);
-  cursor: pointer;
-}
-
-.panel-info:hover {
-  color: var(--text-1);
-}
-
 /* ---- About section (ui/about.ts; DESIGN.md §4.2, §7) ---- */
 
 /* Truthful loading, inside the tab that waits: what is being asked. */
@@ -1401,8 +1381,28 @@ button {
 .search-slot {
   width: var(--search-w, auto);
   margin-top: -4px;
-  /* The only visible thing in the top row (the name is a hidden heading): to the right, over the card. */
-  margin-left: auto;
+}
+
+/*
+ * Data & credits (ui/credits.ts `mountInfoButton`): a 40 px glass square
+ * before the search bar, the two pushed right together, over the card.
+ */
+.info-button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  /* 8 px from the search bar: the row's 16 px gap, less 8. */
+  margin: -4px -8px 0 auto;
+  padding: 0;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.info-button svg {
+  width: 20px;
+  height: 20px;
 }
 
 .search-trigger {
@@ -1982,7 +1982,8 @@ button {
 .credits,
 .tooltip,
 .zoom-reset,
-.zoom-free {
+.zoom-free,
+.info-button {
   border: 1px solid var(--glass-edge);
   background: var(--glass-fill);
   box-shadow: var(--glass-highlight);
@@ -2008,7 +2009,8 @@ button {
 /* Small boxes need less blur to read as glass. */
 .tooltip,
 .zoom-reset,
-.zoom-free {
+.zoom-free,
+.info-button {
   -webkit-backdrop-filter: var(--glass-filter-small);
   backdrop-filter: var(--glass-filter-small);
 }
@@ -2027,6 +2029,11 @@ button {
 .zoom-reset,
 .zoom-free {
   border-radius: var(--radius-s);
+}
+
+/* The "i" matches the search bar it sits beside: 40 px tall, the same radius. */
+.info-button {
+  border-radius: var(--radius-m);
 }
 
 .search-trigger {
@@ -2048,7 +2055,8 @@ button {
 }
 
 .zoom-reset:hover,
-.zoom-free:hover {
+.zoom-free:hover,
+.info-button:hover {
   border-color: var(--glass-edge-strong);
   background: var(--glass-fill-dense);
 }

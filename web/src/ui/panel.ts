@@ -19,7 +19,6 @@
 // The card is an obstacle (ui/obstacles.ts): labels keep clear of it. It
 // is opaque, so the tree is not darkened behind it.
 
-import { track } from '../analytics';
 import type { Box } from '../labelLayout';
 import { type NameRun, isPlaceholderName, nameRuns, nameSpans } from '../names';
 import type { About, ChildEntry, LineageEntry, NodeInfo } from '../types';
@@ -53,13 +52,6 @@ export function rankWord(rank: string | null): string | null {
 
 /** A phone's card grows to this share of the window while Image is open. */
 const TALL_SHARE = 0.62;
-
-/** "i" in a circle, 1 px strokes on the 16 px grid the other icons use. */
-const INFO_ICON =
-  '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
-  '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1"/>' +
-  '<path d="M8 7v4.5" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
-  '<circle cx="8" cy="4.9" r="0.75" fill="currentColor"/></svg>';
 
 /** The root ("cellular organisms") reads as Life, as in the breadcrumb. */
 function displayName(e: { id: number; name: string | null }): string | null {
@@ -328,15 +320,7 @@ export class Panel {
   private header(title: HTMLElement): HTMLElement {
     title.id = 'panel-title';
     title.tabIndex = -1;
-    // Data & credits, at the head's right on every card: the only menu there is.
-    const info = el('button', { className: 'panel-info', title: 'Data & credits', label: 'Data & credits' });
-    info.type = 'button';
-    info.innerHTML = INFO_ICON;
-    info.addEventListener('click', () => {
-      track('credits');
-      this.hooks.credits();
-    });
-    return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title, info])]);
+    return el('header', { className: 'panel-head' }, [el('div', { className: 'panel-title-row' }, [title])]);
   }
 
   /** Fits tab `id`'s content to the tab area, if it is the one on show. */

@@ -1,11 +1,12 @@
 // "Data & credits" (DESIGN.md §7, docs/data-sources.md §3): every source,
-// licence and citation in one dialog, opened from the card's "i" button
+// licence and citation in one dialog, opened from the "i" button before the search bar
 // (DESIGN.md §4.1) and from the panel footer.
 //
 // A native <dialog> opened with showModal(): it traps focus, closes on Esc,
 // and gives focus back to whatever opened it. Opaque surface, hairline
 // border, no blur; the backdrop is a flat dim.
 
+import { track } from '../analytics';
 import type { Meta } from '../types';
 
 const nf = new Intl.NumberFormat('en');
@@ -170,4 +171,29 @@ export class Credits {
   isOpen(): boolean {
     return this.dialog.open;
   }
+}
+
+/** "i" in a circle, 1 px strokes on the 16 px grid the other icons use. */
+const INFO_ICON =
+  '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+  '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1"/>' +
+  '<path d="M8 7v4.5" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
+  '<circle cx="8" cy="4.9" r="0.75" fill="currentColor"/></svg>';
+
+/**
+ * The "i" button (DESIGN.md §4.1): a 40 px glass square in the top row,
+ * just before the search bar, that opens Data & credits.
+ */
+export function mountInfoButton(before: HTMLElement, credits: Credits): HTMLButtonElement {
+  const b = el('button', 'info-button');
+  b.type = 'button';
+  b.title = 'Data & credits';
+  b.setAttribute('aria-label', 'Data & credits');
+  b.innerHTML = INFO_ICON;
+  b.addEventListener('click', () => {
+    track('credits');
+    credits.open();
+  });
+  before.before(b);
+  return b;
 }

@@ -39,7 +39,7 @@ import { Hover, pickAt } from './hover';
 import { NodeStore } from './nodes';
 import { TileIndex } from './picking';
 import { Selection, atRim, suitPose } from './selection';
-import { Credits } from './ui/credits';
+import { Credits, mountInfoButton } from './ui/credits';
 import { Hud } from './ui/hud';
 import { ZoomStrip } from './ui/zoomstrip';
 import { FreeButton } from './ui/freebutton';
@@ -154,8 +154,9 @@ async function main(): Promise<void> {
   // Hover (mouse only) and selection: click or tap selects and turns it onto the anchor.
   const index = new TileIndex();
   const hover = new Hover(scene, meta, store, index, treeCanvas);
-  // Data & credits: from the card's "i" button and its footer.
+  // Data & credits: from the "i" button before the search bar, and the card's Links tab.
   const credits = new Credits(meta);
+  mountInfoButton(byId('search-slot', HTMLElement), credits);
   const selection = new Selection(
     scene,
     meta,

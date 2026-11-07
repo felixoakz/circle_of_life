@@ -8,7 +8,7 @@ import { FLAG_HOME } from './tiles/decode';
 import { cardHeight, layoutFor } from './layout';
 import { NodeStore } from './nodes';
 import type { Meta } from './types';
-import { Credits } from './ui/credits';
+import { Credits, mountInfoButton } from './ui/credits';
 import { Obstacles } from './ui/obstacles';
 import { Panel } from './ui/panel';
 import { SearchPalette } from './ui/search';
@@ -39,6 +39,7 @@ export function mountFallback(meta: Meta): void {
   const obstacles = new Obstacles();
   const store = new NodeStore();
   const credits = new Credits(meta);
+  mountInfoButton(byId('search-slot'), credits);
   const show = async (ref: number | string): Promise<void> => {
     panel.loading(true);
     try {
