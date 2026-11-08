@@ -73,12 +73,8 @@ export class Credits {
         el('div', 'credits-titles', [
           el('h2', 'credits-title', ['Data & credits']),
           el('p', 'credits-sub', ['Where every branch, name, photo and map on the wheel comes from.']),
-          el('p', 'credits-by', [
-            'Made by Felix · ',
-            mail('felix@oakz.org'),
-            ' · ',
-            link('https://github.com/felixoakz/circle_of_life', 'Source on GitHub'),
-          ]),
+          el('p', 'credits-by', ['Made by Felix · ', mail('felix@oakz.org')]),
+          el('p', 'credits-by credits-source', [link('https://github.com/felixoakz/circle_of_life', 'Source on GitHub')]),
         ]),
         close,
       ]),
