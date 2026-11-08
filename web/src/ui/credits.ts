@@ -77,8 +77,6 @@ export class Credits {
             'Made by Felix · ',
             mail('felix@oakz.org'),
             ' · ',
-            link('https://www.linkedin.com/in/felixoakz/', 'LinkedIn'),
-            ' · ',
             link('https://github.com/felixoakz/circle_of_life', 'Source on GitHub'),
           ]),
         ]),
